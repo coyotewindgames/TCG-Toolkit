@@ -43,12 +43,15 @@ export class TradeinsService {
     private readonly inventory: InventoryService,
   ) {}
 
-  async suggestUnitValueCents(args: {
-    skuId: string;
-    condition: CardCondition;
-    payout: PayoutKind;
-  }): Promise<number> {
-    const [price] = await this.db
+  async suggestUnitValueCents(
+    args: {
+      skuId: string;
+      condition: CardCondition;
+      payout: PayoutKind;
+    },
+    db: Database = this.db,
+  ): Promise<number> {
+    const [price] = await db
       .select()
       .from(schema.currentPrices)
       .where(eq(schema.currentPrices.skuId, args.skuId));
@@ -72,6 +75,7 @@ export class TradeinsService {
         .from(schema.tradeIns)
         .where(
           and(
+            eq(schema.tradeIns.storeId, storeId),
             eq(schema.tradeIns.customerId, body.customerId),
             gte(schema.tradeIns.createdAt, sevenDaysAgo),
           ),
@@ -89,11 +93,14 @@ export class TradeinsService {
         const skuId = item.skuId ?? (await this.upsertSku(tx, storeId, item));
         const unit =
           item.overrideValueCents ??
-          (await this.suggestUnitValueCents({
-            skuId,
-            condition: item.condition,
-            payout: body.payout,
-          }));
+          (await this.suggestUnitValueCents(
+            {
+              skuId,
+              condition: item.condition,
+              payout: body.payout,
+            },
+            tx,
+          ));
         total += unit * item.quantity;
         lineRows.push({ skuId, qty: item.quantity, unitValueCents: unit });
       }

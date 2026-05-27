@@ -54,10 +54,10 @@ Client → server:
 
 | Queue                  | Trigger                       | Purpose |
 |------------------------|-------------------------------|---------|
-| `price-refresh`        | hourly + on-demand            | TCGapi.dev price refresh for in-stock SKUs |
-| `tcgapi-catalog-sync`  | nightly cron (07:00 UTC)      | TCGapi.dev catalog walk |
-| `image-mirror`         | after catalog/price upserts   | mirror TCGapi.dev images into R2 (stubbed) |
-| `webhook-retry`        | on webhook processing failure | re-process inbound webhooks |
+| `price.refresh`       | hourly + on-demand            | TCGapi.dev price refresh for in-stock SKUs |
+| `catalog.sync`        | nightly cron (07:00 UTC)      | TCGapi.dev catalog walk |
+| `image.mirror`        | after catalog/price upserts   | mirror TCGapi.dev images into R2 (stubbed) |
+| `webhook.retry`       | on webhook processing failure | re-process inbound webhooks |
 
 ## Inbound webhooks
 

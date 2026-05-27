@@ -16,18 +16,19 @@ export function useBarcodeScanner(onScan: (code: string) => void, opts?: { minLe
       const now = Date.now();
       const delta = now - lastTsRef.current;
       if (delta > 500) bufferRef.current = '';
-      lastTsRef.current = now;
       if (e.key === 'Enter') {
         const code = bufferRef.current.trim();
         bufferRef.current = '';
+        lastTsRef.current = now;
         if (code.length >= min) onScan(code);
         return;
       }
-      if (e.key.length === 1 && delta <= gap + 500) {
+      if (e.key.length === 1 && delta <= gap) {
         bufferRef.current += e.key;
       } else if (e.key.length === 1) {
         bufferRef.current = e.key;
       }
+      lastTsRef.current = now;
     }
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);

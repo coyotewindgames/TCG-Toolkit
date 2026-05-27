@@ -102,12 +102,14 @@ Drizzle migrations should run on deploy via a Render *pre-deploy* command
 Key flows:
 - **Scan → Cart:** `POST /api/scans` resolves a barcode to a SKU (via TCGapi.dev),
   reserves stock, and emits `cart.itemAdded` over WS.
-- **Checkout:** `POST /api/checkout/:orderId` starts a Clover terminal payment
+- **Checkout:** `POST /api/orders/:id/checkout` starts a Clover terminal payment
   through the `PosProvider` adapter. Clover's payment/order webhook decrements
   `qty_on_hand` and emits `order.completed`.
-- **Trade-In:** `POST /api/tradeins/quote` returns a tiered valuation
-  (`tcgapi_market * tier_multiplier` in MVP); `POST /api/tradeins`
-  finalizes the trade, mints barcodes for received cards, and credits the customer.
+- **Trade-In:** `POST /api/tradeins` accepts a `CreateTradeRequest` (location,
+  payout kind, items with condition/printing/language/quantity), suggests a
+  tiered valuation server-side (`tcgapi_market * tier_multiplier` in MVP),
+  finalizes the trade, mints barcodes for received cards, and credits the
+  customer.
 
 ## Security highlights
 

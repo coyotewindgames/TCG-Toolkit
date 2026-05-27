@@ -12,42 +12,10 @@ services:
     healthCheckPath: /healthz
     autoDeploy: true
     envVars:
-      - key: NODE_ENV
-        value: production
+      - fromGroup: tcg-shared-env
       - key: PORT
         value: 10000
-      - key: DATABASE_URL
-        fromDatabase:
-          name: tcg-postgres
-          property: connectionString
-      - key: REDIS_URL
-        fromService:
-          type: keyvalue
-          name: tcg-redis
-          property: connectionString
       - key: CORS_ORIGIN
-        sync: false
-      - key: JWT_SECRET
-        generateValue: true
-      - key: TCGAPI_BASE_URL
-        value: https://api.tcgapi.dev
-      - key: TCGAPI_KEY
-        sync: false
-      - key: CLOVER_BASE_URL
-        sync: false
-      - key: CLOVER_ACCESS_TOKEN
-        sync: false
-      - key: CLOVER_MERCHANT_ID
-        sync: false
-      - key: CLOVER_WEBHOOK_SIGNING_SECRET
-        sync: false
-      - key: R2_BUCKET
-        sync: false
-      - key: R2_ACCOUNT_ID
-        sync: false
-      - key: R2_ACCESS_KEY_ID
-        sync: false
-      - key: R2_SECRET_ACCESS_KEY
         sync: false
       - key: SENTRY_DSN
         sync: false
@@ -120,7 +88,7 @@ envVarGroups:
           name: tcg-redis
           property: connectionString
       - key: JWT_SECRET
-        sync: false
+        generateValue: true
       - key: TCGAPI_BASE_URL
         value: https://api.tcgapi.dev
       - key: TCGAPI_KEY

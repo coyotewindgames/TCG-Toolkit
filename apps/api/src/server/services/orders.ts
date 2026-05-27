@@ -138,9 +138,12 @@ export class OrdersService {
       (s, l) => s + l.unitPriceCents * l.quantity - l.discountCents,
       0,
     );
+    // Tax calculation is not implemented in MVP; persist 0 explicitly so the
+    // total always reflects subtotal + tax instead of relying on a stale value.
+    const taxCents = 0;
     await this.db
       .update(schema.orders)
-      .set({ subtotalCents: subtotal, totalCents: subtotal })
+      .set({ subtotalCents: subtotal, taxCents, totalCents: subtotal + taxCents })
       .where(eq(schema.orders.id, orderId));
   }
 

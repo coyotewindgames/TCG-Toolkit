@@ -51,19 +51,9 @@ export default function RegisterPage() {
     if (!orderId) return;
     const s = getSocket();
     s.emit('order.join', { orderId });
-    const onItem = (msg: {
-      orderId: string;
-      line: {
-        id: string;
-        skuId: string;
-        name: string;
-        quantity: number;
-        unitPriceCents: number;
-        imageUrl: string | null;
-      };
-      totals: { subtotalCents: number; taxCents: number; totalCents: number };
-    }) => {
-      const { line } = msg;
+    const onItem = (msg: { orderId: string; line: AddItemResult['line']; totals: AddItemResult['totals'] }) => {
+      if (msg.orderId !== orderId) return;
+      const line = msg.line;
       setLines((prev) => {
         const i = prev.findIndex((l) => l.skuId === line.skuId);
         if (i >= 0) {

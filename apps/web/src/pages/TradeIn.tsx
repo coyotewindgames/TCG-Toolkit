@@ -1,25 +1,28 @@
 import { useState } from 'react';
 import { api } from '../lib/api';
 
-type Suggestion = {
+type ScanResponse = {
   skuId: string;
   name: string;
-  condition: string;
-  suggestedCashCents: number;
-  suggestedCreditCents: number;
+  condition: 'NM' | 'LP' | 'MP' | 'HP' | 'DMG';
+  printing: 'Normal' | 'Foil' | 'Reverse' | 'Holo' | 'FirstEdition';
+  language: 'EN' | 'JP' | 'DE' | 'FR' | 'IT' | 'ES' | 'PT' | 'KO' | 'CN';
+  priceCents: number;
 };
 
+type Line = ScanResponse & { quantity: number };
+
 export default function TradeInPage() {
-  const [items, setItems] = useState<Suggestion[]>([]);
+  const [items, setItems] = useState<Line[]>([]);
   const [barcode, setBarcode] = useState('');
-  const [payout, setPayout] = useState<'cash' | 'credit'>('credit');
+  const [payout, setPayout] = useState<'cash' | 'store_credit'>('store_credit');
   const [status, setStatus] = useState<string | null>(null);
 
   async function addLine() {
     if (!barcode) return;
     try {
-      const r = await api.post<Suggestion>('/tradeins/quote', { barcode });
-      setItems((p) => [...p, r]);
+      const r = await api.post<ScanResponse>('/scans', { barcode });
+      setItems((p) => [...p, { ...r, quantity: 1 }]);
       setBarcode('');
     } catch (e) {
       setStatus(String(e));
@@ -28,21 +31,26 @@ export default function TradeInPage() {
 
   async function submit() {
     try {
-      const r = await api.post<{ id: string; status: string; payoutCents: number }>('/tradeins', {
-        payout,
-        items: items.map((i) => ({ skuId: i.skuId })),
-      });
-      setStatus(`Trade ${r.id} → ${r.status} ($${(r.payoutCents / 100).toFixed(2)})`);
+      const r = await api.post<{ id: string; status: string; totalValueCents: number }>(
+        '/tradeins',
+        {
+          locationId: import.meta.env.VITE_LOCATION_ID,
+          payout,
+          items: items.map((i) => ({
+            skuId: i.skuId,
+            condition: i.condition,
+            printing: i.printing,
+            language: i.language,
+            quantity: i.quantity,
+          })),
+        },
+      );
+      setStatus(`Trade ${r.id} → ${r.status} ($${(r.totalValueCents / 100).toFixed(2)})`);
       setItems([]);
     } catch (e) {
       setStatus(String(e));
     }
   }
-
-  const total = items.reduce(
-    (acc, i) => acc + (payout === 'cash' ? i.suggestedCashCents : i.suggestedCreditCents),
-    0,
-  );
 
   return (
     <div className="p-4 max-w-3xl mx-auto">
@@ -62,13 +70,13 @@ export default function TradeInPage() {
       </div>
 
       <div className="mt-4 flex gap-2">
-        {(['credit', 'cash'] as const).map((p) => (
+        {(['store_credit', 'cash'] as const).map((p) => (
           <button
             key={p}
             onClick={() => setPayout(p)}
             className={`px-4 py-2 rounded-xl text-sm ${payout === p ? 'bg-emerald-500 text-slate-900' : 'bg-slate-800'}`}
           >
-            Payout: {p}
+            Payout: {p === 'store_credit' ? 'credit' : p}
           </button>
         ))}
       </div>
@@ -79,15 +87,12 @@ export default function TradeInPage() {
             <span>
               {i.name} <span className="opacity-60 text-sm">{i.condition}</span>
             </span>
-            <span className="font-mono">
-              ${((payout === 'cash' ? i.suggestedCashCents : i.suggestedCreditCents) / 100).toFixed(2)}
-            </span>
+            <span className="font-mono">×{i.quantity}</span>
           </li>
         ))}
       </ul>
 
-      <div className="mt-4 flex justify-between items-center">
-        <div className="text-2xl font-bold">Total: ${(total / 100).toFixed(2)}</div>
+      <div className="mt-4 flex justify-end">
         <button
           disabled={items.length === 0}
           onClick={submit}

@@ -74,40 +74,51 @@ async function recordEvent(
       payload: args.payload,
     });
     return true;
-  } catch {
-    return false; // unique violation = duplicate
+  } catch (err) {
+    // Only treat unique violations on (provider, provider_event_id) as
+    // duplicates; surface every other failure so we don't silently 200 to the
+    // provider while losing the event.
+    const code = (err as { code?: string } | null)?.code;
+    if (code === '23505') return false;
+    throw err;
   }
 }
 
 async function completeOrder(c: Container, orderId: string, posCheckoutId: string): Promise<void> {
   const db = getDb();
-  const [order] = await db.select().from(schema.orders).where(eq(schema.orders.id, orderId));
-  if (!order) return;
-  if (order.status === 'paid') return;
+  const result = await db.transaction(async (tx) => {
+    const [order] = await tx.select().from(schema.orders).where(eq(schema.orders.id, orderId));
+    if (!order) return null;
+    if (order.status === 'paid') return null;
 
-  const items = await db
-    .select()
-    .from(schema.orderItems)
-    .where(eq(schema.orderItems.orderId, order.id));
+    const updated = await tx
+      .update(schema.orders)
+      .set({ status: 'paid', posCheckoutId, closedAt: new Date() })
+      .where(and(eq(schema.orders.id, order.id), eq(schema.orders.status, 'pending_payment')))
+      .returning({ id: schema.orders.id });
+    if (updated.length === 0) return null;
 
-  await db
-    .update(schema.orders)
-    .set({ status: 'paid', posCheckoutId, closedAt: new Date() })
-    .where(and(eq(schema.orders.id, order.id), eq(schema.orders.status, 'pending_payment')));
+    const items = await tx
+      .select()
+      .from(schema.orderItems)
+      .where(eq(schema.orderItems.orderId, order.id));
+    return { order, items };
+  });
+  if (!result) return;
 
-  for (const line of items) {
+  for (const line of result.items) {
     await c.inventory.commitSale({
-      storeId: order.storeId,
+      storeId: result.order.storeId,
       skuId: line.skuId,
-      locationId: order.locationId,
+      locationId: result.order.locationId,
       qty: line.quantity,
     });
   }
 
-  emitToOrder(order.id, SOCKET_EVENTS.orderCompleted, {
-    orderId: order.id,
-    totalCents: order.totalCents,
+  emitToOrder(result.order.id, SOCKET_EVENTS.orderCompleted, {
+    orderId: result.order.id,
+    totalCents: result.order.totalCents,
     paymentProvider: c.pos.name,
-    receiptUrl: order.receiptUrl ?? null,
+    receiptUrl: result.order.receiptUrl ?? null,
   });
 }

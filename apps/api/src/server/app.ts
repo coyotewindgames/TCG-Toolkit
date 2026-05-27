@@ -62,9 +62,11 @@ export function createApp(): Express {
   app.use(express.json({ limit: '1mb' }));
   app.use(express.urlencoded({ extended: true }));
 
-  // Auth gets its own rate limiter to slow credential stuffing.
+  // Auth gets its own rate limiter to slow credential stuffing. The refresh
+  // cookie is scoped to `/api/auth`, so we mount the auth router on that path
+  // only to keep cookie scope and request paths in lockstep.
   const authLimiter = rateLimit({ windowMs: 60_000, limit: 30, standardHeaders: true });
-  app.use(['/auth', '/api/auth'], authLimiter, authRouter);
+  app.use('/api/auth', authLimiter, authRouter);
 
   app.use(healthRouter());
   for (const prefix of ['', '/api']) {

@@ -21,8 +21,13 @@ export function getIO(): Server {
 
 export async function initRealtime(http: HttpServer): Promise<Server> {
   const env = loadEnv();
+  const corsOrigins = env.CORS_ORIGIN.split(',').map((o) => o.trim()).filter(Boolean);
+  const allowAny = corsOrigins.includes('*');
   io = new Server(http, {
-    cors: { origin: env.CORS_ORIGIN, credentials: true },
+    cors: {
+      origin: allowAny ? true : corsOrigins,
+      credentials: !allowAny,
+    },
     serveClient: false,
   });
 

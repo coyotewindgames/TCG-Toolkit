@@ -11,7 +11,7 @@
  *   - getPricing(productIds[])
  *   - imageUrl(productId)
  *
- * Auth is via the `Authorization: ****** header when a key is
+ * Auth is via the `Authorization: Bearer <TCGAPI_KEY>` header when a key is
  * configured; anonymous requests still work for catalog reads in
  * development.
  */

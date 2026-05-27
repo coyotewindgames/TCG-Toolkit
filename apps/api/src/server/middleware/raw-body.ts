@@ -9,7 +9,7 @@ import express, { type NextFunction, type Request, type Response } from 'express
  */
 export const rawJsonBody = [
   express.raw({ type: 'application/json', limit: '1mb' }),
-  (req: Request, _res: Response, next: NextFunction): void => {
+  (req: Request, res: Response, next: NextFunction): void => {
     const buf = req.body as Buffer | undefined;
     if (Buffer.isBuffer(buf)) {
       (req as Request & { rawBody: Buffer }).rawBody = buf;
@@ -19,7 +19,8 @@ export const rawJsonBody = [
         try {
           req.body = JSON.parse(buf.toString('utf8'));
         } catch {
-          req.body = {};
+          res.status(400).json({ error: 'invalid_json' });
+          return;
         }
       }
     }

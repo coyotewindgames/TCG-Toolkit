@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import type { CheckoutRequest } from '@tcg/shared';
 import { schema, type Database } from '../../db/client';
 import { BadRequest } from '../../common/http-errors';
@@ -24,20 +24,19 @@ export class CheckoutService {
     const { order, items } = await this.orders.findById(storeId, orderId);
     if (items.length === 0) throw BadRequest('order has no items');
 
-    const lineItems = await Promise.all(
-      items.map(async (line) => {
-        const [sku] = await this.db
-          .select({ name: schema.products.name })
-          .from(schema.skus)
-          .innerJoin(schema.products, eq(schema.products.id, schema.skus.productId))
-          .where(eq(schema.skus.id, line.skuId));
-        return {
-          name: sku?.name ?? 'TCG Item',
-          quantity: line.quantity,
-          unitPriceCents: line.unitPriceCents,
-        };
-      }),
-    );
+    const skuIds = items.map((line) => line.skuId);
+    const skuRows = await this.db
+      .select({ id: schema.skus.id, name: schema.products.name })
+      .from(schema.skus)
+      .innerJoin(schema.products, eq(schema.products.id, schema.skus.productId))
+      .where(inArray(schema.skus.id, skuIds));
+    const namesBySkuId = new Map(skuRows.map((r) => [r.id, r.name]));
+
+    const lineItems = items.map((line) => ({
+      name: namesBySkuId.get(line.skuId) ?? 'TCG Item',
+      quantity: line.quantity,
+      unitPriceCents: line.unitPriceCents,
+    }));
 
     const created = await this.pos.createOrder({
       referenceId: order.id,
