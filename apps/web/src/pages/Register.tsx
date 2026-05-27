@@ -13,10 +13,16 @@ type Line = {
   imageUrl?: string;
 };
 
-type ScanResult = {
-  sku: { id: string; name: string; condition: string; imageUrl?: string };
-  unitPriceCents: number;
-  stock: number;
+type AddItemResult = {
+  line: {
+    id: string;
+    skuId: string;
+    name: string;
+    quantity: number;
+    unitPriceCents: number;
+    imageUrl?: string | null;
+  };
+  totals: { subtotalCents: number; taxCents: number; totalCents: number };
 };
 
 function formatMoney(cents: number) {
@@ -69,25 +75,25 @@ export default function RegisterPage() {
     if (!orderId || status === 'paid') return;
     setStatus('scanning');
     try {
-      const r = await api.post<ScanResult>('/scans', { barcode, orderId });
+      const r = await api.post<AddItemResult>(`/orders/${orderId}/items`, { barcode });
       // optimistic: server will also emit cart.itemAdded via WS
       setLines((prev) => {
-        const i = prev.findIndex((l) => l.skuId === r.sku.id);
+        const i = prev.findIndex((l) => l.skuId === r.line.skuId);
         if (i >= 0) {
           const next = prev.slice();
-          next[i] = { ...next[i]!, qty: next[i]!.qty + 1 };
+          next[i] = { ...next[i]!, qty: next[i]!.qty + r.line.quantity };
           return next;
         }
         return [
           ...prev,
           {
-            id: crypto.randomUUID(),
-            skuId: r.sku.id,
-            name: r.sku.name,
-            condition: r.sku.condition,
-            unitPriceCents: r.unitPriceCents,
-            qty: 1,
-            imageUrl: r.sku.imageUrl,
+            id: r.line.id,
+            skuId: r.line.skuId,
+            name: r.line.name,
+            condition: '',
+            unitPriceCents: r.line.unitPriceCents,
+            qty: r.line.quantity,
+            imageUrl: r.line.imageUrl ?? undefined,
           },
         ];
       });
