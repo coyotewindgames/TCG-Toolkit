@@ -124,3 +124,7 @@ Key flows:
 See the full plan in [`docs/PLAN.md`](docs/PLAN.md) for the complete write-up
 (architecture, integrations, schema, real-time, POS flows, trade-ins, deployment,
 security, and a list of pitfalls to avoid).
+
+For step-by-step setup — prerequisites, env vars, migrations, integrations,
+Render deploy, and an operational checklist — see
+[`docs/IMPLEMENTATION.md`](docs/IMPLEMENTATION.md).
