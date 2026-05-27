@@ -14,8 +14,13 @@ export function getPool(databaseUrl = process.env.DATABASE_URL): Pool {
   if (!pool) {
     pool = new Pool({
       connectionString: databaseUrl,
-      // Render's managed Postgres requires SSL in production.
-      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : undefined,
+      // Render's managed Postgres uses a Render-issued CA. In production we
+      // enforce SSL with certificate validation; opt-out is only allowed when
+      // explicitly requested for self-hosted/unmanaged deployments.
+      ssl:
+        process.env.NODE_ENV === 'production'
+          ? { rejectUnauthorized: process.env.PG_SSL_REJECT_UNAUTHORIZED !== 'false' }
+          : undefined,
       max: Number(process.env.PG_POOL_MAX ?? 10),
     });
   }

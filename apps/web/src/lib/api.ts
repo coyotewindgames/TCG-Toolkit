@@ -1,11 +1,18 @@
 const BASE = import.meta.env.VITE_API_URL ?? '';
 
+const DEV_USER = JSON.stringify({
+  id: 'dev-1',
+  storeId: 'store-1',
+  role: 'clerk',
+  email: 'dev@example.com',
+});
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}/api${path}`, {
     ...init,
     headers: {
       'content-type': 'application/json',
-      'x-tcg-dev-user': 'dev-clerk',
+      'x-tcg-dev-user': DEV_USER,
       ...(init?.headers ?? {}),
     },
   });

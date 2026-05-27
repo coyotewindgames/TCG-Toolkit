@@ -11,8 +11,8 @@ export class CloverClient {
   private readonly baseUrl = process.env.CLOVER_BASE_URL ?? 'https://sandbox.dev.clover.com';
 
   private get token() {
-    const t = process.env.CLOVER_API_TOKEN ?? '';
-    if (!t) throw new Error('CLOVER_API_TOKEN not configured');
+    const t = process.env.CLOVER_ACCESS_TOKEN ?? '';
+    if (!t) throw new Error('CLOVER_ACCESS_TOKEN not configured');
     return t;
   }
 
