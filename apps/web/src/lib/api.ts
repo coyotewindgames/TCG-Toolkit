@@ -7,14 +7,32 @@ const DEV_USER = JSON.stringify({
   email: 'dev@example.com',
 });
 
+let authToken: string | null = null;
+
+export function setAuthToken(token: string | null): void {
+  authToken = token;
+}
+
+export function getAuthToken(): string | null {
+  return authToken;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers: Record<string, string> = {
+    'content-type': 'application/json',
+  };
+  if (import.meta.env.DEV) {
+    headers['x-tcg-dev-user'] = DEV_USER;
+  }
+  if (authToken) {
+    headers['authorization'] = `Bearer ${authToken}`;
+  }
+  Object.assign(headers, (init?.headers ?? {}) as Record<string, string>);
+
   const res = await fetch(`${BASE}/api${path}`, {
     ...init,
-    headers: {
-      'content-type': 'application/json',
-      'x-tcg-dev-user': DEV_USER,
-      ...(init?.headers ?? {}),
-    },
+    credentials: 'include',
+    headers,
   });
   if (!res.ok) {
     const body = await res.text();
