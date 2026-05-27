@@ -32,7 +32,10 @@ export default function RegisterPage() {
   // Ensure we have an order id
   useEffect(() => {
     (async () => {
-      const r = await api.post<{ id: string }>('/orders', {});
+      const r = await api.post<{ id: string }>('/orders', {
+        locationId: import.meta.env.VITE_LOCATION_ID,
+        ...(import.meta.env.VITE_REGISTER_ID ? { registerId: import.meta.env.VITE_REGISTER_ID } : {}),
+      });
       setOrderId(r.id);
     })().catch((e) => setLastError(String(e)));
   }, []);
