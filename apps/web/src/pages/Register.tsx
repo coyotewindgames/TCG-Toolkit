@@ -51,15 +51,38 @@ export default function RegisterPage() {
     if (!orderId) return;
     const s = getSocket();
     s.emit('order.join', { orderId });
-    const onItem = (line: Line) => {
+    const onItem = (msg: {
+      orderId: string;
+      line: {
+        id: string;
+        skuId: string;
+        name: string;
+        quantity: number;
+        unitPriceCents: number;
+        imageUrl: string | null;
+      };
+      totals: { subtotalCents: number; taxCents: number; totalCents: number };
+    }) => {
+      const { line } = msg;
       setLines((prev) => {
         const i = prev.findIndex((l) => l.skuId === line.skuId);
         if (i >= 0) {
           const next = prev.slice();
-          next[i] = { ...next[i]!, qty: next[i]!.qty + line.qty };
+          next[i] = { ...next[i]!, qty: next[i]!.qty + line.quantity };
           return next;
         }
-        return [...prev, line];
+        return [
+          ...prev,
+          {
+            id: line.id,
+            skuId: line.skuId,
+            name: line.name,
+            condition: '',
+            unitPriceCents: line.unitPriceCents,
+            qty: line.quantity,
+            imageUrl: line.imageUrl ?? undefined,
+          },
+        ];
       });
     };
     const onCompleted = () => setStatus('paid');
