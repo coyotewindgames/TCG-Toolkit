@@ -1,31 +1,33 @@
 # TCG-Toolkit
 
 Inventory, register, and trade-in stack for a Trading Card Game (TCG) store.
-Integrates with **TCGplayer**, **Collectr**, **eBay** (last-sold prices), and
-**Square** / **Clover** for in-store checkout.
+Integrates with **TCGapi.dev** for catalog/pricing data and **Clover** hardware
+for in-store checkout.
 
-> The repository is a runnable architectural scaffold of the system described in
-> [`docs/PLAN.md`](docs/PLAN.md). It includes the full data model, REST + WebSocket
-> API, integration clients, BullMQ workers, and a React register/inventory/trade-in PWA.
-> Treat third-party API calls as the integration surface to wire up against real credentials.
+> The repository is an architectural scaffold for the system described in
+> [`docs/PLAN.md`](docs/PLAN.md). The plan reflects the current MVP stack
+> decisions (Express + Passport, TanStack Query + Zustand, Clover-only POS,
+> TCGapi.dev as the sole catalog/pricing source). The code under `apps/api`
+> still reflects an earlier NestJS/Square/TCGplayer scaffold and will be
+> refactored to match the plan; treat `docs/PLAN.md` as the source of truth.
 
-## Stack
+## Stack (MVP)
 
 | Layer        | Choice                                                                 |
 |--------------|------------------------------------------------------------------------|
-| Frontend     | React 18 + Vite + TypeScript + Tailwind, TanStack Query, socket.io-client, `@zxing/browser` |
-| Backend      | NestJS 10 (TypeScript), Socket.IO gateway, BullMQ workers              |
+| Frontend     | React 19 + Vite + TypeScript + Tailwind, **TanStack Query** (server state), **Zustand** (UI state), socket.io-client, `@zxing/browser` |
+| Backend      | **Express** (TypeScript), Socket.IO, BullMQ workers, **Passport.js** auth |
 | Database     | PostgreSQL 16 + Drizzle ORM (`drizzle-kit` migrations)                 |
 | Cache/queues | Redis (BullMQ + Socket.IO Redis adapter)                               |
 | Hosting      | Render (web, worker, cron, static, Postgres, Key Value)                |
-| POS          | Square (recommended) or Clover                                         |
-| Catalog      | TCGplayer + Collectr; eBay Browse API for last-sold medians            |
+| POS          | **Clover** (MVP); behind a `PosProvider` interface for future swaps    |
+| Catalog      | **TCGapi.dev** (sole source for product, pricing, and card data)       |
 
 ## Repo layout
 
 ```
 apps/
-  api/           NestJS API + WebSocket gateway + worker entrypoint
+  api/           API + WebSocket server + worker entrypoint (Express target; current code is the prior NestJS scaffold pending refactor)
   web/           React register / inventory / trade-in UI
 packages/
   shared/        Zod schemas, enums, socket event names, shared DTO types
@@ -77,44 +79,45 @@ npm run typecheck --workspace=@tcg/web
 ## Deploying to Render
 
 The blueprint in [`render.yaml`](./render.yaml) provisions:
-- `tcg-api` — NestJS web service (REST + Socket.IO)
+- `tcg-api` — Express web service (REST + Socket.IO)
 - `tcg-worker` — BullMQ background worker
-- `tcg-nightly-catalog` — cron job (07:00 UTC) for TCGplayer catalog sync
+- `tcg-nightly-catalog` — cron job (07:00 UTC) for TCGapi.dev catalog sync
 - `tcg-web` — React static site
 - `tcg-postgres` — PostgreSQL 16
 - `tcg-redis` — Render Key Value
 
 Click **New → Blueprint** in Render, point at this repo, then fill in the
-`sync: false` secrets (TCGplayer keys, Square/Clover tokens, etc.).
+`sync: false` secrets (TCGapi.dev key, Clover tokens, etc.).
 Drizzle migrations should run on deploy via a Render *pre-deploy* command
 (`npx drizzle-kit migrate`).
 
 ## High-level request flow
 
 ```
-[React PWA] ── HTTPS/WSS ──► [NestJS API + Socket.IO] ── pub/sub ─► [Redis]
+[React PWA] ── HTTPS/WSS ──► [Express API + Socket.IO] ── pub/sub ─► [Redis]
                                   │                                    │
                                   ▼                                    ▼
                             [Postgres + Drizzle]              [BullMQ Workers]
                                                                        │
-                                  TCGplayer / Collectr / eBay / Square / Clover
+                                              TCGapi.dev / Clover
 ```
 
 Key flows:
-- **Scan → Cart:** `POST /api/scans` resolves a barcode to a SKU, reserves stock,
-  and emits `cart.itemAdded` over WS.
-- **Checkout:** `POST /api/checkout/:orderId` creates a Square Terminal checkout.
-  Square’s `terminal.checkout.updated` webhook decrements `qty_on_hand` and emits
-  `order.completed`.
+- **Scan → Cart:** `POST /api/scans` resolves a barcode to a SKU (via TCGapi.dev),
+  reserves stock, and emits `cart.itemAdded` over WS.
+- **Checkout:** `POST /api/checkout/:orderId` starts a Clover terminal payment
+  through the `PosProvider` adapter. Clover's payment/order webhook decrements
+  `qty_on_hand` and emits `order.completed`.
 - **Trade-In:** `POST /api/tradeins/quote` returns a tiered valuation
-  (`min(tcgplayer_market, ebay_30d_median) * tier_multiplier`); `POST /api/tradeins`
+  (`tcgapi_market * tier_multiplier` in MVP); `POST /api/tradeins`
   finalizes the trade, mints barcodes for received cards, and credits the customer.
 
 ## Security highlights
 
 - HMAC verification on every POS webhook (raw-body middleware on `/webhooks/*`).
 - Idempotency table keyed by `(provider, providerEventId)`.
-- PCI scope: we never touch a card; Square/Clover Terminal handles entry.
+- PCI scope: we never touch a card; Clover Terminal handles entry.
+- Auth via Passport.js (local + JWT strategies) — one auth surface for staff and registers.
 - RBAC roles: `owner`, `manager`, `clerk`, `buyer`.
 - Per-customer trade-in caps + manager-approval threshold to mitigate fraud.
 - All mutations recorded in `audit_log` with actor + reason.
