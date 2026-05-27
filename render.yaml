@@ -8,7 +8,7 @@ services:
     region: oregon
     rootDir: .
     buildCommand: npm ci && npm run build --workspace=@tcg/shared && npm run build --workspace=@tcg/api
-    startCommand: node apps/api/dist/main.js
+    startCommand: node apps/api/dist/server/main.js
     healthCheckPath: /healthz
     autoDeploy: true
     envVars:
@@ -29,23 +29,27 @@ services:
         sync: false
       - key: JWT_SECRET
         generateValue: true
-      - key: TCGPLAYER_PUBLIC_KEY
+      - key: TCGAPI_BASE_URL
+        value: https://api.tcgapi.dev
+      - key: TCGAPI_KEY
         sync: false
-      - key: TCGPLAYER_PRIVATE_KEY
-        sync: false
-      - key: COLLECTR_API_KEY
-        sync: false
-      - key: EBAY_OAUTH_TOKEN
-        sync: false
-      - key: SQUARE_ACCESS_TOKEN
-        sync: false
-      - key: SQUARE_LOCATION_ID
-        sync: false
-      - key: SQUARE_WEBHOOK_SIGNATURE_KEY
+      - key: CLOVER_BASE_URL
         sync: false
       - key: CLOVER_ACCESS_TOKEN
         sync: false
       - key: CLOVER_MERCHANT_ID
+        sync: false
+      - key: CLOVER_WEBHOOK_SIGNING_SECRET
+        sync: false
+      - key: R2_BUCKET
+        sync: false
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: SENTRY_DSN
         sync: false
 
   - type: worker
@@ -55,7 +59,7 @@ services:
     region: oregon
     rootDir: .
     buildCommand: npm ci && npm run build --workspace=@tcg/shared && npm run build --workspace=@tcg/api
-    startCommand: node apps/api/dist/worker.js
+    startCommand: node apps/api/dist/jobs/worker.js
     autoDeploy: true
     envVars:
       - fromGroup: tcg-shared-env
@@ -84,6 +88,8 @@ services:
         destination: /index.html
     envVars:
       - key: VITE_API_URL
+        sync: false
+      - key: VITE_CLOVER_DEVICE_ID
         sync: false
 
   - type: keyvalue
@@ -115,21 +121,23 @@ envVarGroups:
           property: connectionString
       - key: JWT_SECRET
         sync: false
-      - key: TCGPLAYER_PUBLIC_KEY
+      - key: TCGAPI_BASE_URL
+        value: https://api.tcgapi.dev
+      - key: TCGAPI_KEY
         sync: false
-      - key: TCGPLAYER_PRIVATE_KEY
-        sync: false
-      - key: COLLECTR_API_KEY
-        sync: false
-      - key: EBAY_OAUTH_TOKEN
-        sync: false
-      - key: SQUARE_ACCESS_TOKEN
-        sync: false
-      - key: SQUARE_LOCATION_ID
-        sync: false
-      - key: SQUARE_WEBHOOK_SIGNATURE_KEY
+      - key: CLOVER_BASE_URL
         sync: false
       - key: CLOVER_ACCESS_TOKEN
         sync: false
       - key: CLOVER_MERCHANT_ID
+        sync: false
+      - key: CLOVER_WEBHOOK_SIGNING_SECRET
+        sync: false
+      - key: R2_BUCKET
+        sync: false
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
         sync: false

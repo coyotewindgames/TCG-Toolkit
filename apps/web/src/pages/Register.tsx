@@ -104,7 +104,10 @@ export default function RegisterPage() {
     if (!orderId) return;
     setStatus('checkout');
     try {
-      await api.post(`/checkout/${orderId}`, { provider: 'square' });
+      await api.post(`/orders/${orderId}/checkout`, {
+        provider: 'clover',
+        deviceId: import.meta.env.VITE_CLOVER_DEVICE_ID ?? 'mvp-device',
+      });
     } catch (e) {
       setLastError(String(e));
       setStatus('idle');

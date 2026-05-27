@@ -4,12 +4,9 @@ Inventory, register, and trade-in stack for a Trading Card Game (TCG) store.
 Integrates with **TCGapi.dev** for catalog/pricing data and **Clover** hardware
 for in-store checkout.
 
-> The repository is an architectural scaffold for the system described in
-> [`docs/PLAN.md`](docs/PLAN.md). The plan reflects the current MVP stack
-> decisions (Express + Passport, TanStack Query + Zustand, Clover-only POS,
-> TCGapi.dev as the sole catalog/pricing source). The code under `apps/api`
-> still reflects an earlier NestJS/Square/TCGplayer scaffold and will be
-> refactored to match the plan; treat `docs/PLAN.md` as the source of truth.
+> The repository implements the system described in
+> [`docs/PLAN.md`](docs/PLAN.md): Express + Passport, TanStack Query + Zustand,
+> Clover-only POS, and TCGapi.dev as the sole catalog/pricing source.
 
 ## Stack (MVP)
 
@@ -27,7 +24,7 @@ for in-store checkout.
 
 ```
 apps/
-  api/           API + WebSocket server + worker entrypoint (Express target; current code is the prior NestJS scaffold pending refactor)
+  api/           Express API + WebSocket server + BullMQ worker
   web/           React register / inventory / trade-in UI
 packages/
   shared/        Zod schemas, enums, socket event names, shared DTO types

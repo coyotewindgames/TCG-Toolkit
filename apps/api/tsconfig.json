@@ -3,8 +3,6 @@
   "compilerOptions": {
     "module": "commonjs",
     "moduleResolution": "node",
-    "experimentalDecorators": true,
-    "emitDecoratorMetadata": true,
     "target": "ES2022",
     "outDir": "./dist",
     "rootDir": "./src",
@@ -13,5 +11,5 @@
     "noUncheckedIndexedAccess": false
   },
   "include": ["src/**/*"],
-  "exclude": ["dist", "node_modules"]
+  "exclude": ["dist", "node_modules", "tests"]
 }

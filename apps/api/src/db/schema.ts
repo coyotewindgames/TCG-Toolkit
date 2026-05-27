@@ -64,16 +64,26 @@ export const tradeStatusEnum = pgEnum('trade_status', [
   'completed',
 ]);
 export const payoutKindEnum = pgEnum('payout_kind', ['cash', 'store_credit']);
-export const posProviderEnum = pgEnum('pos_provider', ['square', 'clover']);
+// MVP supports Clover only; the enum stays a single-value enum so future
+// providers slot in via a one-line migration.
+export const posProviderEnum = pgEnum('pos_provider', ['clover']);
 export const priceSourceEnum = pgEnum('price_source', [
-  'tcgplayer_market',
-  'tcgplayer_low',
-  'tcgplayer_mid',
-  'tcgplayer_high',
-  'tcgplayer_directLow',
-  'ebay_30d_median',
-  'ebay_90d_median',
+  'tcgapi_market',
+  'tcgapi_low',
+  'tcgapi_mid',
+  'tcgapi_high',
   'manual_override',
+]);
+export const gameEnum = pgEnum('game', [
+  'mtg',
+  'pokemon',
+  'yugioh',
+  'lorcana',
+  'one_piece',
+  'flesh_and_blood',
+  'sealed',
+  'supplies',
+  'other',
 ]);
 
 // ---------- tenancy ----------
@@ -82,7 +92,7 @@ export const stores = pgTable('stores', {
   id: uuid('id').primaryKey().defaultRandom(),
   name: text('name').notNull(),
   timezone: text('timezone').notNull().default('America/New_York'),
-  defaultPosProvider: posProviderEnum('default_pos_provider').notNull().default('square'),
+  defaultPosProvider: posProviderEnum('default_pos_provider').notNull().default('clover'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -150,8 +160,9 @@ export const products = pgTable(
     storeId: uuid('store_id')
       .notNull()
       .references(() => stores.id, { onDelete: 'cascade' }),
-    tcgplayerProductId: integer('tcgplayer_product_id'),
-    collectrProductId: text('collectr_product_id'),
+    tcgapiProductId: text('tcgapi_product_id'),
+    externalProductId: text('external_product_id'),
+    game: gameEnum('game').notNull().default('other'),
     name: text('name').notNull(),
     setName: text('set_name'),
     setId: text('set_id'),
@@ -167,7 +178,7 @@ export const products = pgTable(
   },
   (t) => ({
     byStore: index('products_store_idx').on(t.storeId),
-    byTcg: index('products_tcg_idx').on(t.tcgplayerProductId),
+    byTcgapi: index('products_tcgapi_idx').on(t.tcgapiProductId),
     nameIdx: index('products_name_idx').on(t.name),
   }),
 );
@@ -187,7 +198,7 @@ export const skus = pgTable(
     language: cardLanguageEnum('language').notNull().default('EN'),
     barcode: varchar('barcode', { length: 64 }).notNull(),
     internalSku: varchar('internal_sku', { length: 64 }).notNull(),
-    tcgplayerSkuId: bigint('tcgplayer_sku_id', { mode: 'number' }),
+    tcgapiSkuId: text('tcgapi_sku_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
@@ -256,7 +267,7 @@ export const currentPrices = pgTable('current_prices', {
   sellPriceCents: integer('sell_price_cents').notNull(),
   buyPriceCents: integer('buy_price_cents').notNull().default(0),
   marketPriceCents: integer('market_price_cents'),
-  ebay30dMedianCents: integer('ebay_30d_median_cents'),
+  marketMedianCents: integer('market_median_cents'),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -420,6 +431,28 @@ export const webhookEvents = pgTable(
   (t) => ({
     uq: unique('webhook_events_provider_id_uq').on(t.provider, t.providerEventId),
     byType: index('webhook_events_type_idx').on(t.provider, t.eventType),
+  }),
+);
+
+// ---------- auth ----------
+
+export const refreshTokens = pgTable(
+  'refresh_tokens',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    tokenHash: text('token_hash').notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    userAgent: text('user_agent'),
+    ipAddress: text('ip_address'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    byUser: index('refresh_tokens_user_idx').on(t.userId),
+    hashUq: unique('refresh_tokens_hash_uq').on(t.tokenHash),
   }),
 );
 

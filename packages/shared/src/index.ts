@@ -17,13 +17,10 @@ export const USER_ROLES = ['owner', 'manager', 'clerk', 'buyer'] as const;
 export type UserRole = (typeof USER_ROLES)[number];
 
 export const PRICE_SOURCES = [
-  'tcgplayer_market',
-  'tcgplayer_low',
-  'tcgplayer_mid',
-  'tcgplayer_high',
-  'tcgplayer_directLow',
-  'ebay_30d_median',
-  'ebay_90d_median',
+  'tcgapi_market',
+  'tcgapi_low',
+  'tcgapi_mid',
+  'tcgapi_high',
   'manual_override',
 ] as const;
 export type PriceSource = (typeof PRICE_SOURCES)[number];
@@ -50,8 +47,21 @@ export type TradeStatus = (typeof TRADE_STATUSES)[number];
 export const PAYOUT_KINDS = ['cash', 'store_credit'] as const;
 export type PayoutKind = (typeof PAYOUT_KINDS)[number];
 
-export const POS_PROVIDERS = ['square', 'clover'] as const;
+export const POS_PROVIDERS = ['clover'] as const;
 export type PosProvider = (typeof POS_PROVIDERS)[number];
+
+export const GAMES = [
+  'mtg',
+  'pokemon',
+  'yugioh',
+  'lorcana',
+  'one_piece',
+  'flesh_and_blood',
+  'sealed',
+  'supplies',
+  'other',
+] as const;
+export type Game = (typeof GAMES)[number];
 
 // ---------- Request / response DTOs ----------
 
@@ -86,16 +96,37 @@ export const CreateOrderRequest = z.object({
 export type CreateOrderRequest = z.infer<typeof CreateOrderRequest>;
 
 export const CheckoutRequest = z.object({
-  provider: z.enum(POS_PROVIDERS),
+  provider: z.enum(POS_PROVIDERS).default('clover'),
   deviceId: z.string().min(1),
   tipCents: z.number().int().nonnegative().optional(),
 });
 export type CheckoutRequest = z.infer<typeof CheckoutRequest>;
 
+export const LoginRequest = z.object({
+  email: z.string().email(),
+  password: z.string().min(8).max(128),
+});
+export type LoginRequest = z.infer<typeof LoginRequest>;
+
+export const AuthTokens = z.object({
+  accessToken: z.string(),
+  expiresIn: z.number().int().positive(),
+  user: z.object({
+    id: z.string().uuid(),
+    storeId: z.string().uuid(),
+    email: z.string().email(),
+    role: z.enum(USER_ROLES),
+    displayName: z.string(),
+  }),
+});
+export type AuthTokens = z.infer<typeof AuthTokens>;
+
 export const TradeItemInput = z.object({
   skuId: z.string().uuid().optional(),
   // If no SKU yet (brand-new card to the store) accept lookup hints:
-  tcgplayerProductId: z.number().int().optional(),
+  tcgapiProductId: z.string().min(1).optional(),
+  game: z.enum(GAMES).optional(),
+  name: z.string().min(1).optional(),
   condition: z.enum(CARD_CONDITIONS),
   printing: z.enum(CARD_PRINTINGS),
   language: z.enum(CARD_LANGUAGES).default('EN'),
@@ -169,13 +200,13 @@ export const SOCKET_EVENTS = {
 
 /** Deterministically hash a SKU identity for de-duplication. */
 export function skuIdentityKey(args: {
-  tcgplayerProductId?: number | null;
+  tcgapiProductId?: string | null;
   condition: CardCondition;
   printing: CardPrinting;
   language: CardLanguage;
 }): string {
   return [
-    args.tcgplayerProductId ?? 'NULL',
+    args.tcgapiProductId ?? 'NULL',
     args.condition,
     args.printing,
     args.language,

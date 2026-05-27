@@ -16,7 +16,7 @@ export default function AppLayout() {
             <NavLink
               key={to}
               to={to}
-              className={({ isActive }) =>
+              className={({ isActive }: { isActive: boolean }) =>
                 `px-3 py-1.5 rounded-lg ${isActive ? 'bg-emerald-500 text-slate-900' : 'hover:bg-slate-800'}`
               }
             >

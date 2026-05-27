@@ -2,7 +2,7 @@
   "name": "tcg-toolkit",
   "private": true,
   "version": "0.1.0",
-  "description": "TCG store inventory & checkout system — monorepo (NestJS API + React PWA + shared types).",
+  "description": "TCG store inventory & checkout system — monorepo (Express API + React PWA + shared types).",
   "workspaces": [
     "packages/*",
     "apps/*"
