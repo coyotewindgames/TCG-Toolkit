@@ -22,7 +22,7 @@ function setRefreshCookie(res: import('express').Response, raw: string) {
   res.cookie(env.REFRESH_COOKIE_NAME, raw, {
     httpOnly: true,
     secure: isProd(),
-    sameSite: 'lax',
+    sameSite: 'strict',
     domain: env.COOKIE_DOMAIN,
     maxAge,
     path: '/api/auth',

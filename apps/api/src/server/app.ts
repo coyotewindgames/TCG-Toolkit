@@ -39,10 +39,18 @@ export function createApp(): Express {
     }),
   );
   app.use(helmet());
+  // CORS: in production we never reflect `*` with credentials. Operators must
+  // configure an explicit comma-separated list of trusted origins; the wildcard
+  // is only honoured outside production.
+  const corsOrigins = env.CORS_ORIGIN.split(',').map((o) => o.trim()).filter(Boolean);
+  const allowAny = corsOrigins.includes('*');
+  if (allowAny && env.NODE_ENV === 'production') {
+    throw new Error('CORS_ORIGIN cannot be "*" in production');
+  }
   app.use(
     cors({
-      origin: env.CORS_ORIGIN === '*' ? true : env.CORS_ORIGIN.split(',').map((o) => o.trim()),
-      credentials: true,
+      origin: allowAny ? true : corsOrigins,
+      credentials: !allowAny,
     }),
   );
   app.use(compression());

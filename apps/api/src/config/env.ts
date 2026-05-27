@@ -18,7 +18,7 @@ const Env = z.object({
   REDIS_URL: z.string().default('redis://localhost:6379'),
   WORKER_CONCURRENCY: z.coerce.number().int().positive().default(4),
 
-  JWT_SECRET: z.string().min(16, 'JWT_SECRET must be at least 16 chars').default('dev-secret-change-me-please'),
+  JWT_SECRET: z.string().min(16, 'JWT_SECRET must be at least 16 chars'),
   JWT_ISSUER: z.string().default('tcg-toolkit'),
   JWT_AUDIENCE: z.string().default('tcg-toolkit-api'),
   JWT_ACCESS_TTL_SECONDS: z.coerce.number().int().positive().default(900),
