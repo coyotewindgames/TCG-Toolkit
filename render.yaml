@@ -1,0 +1,111 @@
+# Render blueprint — one-shot provisioning for the TCG Toolkit stack.
+# https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: tcg-api
+    runtime: node
+    plan: starter
+    region: oregon
+    rootDir: .
+    buildCommand: npm ci && npm run build --workspace=@tcg/shared && npm run build --workspace=@tcg/api
+    startCommand: node apps/api/dist/server/main.js
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - fromGroup: tcg-shared-env
+      - key: PORT
+        value: 10000
+      - key: CORS_ORIGIN
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
+
+  - type: worker
+    name: tcg-worker
+    runtime: node
+    plan: starter
+    region: oregon
+    rootDir: .
+    buildCommand: npm ci && npm run build --workspace=@tcg/shared && npm run build --workspace=@tcg/api
+    startCommand: node apps/api/dist/jobs/worker.js
+    autoDeploy: true
+    envVars:
+      - fromGroup: tcg-shared-env
+
+  - type: cron
+    name: tcg-nightly-catalog
+    runtime: node
+    plan: starter
+    region: oregon
+    rootDir: .
+    schedule: '0 7 * * *' # 07:00 UTC nightly
+    buildCommand: npm ci && npm run build --workspace=@tcg/shared && npm run build --workspace=@tcg/api
+    startCommand: node apps/api/dist/jobs/cron/catalog-sync.js
+    envVars:
+      - fromGroup: tcg-shared-env
+
+  - type: web
+    name: tcg-web
+    runtime: static
+    rootDir: apps/web
+    buildCommand: cd ../.. && npm ci && npm run build --workspace=@tcg/shared && npm run build --workspace=@tcg/web
+    staticPublishPath: ./dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_API_URL
+        sync: false
+      - key: VITE_CLOVER_DEVICE_ID
+        sync: false
+
+  - type: keyvalue
+    name: tcg-redis
+    plan: starter
+    region: oregon
+    ipAllowList: []
+    maxmemoryPolicy: allkeys-lru
+
+databases:
+  - name: tcg-postgres
+    plan: starter
+    region: oregon
+    postgresMajorVersion: '16'
+
+envVarGroups:
+  - name: tcg-shared-env
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: tcg-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: tcg-redis
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: TCGAPI_BASE_URL
+        value: https://api.tcgapi.dev
+      - key: TCGAPI_KEY
+        sync: false
+      - key: CLOVER_BASE_URL
+        sync: false
+      - key: CLOVER_ACCESS_TOKEN
+        sync: false
+      - key: CLOVER_MERCHANT_ID
+        sync: false
+      - key: CLOVER_WEBHOOK_SIGNING_SECRET
+        sync: false
+      - key: R2_BUCKET
+        sync: false
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
