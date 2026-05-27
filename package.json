@@ -1,0 +1,26 @@
+{
+  "name": "tcg-toolkit",
+  "private": true,
+  "version": "0.1.0",
+  "description": "TCG store inventory & checkout system — monorepo (NestJS API + React PWA + shared types).",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "dev:api": "npm run dev --workspace=@tcg/api",
+    "dev:web": "npm run dev --workspace=@tcg/web",
+    "db:generate": "npm run db:generate --workspace=@tcg/api",
+    "db:migrate": "npm run db:migrate --workspace=@tcg/api"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4"
+  }
+}

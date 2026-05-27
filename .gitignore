@@ -1,0 +1,24 @@
+# Build / deps
+node_modules/
+dist/
+build/
+coverage/
+.tsbuildinfo
+*.tsbuildinfo
+
+# Env
+.env
+.env.*
+!.env.example
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Logs
+*.log
+npm-debug.log*
+
+# Drizzle output (generated SQL kept in repo, but cache/temp not)
+**/.drizzle/
