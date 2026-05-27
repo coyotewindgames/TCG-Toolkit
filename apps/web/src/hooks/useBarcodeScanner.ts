@@ -14,7 +14,8 @@ export function useBarcodeScanner(onScan: (code: string) => void, opts?: { minLe
   useEffect(() => {
     function handler(e: KeyboardEvent) {
       const now = Date.now();
-      if (now - lastTsRef.current > 500) bufferRef.current = '';
+      const delta = now - lastTsRef.current;
+      if (delta > 500) bufferRef.current = '';
       lastTsRef.current = now;
       if (e.key === 'Enter') {
         const code = bufferRef.current.trim();
@@ -22,7 +23,7 @@ export function useBarcodeScanner(onScan: (code: string) => void, opts?: { minLe
         if (code.length >= min) onScan(code);
         return;
       }
-      if (e.key.length === 1 && now - lastTsRef.current <= gap + 500) {
+      if (e.key.length === 1 && delta <= gap + 500) {
         bufferRef.current += e.key;
       } else if (e.key.length === 1) {
         bufferRef.current = e.key;
