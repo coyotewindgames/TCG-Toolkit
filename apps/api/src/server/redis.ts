@@ -1,5 +1,6 @@
 import Redis from 'ioredis';
 import { loadEnv } from '../config/env';
+import { getLogger } from '../common/logger';
 
 let primary: Redis | null = null;
 
@@ -16,8 +17,7 @@ export function getRedis(): Redis {
       lazyConnect: false,
     });
     primary.on('error', (err) => {
-      // eslint-disable-next-line no-console
-      console.error('[redis] error', err.message);
+      getLogger().error({ err }, '[redis] error');
     });
   }
   return primary;
@@ -26,4 +26,10 @@ export function getRedis(): Redis {
 /** Duplicate connections for Socket.IO pub/sub adapter. */
 export function duplicateRedis(): Redis {
   return getRedis().duplicate();
+}
+
+export async function closeRedis(): Promise<void> {
+  if (!primary) return;
+  await primary.quit();
+  primary = null;
 }

@@ -11,7 +11,7 @@ async function main() {
   for (const game of GAMES) {
     await queues.catalogSync.add(
       'sync',
-      { game },
+      { game, page: 1 },
       { jobId: `catalog:${game}:${new Date().toISOString().slice(0, 10)}` },
     );
   }

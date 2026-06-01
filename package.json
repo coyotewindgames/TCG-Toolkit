@@ -10,7 +10,7 @@
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "lint": "npm run lint --workspaces --if-present",
+    "lint": "eslint . --ext .ts,.tsx",
     "test": "npm run test --workspaces --if-present",
     "dev:api": "npm run dev --workspace=@tcg/api",
     "dev:web": "npm run dev --workspace=@tcg/web",
@@ -21,6 +21,9 @@
     "node": ">=20.0.0"
   },
   "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^7.18.0",
+    "@typescript-eslint/parser": "^7.18.0",
+    "eslint": "^8.57.0",
     "typescript": "^5.5.4"
   }
 }

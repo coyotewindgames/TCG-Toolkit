@@ -21,8 +21,7 @@ Rules:
 - Zustand stores live in `src/state/`. Keep them small (one slice per
   concern); compose at the call site rather than building a monolith.
 
-## Hardware (MVP)
+## Hardware
 
-The register uses Clover hardware. `VITE_CLOVER_DEVICE_ID` selects the target
-terminal at checkout. A future `PosProvider` swap on the API side is
-transparent to this app.
+The register uses Clover hardware exclusively. `VITE_CLOVER_DEVICE_ID` selects
+the target terminal at checkout.

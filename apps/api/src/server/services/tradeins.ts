@@ -1,4 +1,5 @@
 import { and, eq, gte, sql } from 'drizzle-orm';
+import { randomUUID } from 'node:crypto';
 import type {
   CardCondition,
   CreateTradeRequest,
@@ -147,20 +148,32 @@ export class TradeinsService {
   }
 
   async approve(args: { storeId: string; tradeId: string; userId: string }) {
-    const [trade] = await this.db
-      .select()
-      .from(schema.tradeIns)
-      .where(
-        and(eq(schema.tradeIns.id, args.tradeId), eq(schema.tradeIns.storeId, args.storeId)),
-      );
-    if (!trade) throw NotFound('trade not found');
-    if (trade.status !== 'pending_approval') {
-      throw BadRequest(`trade is ${trade.status}`);
-    }
-    await this.db
+    // Atomically claim the trade for approval so two managers can't both push it
+    // forward (only one row will match `pending_approval` after the first wins).
+    const claimed = await this.db
       .update(schema.tradeIns)
       .set({ status: 'approved', approvedBy: args.userId })
-      .where(eq(schema.tradeIns.id, trade.id));
+      .where(
+        and(
+          eq(schema.tradeIns.id, args.tradeId),
+          eq(schema.tradeIns.storeId, args.storeId),
+          eq(schema.tradeIns.status, 'pending_approval'),
+        ),
+      )
+      .returning({ id: schema.tradeIns.id, totalValueCents: schema.tradeIns.totalValueCents });
+    if (claimed.length === 0) {
+      // Either the trade doesn't belong to this store, doesn't exist, or has
+      // already been advanced past `pending_approval`. Reflect that to the caller.
+      const [existing] = await this.db
+        .select({ status: schema.tradeIns.status })
+        .from(schema.tradeIns)
+        .where(
+          and(eq(schema.tradeIns.id, args.tradeId), eq(schema.tradeIns.storeId, args.storeId)),
+        );
+      if (!existing) throw NotFound('trade not found');
+      throw BadRequest(`trade is ${existing.status}`);
+    }
+    const trade = claimed[0]!;
     await this.finalize(trade.id);
     emitToStore(args.storeId, SOCKET_EVENTS.tradeApproved, {
       tradeId: trade.id,
@@ -171,13 +184,16 @@ export class TradeinsService {
   }
 
   private async finalize(tradeId: string): Promise<void> {
-    const [trade] = await this.db
-      .select()
-      .from(schema.tradeIns)
-      .where(eq(schema.tradeIns.id, tradeId));
+    // Atomically claim the trade for finalization. Only one caller will see a
+    // returned row; concurrent callers receive `[]` and exit without double-receiving
+    // inventory or double-crediting the customer.
+    const claimed = await this.db
+      .update(schema.tradeIns)
+      .set({ status: 'completed', completedAt: new Date() })
+      .where(and(eq(schema.tradeIns.id, tradeId), eq(schema.tradeIns.status, 'approved')))
+      .returning();
+    const trade = claimed[0];
     if (!trade) return;
-    if (trade.status === 'completed') return;
-    if (trade.status !== 'approved') return;
 
     const items = await this.db
       .select()
@@ -201,11 +217,6 @@ export class TradeinsService {
         })
         .where(eq(schema.customers.id, trade.customerId));
     }
-
-    await this.db
-      .update(schema.tradeIns)
-      .set({ status: 'completed', completedAt: new Date() })
-      .where(eq(schema.tradeIns.id, trade.id));
   }
 
   /**
@@ -261,15 +272,20 @@ export class TradeinsService {
         ),
       );
     if (existing) return existing.id;
+    // Pre-generate the SKU UUID so the barcode column can mirror it. This
+    // keeps barcode lookups index-only while letting any future scanner work
+    // by id direc
+    const skuId = crypto.randomUUID();
     const [created] = await tx
       .insert(schema.skus)
       .values({
+        id: skuId,
         productId: product.id,
         storeId,
         condition: item.condition,
         printing: item.printing,
         language: item.language,
-        barcode: generateBarcodeToken('TCG'),
+        barcode: skuId,
         internalSku: identity,
       })
       .returning();

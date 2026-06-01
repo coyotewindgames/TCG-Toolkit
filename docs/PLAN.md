@@ -8,21 +8,19 @@
 - **Realtime layer:** Socket.IO (rooms per store/register), Redis adapter for horizontal scaling.
 - **Database:** PostgreSQL 16 + **Drizzle ORM** (with `drizzle-kit` migrations).
 - **Cache / pub-sub / queues:** Redis (Upstash or Render Key Value).
-- **Background jobs:** BullMQ (price refresh, webhook retries, barcode generation).
-- **Object storage:** Cloudflare R2 for card images and trade-in receipts; serve via a CDN.
+- **Background jobs:** BullMQ (price refresh, webhook retries, catalog sync).
+- **Object storage:** none. Card images are referenced by their TCGapi.dev source URL; receipts are streamed on demand. Add object storage only if/when bulk image hosting becomes a constraint.
 - **Auth:** **Passport.js** strategies (local + JWT) mounted as Express middleware — one auth surface for both the staff console and the register PWA. RBAC roles: `owner`, `manager`, `clerk`, `buyer`. Avoid over-engineering until post-MVP (no Auth.js, no Clerk).
 - **Observability:** Pino logs → Logtail/Datadog, Sentry for errors, OpenTelemetry traces.
 - **Hosting:** Render Web Service (API), Render Static Site (frontend), Render PostgreSQL, Render Key Value (Redis), Render Background Workers for BullMQ.
 
 ## 2. API Integrations
 
-**TCGapi.dev (primary)** — authoritative source for product catalog, pricing, and card data across all supported games. All catalog reads, price refreshes, and on-scan lookups route through a single `TcgApiClient`. Cache bearer/credentials in Redis, nightly catalog sync, hourly price delta for in-stock SKUs, on-demand refresh on scan. Mirror image assets into our own R2 bucket so we don't depend on the upstream CDN.
+**TCGapi.dev** — sole authoritative source for product catalog, pricing, and card data across all supported games. All catalog reads, price refreshes, and on-scan lookups route through a single `TcgapiClient` against `https://api.tcgapi.dev/v1` with an `X-API-Key` header. Nightly catalog sync walks the local `products` table and refreshes name/set/rarity/imageSourceUrl; hourly price refresh requests `/cards/:id/prices` per in-stock SKU; on-demand refresh fires on scan. Images are served directly from the upstream `image_url` — no mirroring.
 
-> **Note:** TCGplayer's first-party API is closed to new applicants and is not used. References to TCGplayer in the legacy scaffold (`apps/api/src/integrations/tcgplayer/`) are slated for removal in the Express refactor.
+**Sold-comps / secondary pricing** — not in scope. If sold-comp medians are needed later, evaluate paid aggregators (130point, JustTCG) and integrate behind the existing `TcgapiClient` pattern.
 
-**Sold-comps / secondary pricing** — not in MVP scope. eBay Browse API does **not** support `soldItemsOnly` / `lastSoldDate` (those live behind the Limited-Release Marketplace Insights API), and the Finding API's `findCompletedItems` is deprecated. If sold-comp medians are needed post-MVP, evaluate paid aggregators (130point, JustTCG) behind the same provider interface.
-
-**Clover (MVP POS)** — MVP integrates with **Clover hardware only** (Clover Mini / Flex / Station, or the Clover Go scanner-equipped mobile device). Square integration is deferred. Keep the POS adapter behind a thin `PosProvider` interface (`createOrder`, `startTerminalCheckout`, `verifyWebhook`) so a future Square or other provider can drop in without touching the checkout flow. The DB remains the source of truth; line items are pushed to Clover as ad-hoc items, then reconciled after payment via Clover webhooks (HMAC-verified).
+**Clover (exclusive POS)** — Clover is the only payment processor for this system. Integration targets Clover hardware (Clover Mini / Flex / Station / Go). Line items are pushed to Clover as ad-hoc items, then reconciled after payment via Clover webhooks (HMAC-verified). The DB remains the source of truth. There is no `PosProvider` abstraction — `CloverClient` is consumed directly by checkout and webhook handlers.
 
 **Example scan→checkout (Clover)**
 ```
@@ -39,7 +37,7 @@ Tables: `products`, `skus`, `inventory`, `price_snapshots`, `current_prices`, `o
 - Money in integer cents.
 - `inventory.qty_on_hand` + `qty_reserved`; row-level `SELECT … FOR UPDATE` for checkout/trade.
 - Postgres `tsvector` + trigram for fuzzy lookup; `jsonb` for variant attributes.
-- Mirror TCGplayer images to R2; store both `source_url` and `cdn_url`.
+- Product images: store only `image_source_url` (upstream TCGapi.dev URL). No mirror.
 
 ## 4. Barcode / QR Workflow
 
@@ -55,15 +53,15 @@ Tables: `products`, `skus`, `inventory`, `price_snapshots`, `current_prices`, `o
 - Events: `cart.itemAdded`, `cart.itemRemoved`, `cart.totals`, `inventory.updated`, `order.completed`, `order.refunded`, `tradein.created`, `tradein.approved`.
 - JWT handshake auth; coalesce price broadcasts to 1/s per SKU.
 
-## 6. POS Checkout Flow (Clover, MVP)
+## 6. POS Checkout Flow (Clover)
 
 1. `POST /orders` — local order with reservations.
-2. `POST /checkout/:id` — Clover create order + start terminal payment via the `PosProvider` adapter.
+2. `POST /checkout/:id` — Clover create order + start terminal payment via `CloverClient`.
 3. Customer taps card on the Clover device.
 4. Clover webhook (payment/order updated) → verify HMAC → mark paid → decrement inventory in a txn → emit `order.completed`.
 5. Refunds re-increment inventory and post a reversing audit row.
 
-Idempotency key = `orderId:attempt`. Nightly reconciliation compares Clover vs local orders. Square and other POS providers can be added post-MVP behind the same `PosProvider` interface.
+Idempotency key = `orderId:attempt`. Nightly reconciliation compares Clover vs local orders. Clover is the exclusive payment processor; there is no plan to support additional POS vendors.
 
 ## 7. Trade-In Feature
 
@@ -72,7 +70,7 @@ Idempotency key = `orderId:attempt`. Nightly reconciliation compares Clover vs l
 - ID capture + customer signature for high-value trades.
 - `pending_approval` for trades over a configurable threshold (default $50).
 - Per-customer weekly cap (default $1000); manager override with audit trail.
-- Store credit via an internal credit ledger in MVP (Clover gift cards or Square `GiftCards` are post-MVP options).
+- Store credit via an internal credit ledger.
 - QR receipt links to the trade record; per-card barcodes are generated for inventory.
 
 ## 8. Hosting & Deployment
@@ -94,20 +92,20 @@ Services in `render.yaml`: `tcg-api` (web), `tcg-worker`, `tcg-nightly-catalog` 
 
 ## 10. Pitfalls & Mitigations
 
-- **TCGplayer rate limits / 401s** — n/a for MVP; TCGapi.dev is the sole catalog/pricing source. Centralized client with backoff and circuit breaker still applies.
+- **Catalog/pricing rate limits / 401s** — TCGapi.dev is the sole catalog/pricing source. Centralized client with backoff and circuit breaker.
 - **SKU explosion** — deterministic SKU hash on `(product, printing, condition, language)`.
 - **Price drift between scan and pay** — lock line-item price at scan; prompt manager only if price moves > X% during cart life.
 - **Eventual consistency** — Clover webhook is the commit signal; don't decrement inventory before payment.
 - **Duplicate webhooks** — dedupe by `(provider, event_id)` UNIQUE index.
 - **Network drops at register** — offline-capable PWA queues scans in IndexedDB; payment requires connectivity.
 - **Barcode collisions / reused labels** — never re-issue a token; mark old labels void.
-- **Sold-comp data quality** — deferred until a sold-comp source is wired in post-MVP; whatever source is chosen needs outlier filtering (graded, lots, sealed) before computing medians.
+- **Sold-comp data quality** — not in scope; if added later, the chosen source needs outlier filtering (graded, lots, sealed) before computing medians.
 - **Trade-in fraud** — ID for high-value, per-customer caps, photograph cards on intake.
 - **Time zones** — `timestamptz` everywhere; display in store local TZ.
 - **Drizzle migration footguns** — expand/contract pattern; test against prod-sized snapshot.
 - **Socket fan-out cost** — coalesce broadcasts, scope rooms tightly.
 - **Single-tenant assumptions** — every table carries `store_id`/`location_id`.
-- **POS provider lock-in** — all Clover calls go through a `PosProvider` interface so a Square (or other) adapter can be added without changing checkout code.
+- **Clover dependency** — Clover is the exclusive payment processor. `CloverClient` is consumed directly by checkout and webhook handlers; outages are mitigated by retry queues and offline-capable scan queueing, not by a fallback provider.
 
 ## Delivery Phasing
 
@@ -116,4 +114,4 @@ Services in `render.yaml`: `tcg-api` (web), `tcg-worker`, `tcg-nightly-catalog` 
 3. **Register MVP:** scan → cart → **Clover** terminal → inventory decrement → WS updates.
 4. **Trade-Ins:** intake flow, valuation engine, label printing, store credit ledger.
 5. **Admin & Reporting:** sales/margin dashboards, audit log viewer, reconciliation.
-6. **Hardening:** offline scanning, multi-location, role expansion, observability, load tests. Post-MVP additions live behind interfaces already in place (additional POS providers, sold-comp data sources).
+6. **Hardening:** offline scanning, multi-location, role expansion, observability, load tests.

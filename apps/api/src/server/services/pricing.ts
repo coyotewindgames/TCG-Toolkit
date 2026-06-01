@@ -30,8 +30,9 @@ export class PricingService {
   /**
    * Recompute the effective `current_prices` row from the most recent snapshot
    * per source for this SKU. `manual_override` always wins; otherwise sell
-   * price = max(market, mid) so we never sell below what the market will bear.
-   * Buy price defaults to half-market (the trade-in service can override).
+   * price = max(market, median) so we never sell below what the market will
+   * bear. Buy price defaults to the buylist snapshot when present, else half
+   * of the lowest live price (the trade-in service can override).
    */
   async recomputeCurrent(skuId: string): Promise<void> {
     await this.db.execute(sql`
@@ -44,18 +45,19 @@ export class PricingService {
       ),
       pivot as (
         select
-          (select price_cents from latest where source = 'tcgapi_market') as market,
-          (select price_cents from latest where source = 'tcgapi_mid')    as mid,
-          (select price_cents from latest where source = 'tcgapi_low')    as low,
+          (select price_cents from latest where source = 'tcgapi_market')  as market,
+          (select price_cents from latest where source = 'tcgapi_median')  as median,
+          (select price_cents from latest where source = 'tcgapi_low')     as low,
+          (select price_cents from latest where source = 'tcgapi_buylist') as buylist,
           (select price_cents from latest where source = 'manual_override') as override
       )
       insert into current_prices (sku_id, sell_price_cents, buy_price_cents, market_price_cents, market_median_cents, updated_at)
       select
         ${skuId},
-        coalesce(p.override, greatest(coalesce(p.market, 0), coalesce(p.mid, 0))),
-        floor(coalesce(p.low, p.market, p.mid, 0) * 0.5)::int,
+        coalesce(p.override, greatest(coalesce(p.market, 0), coalesce(p.median, 0))),
+        coalesce(p.buylist, floor(coalesce(p.low, p.market, p.median, 0) * 0.5)::int),
         p.market,
-        p.mid,
+        p.median,
         now()
       from pivot p
       on conflict (sku_id) do update set

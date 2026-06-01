@@ -2,7 +2,10 @@ import { Router } from 'express';
 import { and, eq } from 'drizzle-orm';
 import { schema, getDb } from '../../db/client';
 import { asyncHandler } from '../../common/async-handler';
+import { getLogger } from '../../common/logger';
+import { loadEnv } from '../../config/env';
 import { emitToOrder, SOCKET_EVENTS } from '../realtime/socket';
+import { getQueues } from '../../jobs/queues';
 import type { Container } from '../container';
 
 /**
@@ -15,11 +18,14 @@ import type { Container } from '../container';
  *   1) verifies the provider signature
  *   2) writes an idempotency row (`webhook_events`, unique on (provider, event_id))
  *   3) processes the event; duplicates short-circuit
- *   4) always returns 200 so the provider stops retrying
+ *   4) on processing failure, enqueues `webhook.retry` for out-of-band retry
+ *   5) always returns 200 so the provider stops retrying
  */
 export function webhooksRouter(c: Container): Router {
   const r = Router();
   const db = getDb();
+  const log = getLogger();
+  const env = loadEnv();
 
   r.post(
     '/clover',
@@ -27,7 +33,11 @@ export function webhooksRouter(c: Container): Router {
       const raw =
         (req as typeof req & { rawBody?: Buffer }).rawBody?.toString('utf8') ??
         JSON.stringify(req.body ?? {});
-      const signature = req.header('x-clover-auth');
+      // Accept the configured header first, then a couple of common fallbacks.
+      const signature =
+        req.header(env.CLOVER_WEBHOOK_SIGNATURE_HEADER) ??
+        req.header('x-clover-signature') ??
+        req.header('x-clover-auth');
       const ok = c.pos.verifyWebhook({ rawBody: raw, signatureHeader: signature });
       const parsed = c.pos.parseWebhook(req.body);
 
@@ -40,13 +50,28 @@ export function webhooksRouter(c: Container): Router {
       });
       if (!inserted) return res.json({ ok: true });
       if (!ok) {
-        // eslint-disable-next-line no-console
-        console.error(`webhook signature failed: ${parsed.providerEventId}`);
+        log.warn({ providerEventId: parsed.providerEventId }, 'webhook signature failed');
         return res.json({ ok: true });
       }
 
-      if (parsed.paymentCompleted && parsed.referenceId) {
-        await completeOrder(c, parsed.referenceId, parsed.posCheckoutId ?? '');
+      try {
+        if (parsed.paymentCompleted && parsed.referenceId) {
+          await completeOrder(c, parsed.referenceId, parsed.posCheckoutId ?? '');
+        }
+      } catch (err) {
+        log.error(
+          { err, providerEventId: parsed.providerEventId },
+          'webhook processing failed; queued for retry',
+        );
+        try {
+          await getQueues().webhookRetry.add(
+            'retry',
+            { eventId: parsed.providerEventId, provider: c.pos.name },
+            { attempts: 5, backoff: { type: 'exponential', delay: 5_000 } },
+          );
+        } catch (qerr) {
+          log.error({ err: qerr }, 'failed to enqueue webhook retry');
+        }
       }
       res.json({ ok: true });
     }),

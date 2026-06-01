@@ -18,7 +18,11 @@ const Env = z.object({
   REDIS_URL: z.string().default('redis://localhost:6379'),
   WORKER_CONCURRENCY: z.coerce.number().int().positive().default(4),
 
-  JWT_SECRET: z.string().min(16, 'JWT_SECRET must be at least 16 chars'),
+  JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 chars'),
+  // Header name Clover uses to deliver the HMAC signature on inbound webhooks.
+  // Defaults to the conventional `X-Clover-Signature`; older app integrations
+  // send `X-Clover-Auth`. Override here if the merchant's app uses something else.
+  CLOVER_WEBHOOK_SIGNATURE_HEADER: z.string().default('x-clover-signature'),
   JWT_ISSUER: z.string().default('tcg-toolkit'),
   JWT_AUDIENCE: z.string().default('tcg-toolkit-api'),
   JWT_ACCESS_TTL_SECONDS: z.coerce.number().int().positive().default(900),
@@ -26,18 +30,13 @@ const Env = z.object({
   REFRESH_COOKIE_NAME: z.string().default('tcg_refresh'),
   COOKIE_DOMAIN: z.string().optional(),
 
-  TCGAPI_BASE_URL: z.string().default('https://api.tcgapi.dev'),
+  TCGAPI_BASE_URL: z.string().default('https://api.tcgapi.dev/v1'),
   TCGAPI_KEY: z.string().optional(),
 
   CLOVER_BASE_URL: z.string().default('https://sandbox.dev.clover.com'),
   CLOVER_ACCESS_TOKEN: z.string().optional(),
   CLOVER_MERCHANT_ID: z.string().optional(),
   CLOVER_WEBHOOK_SIGNING_SECRET: z.string().optional(),
-
-  R2_BUCKET: z.string().optional(),
-  R2_ACCOUNT_ID: z.string().optional(),
-  R2_ACCESS_KEY_ID: z.string().optional(),
-  R2_SECRET_ACCESS_KEY: z.string().optional(),
 
   SENTRY_DSN: z.string().optional(),
 });

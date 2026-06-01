@@ -1,4 +1,4 @@
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 import jwt, { type SignOptions } from 'jsonwebtoken';
 import { randomBytes, createHash } from 'node:crypto';
 import { and, eq, gt, isNull } from 'drizzle-orm';

@@ -6,17 +6,16 @@
  */
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { getDb, getPool } from './client';
+import { getLogger } from '../common/logger';
 
 async function main() {
   const db = getDb();
   await migrate(db, { migrationsFolder: './drizzle' });
-  // eslint-disable-next-line no-console
-  console.log('drizzle migrations applied');
+  getLogger().info('drizzle migrations applied');
   await getPool().end();
 }
 
 main().catch((err) => {
-  // eslint-disable-next-line no-console
-  console.error('migration failed', err);
+  getLogger().fatal({ err }, 'migration failed');
   process.exit(1);
 });

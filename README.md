@@ -17,7 +17,7 @@ for in-store checkout.
 | Database     | PostgreSQL 16 + Drizzle ORM (`drizzle-kit` migrations)                 |
 | Cache/queues | Redis (BullMQ + Socket.IO Redis adapter)                               |
 | Hosting      | Render (web, worker, cron, static, Postgres, Key Value)                |
-| POS          | **Clover** (MVP); behind a `PosProvider` interface for future swaps    |
+| POS          | **Clover** (exclusive payment processor)                               |
 | Catalog      | **TCGapi.dev** (sole source for product, pricing, and card data)       |
 
 ## Repo layout
@@ -99,11 +99,28 @@ Drizzle migrations should run on deploy via a Render *pre-deploy* command
                                               TCGapi.dev / Clover
 ```
 
+## SKU barcodes
+
+Every SKU's `barcode` column equals its primary-key UUID; scanners therefore
+read the SKU directly without a separate lookup table. Image endpoints:
+
+| Endpoint                                         | Returns                |
+|--------------------------------------------------|------------------------|
+| `GET /api/skus/:id/barcode.png?format=code128`   | Code 128 PNG (default) |
+| `GET /api/skus/:id/barcode.png?format=qr`        | QR code PNG            |
+| `GET /api/barcodes/:token.png?format=...`        | Same, keyed on barcode |
+| `POST /api/skus/labels.pdf`                      | Avery 5160 PDF sheet   |
+
+`POST /api/skus/labels.pdf` accepts `{ items: [{ skuId, copies? }, ...] }`
+(up to 500 labels total) and returns a 30-per-page PDF ready for Avery 5160
+stock. Existing rows can be backfilled with
+`npm run backfill:sku-barcodes -w @tcg/api`.
+
 Key flows:
 - **Scan → Cart:** `POST /api/scans` resolves a barcode to a SKU (via TCGapi.dev),
   reserves stock, and emits `cart.itemAdded` over WS.
 - **Checkout:** `POST /api/orders/:id/checkout` starts a Clover terminal payment
-  through the `PosProvider` adapter. Clover's payment/order webhook decrements
+  through `CloverClient`. Clover's payment/order webhook decrements
   `qty_on_hand` and emits `order.completed`.
 - **Trade-In:** `POST /api/tradeins` accepts a `CreateTradeRequest` (location,
   payout kind, items with condition/printing/language/quantity), suggests a

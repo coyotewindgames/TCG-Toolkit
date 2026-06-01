@@ -5,7 +5,6 @@ import { loadEnv } from '../config/env';
 export const QUEUE_NAMES = {
   priceRefresh: 'price.refresh',
   catalogSync: 'catalog.sync',
-  imageMirror: 'image.mirror',
   webhookRetry: 'webhook.retry',
 } as const;
 
@@ -33,7 +32,6 @@ export function getQueues(): Record<keyof typeof QUEUE_NAMES, Queue> {
   queues = {
     priceRefresh: new Queue(QUEUE_NAMES.priceRefresh, { connection }),
     catalogSync: new Queue(QUEUE_NAMES.catalogSync, { connection }),
-    imageMirror: new Queue(QUEUE_NAMES.imageMirror, { connection }),
     webhookRetry: new Queue(QUEUE_NAMES.webhookRetry, { connection }),
   };
   return queues;

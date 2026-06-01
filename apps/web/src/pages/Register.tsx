@@ -32,6 +32,11 @@ function formatMoney(cents: number) {
 export default function RegisterPage() {
   const [orderId, setOrderId] = useState<string | null>(null);
   const [lines, setLines] = useState<Line[]>([]);
+  const [totals, setTotals] = useState<AddItemResult['totals']>({
+    subtotalCents: 0,
+    taxCents: 0,
+    totalCents: 0,
+  });
   const [status, setStatus] = useState<'idle' | 'scanning' | 'checkout' | 'paid'>('idle');
   const [lastError, setLastError] = useState<string | null>(null);
 
@@ -54,6 +59,7 @@ export default function RegisterPage() {
     const onItem = (msg: { orderId: string; line: AddItemResult['line']; totals: AddItemResult['totals'] }) => {
       if (msg.orderId !== orderId) return;
       const line = msg.line;
+      setTotals(msg.totals);
       setLines((prev) => {
         const i = prev.findIndex((l) => l.skuId === line.skuId);
         if (i >= 0) {
@@ -90,6 +96,7 @@ export default function RegisterPage() {
     try {
       const r = await api.post<AddItemResult>(`/orders/${orderId}/items`, { barcode });
       // optimistic: server will also emit cart.itemAdded via WS
+      setTotals(r.totals);
       setLines((prev) => {
         const i = prev.findIndex((l) => l.skuId === r.line.skuId);
         if (i >= 0) {
@@ -118,9 +125,9 @@ export default function RegisterPage() {
     }
   });
 
-  const subtotal = lines.reduce((acc, l) => acc + l.unitPriceCents * l.qty, 0);
-  const taxCents = Math.round(subtotal * 0.07);
-  const total = subtotal + taxCents;
+  const subtotal = totals.subtotalCents;
+  const taxCents = totals.taxCents;
+  const total = totals.totalCents;
 
   async function checkout() {
     if (!orderId) return;
@@ -161,7 +168,7 @@ export default function RegisterPage() {
       <aside className="col-span-4 bg-slate-900 rounded-2xl p-4 flex flex-col">
         <h2 className="text-lg font-semibold mb-4">Totals</h2>
         <Row label="Subtotal" value={formatMoney(subtotal)} />
-        <Row label="Tax (est.)" value={formatMoney(taxCents)} />
+        <Row label="Tax" value={formatMoney(taxCents)} />
         <div className="border-t border-slate-800 my-2" />
         <Row label="Total" value={formatMoney(total)} large />
         <button

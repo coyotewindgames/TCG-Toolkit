@@ -17,7 +17,7 @@ export class ScansService {
         condition: schema.skus.condition,
         printing: schema.skus.printing,
         language: schema.skus.language,
-        imageUrl: schema.products.imageCdnUrl,
+        imageUrl: schema.products.imageSourceUrl,
         sellPriceCents: schema.currentPrices.sellPriceCents,
       })
       .from(schema.skus)

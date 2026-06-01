@@ -3,6 +3,7 @@ import { Server, type Socket } from 'socket.io';
 import { createAdapter } from '@socket.io/redis-adapter';
 import { SOCKET_EVENTS } from '@tcg/shared';
 import { loadEnv, isProd } from '../../config/env';
+import { getLogger } from '../../common/logger';
 import { duplicateRedis } from '../redis';
 import { verifyAccessToken, type JwtClaims } from '../auth/service';
 
@@ -37,8 +38,7 @@ export async function initRealtime(http: HttpServer): Promise<Server> {
     const sub = duplicateRedis();
     io.adapter(createAdapter(pub, sub));
   } catch (err) {
-    // eslint-disable-next-line no-console
-    console.warn('[socket.io] redis adapter unavailable, falling back to memory', err);
+    getLogger().warn({ err }, '[socket.io] redis adapter unavailable, falling back to memory');
   }
 
   io.use((socket, next) => {
@@ -95,6 +95,12 @@ export function emitToRegister(
 
 export function emitToOrder(orderId: string, event: string, payload: unknown): void {
   io?.to(`order:${orderId}`).emit(event, payload);
+}
+
+export async function closeRealtime(): Promise<void> {
+  if (!io) return;
+  await new Promise<void>((resolve) => io!.close(() => resolve()));
+  io = null;
 }
 
 export { SOCKET_EVENTS };

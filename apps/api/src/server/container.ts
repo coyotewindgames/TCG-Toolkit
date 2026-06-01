@@ -2,10 +2,9 @@
  * Composition root: instantiate services once and pass them to route factories.
  * Express does not enforce DI; this module keeps wiring explicit and testable.
  */
-import { getDb } from '../db/client';
+import { getDb, type Database } from '../db/client';
 import { CloverClient } from '../integrations/pos/clover';
 import { TcgapiClient } from '../integrations/tcgapi/client';
-import type { PosProvider } from '../integrations/pos/provider';
 import { BarcodeService } from './services/barcode';
 import { CheckoutService } from './services/checkout';
 import { InventoryService } from './services/inventory';
@@ -16,6 +15,7 @@ import { ScansService } from './services/scans';
 import { TradeinsService } from './services/tradeins';
 
 export interface Container {
+  db: Database;
   products: ProductsService;
   scans: ScansService;
   inventory: InventoryService;
@@ -24,7 +24,7 @@ export interface Container {
   checkout: CheckoutService;
   tradeins: TradeinsService;
   barcode: BarcodeService;
-  pos: PosProvider;
+  pos: CloverClient;
   tcgapi: TcgapiClient;
 }
 
@@ -33,7 +33,7 @@ let cached: Container | null = null;
 export function buildContainer(): Container {
   if (cached) return cached;
   const db = getDb();
-  const pos: PosProvider = new CloverClient();
+  const pos = new CloverClient();
   const tcgapi = new TcgapiClient();
 
   const products = new ProductsService(db);
@@ -46,6 +46,7 @@ export function buildContainer(): Container {
   const barcode = new BarcodeService();
 
   cached = {
+    db,
     products,
     scans,
     inventory,

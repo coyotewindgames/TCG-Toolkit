@@ -2,14 +2,14 @@ import { and, eq, inArray } from 'drizzle-orm';
 import type { CheckoutRequest } from '@tcg/shared';
 import { schema, type Database } from '../../db/client';
 import { BadRequest } from '../../common/http-errors';
-import type { PosProvider } from '../../integrations/pos/provider';
+import type { CloverClient } from '../../integrations/pos/clover';
 import { OrdersService } from './orders';
 
 export class CheckoutService {
   constructor(
     private readonly db: Database,
     private readonly orders: OrdersService,
-    private readonly pos: PosProvider,
+    private readonly pos: CloverClient,
   ) {}
 
   /**

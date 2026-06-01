@@ -90,7 +90,7 @@ envVarGroups:
       - key: JWT_SECRET
         generateValue: true
       - key: TCGAPI_BASE_URL
-        value: https://api.tcgapi.dev
+        value: https://api.tcgapi.dev/v1
       - key: TCGAPI_KEY
         sync: false
       - key: CLOVER_BASE_URL
@@ -100,12 +100,4 @@ envVarGroups:
       - key: CLOVER_MERCHANT_ID
         sync: false
       - key: CLOVER_WEBHOOK_SIGNING_SECRET
-        sync: false
-      - key: R2_BUCKET
-        sync: false
-      - key: R2_ACCOUNT_ID
-        sync: false
-      - key: R2_ACCESS_KEY_ID
-        sync: false
-      - key: R2_SECRET_ACCESS_KEY
         sync: false

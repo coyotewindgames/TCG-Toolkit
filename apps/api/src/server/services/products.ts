@@ -1,4 +1,4 @@
-import { and, eq, ilike, or, sql } from 'drizzle-orm';
+import { and, eq, ilike, or } from 'drizzle-orm';
 import { schema, type Database } from '../../db/client';
 import { NotFound } from '../../common/http-errors';
 
@@ -33,25 +33,5 @@ export class ProductsService {
       .limit(1);
     if (!row) throw NotFound(`product ${productId} not found`);
     return row;
-  }
-
-  /**
-   * Full-text search via the generated `search_tsv` column.
-   * Falls back to ILIKE if the tsvector column hasn't been populated.
-   */
-  async fullTextSearch(storeId: string, query: string, limit = 25) {
-    const trimmed = query.trim();
-    if (!trimmed) return [];
-    const tsQuery = trimmed.split(/\s+/).map((t) => `${t}:*`).join(' & ');
-    return this.db
-      .select()
-      .from(schema.products)
-      .where(
-        and(
-          eq(schema.products.storeId, storeId),
-          sql`search_tsv @@ to_tsquery('simple', ${tsQuery})`,
-        ),
-      )
-      .limit(limit);
   }
 }

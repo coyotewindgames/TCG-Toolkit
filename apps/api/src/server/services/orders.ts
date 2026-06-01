@@ -55,6 +55,7 @@ export class OrdersService {
         skuId: scan.skuId,
         quantity: 1,
         unitPriceCents: scan.priceCents,
+        productNameSnapshot: scan.name,
       })
       .returning();
     if (!line) throw new Error('failed to add line');

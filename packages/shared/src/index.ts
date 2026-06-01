@@ -19,8 +19,8 @@ export type UserRole = (typeof USER_ROLES)[number];
 export const PRICE_SOURCES = [
   'tcgapi_market',
   'tcgapi_low',
-  'tcgapi_mid',
-  'tcgapi_high',
+  'tcgapi_median',
+  'tcgapi_buylist',
   'manual_override',
 ] as const;
 export type PriceSource = (typeof PRICE_SOURCES)[number];
@@ -47,8 +47,9 @@ export type TradeStatus = (typeof TRADE_STATUSES)[number];
 export const PAYOUT_KINDS = ['cash', 'store_credit'] as const;
 export type PayoutKind = (typeof PAYOUT_KINDS)[number];
 
+/** Allowed POS provider literal. Clover is the exclusive payment processor. */
 export const POS_PROVIDERS = ['clover'] as const;
-export type PosProvider = (typeof POS_PROVIDERS)[number];
+export type PosProviderName = (typeof POS_PROVIDERS)[number];
 
 export const GAMES = [
   'mtg',
@@ -175,7 +176,7 @@ export interface InventoryUpdatedEvent {
 export interface OrderCompletedEvent {
   orderId: string;
   totalCents: number;
-  paymentProvider: PosProvider;
+  paymentProvider: PosProviderName;
   receiptUrl: string | null;
 }
 

@@ -17,6 +17,7 @@ import { healthRouter } from './routes/health';
 import { ordersRouter } from './routes/orders';
 import { productsRouter } from './routes/products';
 import { scansRouter } from './routes/scans';
+import { skusRouter, barcodesRouter } from './routes/skus';
 import { tradeinsRouter } from './routes/tradeins';
 import { webhooksRouter } from './routes/webhooks';
 
@@ -74,6 +75,8 @@ export function createApp(): Express {
     app.use(`${prefix}/scans`, scansRouter(container));
     app.use(`${prefix}/orders`, ordersRouter(container));
     app.use(`${prefix}/tradeins`, tradeinsRouter(container));
+    app.use(`${prefix}/skus`, skusRouter(container));
+    app.use(`${prefix}/barcodes`, barcodesRouter(container));
   }
   // Webhooks intentionally mount only at /webhooks (no /api prefix) so the
   // raw-body middleware path stays in lockstep with the registered routes.

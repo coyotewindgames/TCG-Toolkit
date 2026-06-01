@@ -64,14 +64,13 @@ export const tradeStatusEnum = pgEnum('trade_status', [
   'completed',
 ]);
 export const payoutKindEnum = pgEnum('payout_kind', ['cash', 'store_credit']);
-// MVP supports Clover only; the enum stays a single-value enum so future
-// providers slot in via a one-line migration.
+// Clover is the exclusive POS provider for this system.
 export const posProviderEnum = pgEnum('pos_provider', ['clover']);
 export const priceSourceEnum = pgEnum('price_source', [
   'tcgapi_market',
   'tcgapi_low',
-  'tcgapi_mid',
-  'tcgapi_high',
+  'tcgapi_median',
+  'tcgapi_buylist',
   'manual_override',
 ]);
 export const gameEnum = pgEnum('game', [
@@ -161,7 +160,6 @@ export const products = pgTable(
       .notNull()
       .references(() => stores.id, { onDelete: 'cascade' }),
     tcgapiProductId: text('tcgapi_product_id'),
-    externalProductId: text('external_product_id'),
     game: gameEnum('game').notNull().default('other'),
     name: text('name').notNull(),
     setName: text('set_name'),
@@ -170,7 +168,6 @@ export const products = pgTable(
     rarity: text('rarity'),
     type: text('type'),
     imageSourceUrl: text('image_source_url'),
-    imageCdnUrl: text('image_cdn_url'),
     attributes: jsonb('attributes').$type<Record<string, unknown>>().notNull().default({}),
     searchTsv: text('search_tsv'), // generated tsvector; actual GENERATED column added in migration
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -196,9 +193,10 @@ export const skus = pgTable(
     condition: cardConditionEnum('condition').notNull(),
     printing: cardPrintingEnum('printing').notNull(),
     language: cardLanguageEnum('language').notNull().default('EN'),
+    /** Always equal to skus.id. Kept as a dedicated column so the unique
+     *  scanner-lookup index (`skus_barcode_uq`) is independent of PK type. */
     barcode: varchar('barcode', { length: 64 }).notNull(),
     internalSku: varchar('internal_sku', { length: 64 }).notNull(),
-    tcgapiSkuId: text('tcgapi_sku_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
@@ -318,6 +316,10 @@ export const orderItems = pgTable(
     // Snapshot of price at scan time so price drift doesn't change the cart.
     unitPriceCents: integer('unit_price_cents').notNull(),
     discountCents: integer('discount_cents').notNull().default(0),
+    // Snapshots taken at scan time so receipt reprints stay accurate even after
+    // the product is renamed or tax rates change.
+    productNameSnapshot: text('product_name_snapshot'),
+    taxRateBps: integer('tax_rate_bps').notNull().default(0),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
@@ -420,7 +422,7 @@ export const webhookEvents = pgTable(
   'webhook_events',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    provider: text('provider').notNull(), // 'square' | 'clover' | 'collectr' | ...
+    provider: text('provider').notNull(), // always 'clover'
     providerEventId: text('provider_event_id').notNull(),
     eventType: text('event_type').notNull(),
     signatureOk: boolean('signature_ok').notNull(),
@@ -431,6 +433,7 @@ export const webhookEvents = pgTable(
   (t) => ({
     uq: unique('webhook_events_provider_id_uq').on(t.provider, t.providerEventId),
     byType: index('webhook_events_type_idx').on(t.provider, t.eventType),
+    bySignature: index('webhook_events_signature_idx').on(t.signatureOk, t.receivedAt),
   }),
 );
 
