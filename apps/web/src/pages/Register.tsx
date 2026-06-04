@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
+import { useSession } from '../hooks/useSession';
 import { api } from '../lib/api';
 import { getSocket } from '../lib/socket';
 
@@ -30,6 +31,7 @@ function formatMoney(cents: number) {
 }
 
 export default function RegisterPage() {
+  const session = useSession();
   const [orderId, setOrderId] = useState<string | null>(null);
   const [lines, setLines] = useState<Line[]>([]);
   const [totals, setTotals] = useState<AddItemResult['totals']>({
@@ -42,14 +44,15 @@ export default function RegisterPage() {
 
   // Ensure we have an order id
   useEffect(() => {
+    if (!session.locationId) return;
     (async () => {
       const r = await api.post<{ id: string }>('/orders', {
-        locationId: import.meta.env.VITE_LOCATION_ID,
-        ...(import.meta.env.VITE_REGISTER_ID ? { registerId: import.meta.env.VITE_REGISTER_ID } : {}),
+        locationId: session.locationId,
+        ...(session.registerId ? { registerId: session.registerId } : {}),
       });
       setOrderId(r.id);
     })().catch((e) => setLastError(String(e)));
-  }, []);
+  }, [session.locationId, session.registerId]);
 
   // Subscribe to socket events for this register/order
   useEffect(() => {

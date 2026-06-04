@@ -5,24 +5,25 @@ import { BadRequest } from '../../common/http-errors';
 import type { CloverClient } from '../../integrations/pos/clover';
 import { OrdersService } from './orders';
 
+export type PosFactory = (storeId: string) => Promise<CloverClient>;
+
 export class CheckoutService {
   constructor(
     private readonly db: Database,
     private readonly orders: OrdersService,
-    private readonly pos: CloverClient,
+    private readonly posFor: PosFactory,
   ) {}
 
   /**
-   * Start a POS terminal checkout for an existing local order.
-   *
-   *   1) snapshot line items into the POS as ad-hoc items
-   *   2) start a terminal checkout pointing at the paired device
-   *   3) store POS ids on the order; mark as `pending_payment`
-   *   4) wait for the POS webhook to settle inventory (commit signal)
+   * Start a POS terminal checkout for an existing local order. The Clover
+   * client is built per-call so each store's encrypted credentials are
+   * resolved fresh (with ConfigService's cache absorbing the hot path).
    */
   async start(storeId: string, orderId: string, req: CheckoutRequest) {
     const { order, items } = await this.orders.findById(storeId, orderId);
     if (items.length === 0) throw BadRequest('order has no items');
+
+    const pos = await this.posFor(storeId);
 
     const skuIds = items.map((line) => line.skuId);
     const skuRows = await this.db
@@ -38,13 +39,13 @@ export class CheckoutService {
       unitPriceCents: line.unitPriceCents,
     }));
 
-    const created = await this.pos.createOrder({
+    const created = await pos.createOrder({
       referenceId: order.id,
       lineItems,
       tipCents: req.tipCents,
     });
 
-    const checkout = await this.pos.startTerminalCheckout({
+    const checkout = await pos.startTerminalCheckout({
       referenceId: order.id,
       posOrderId: created.posOrderId,
       deviceId: req.deviceId,
@@ -56,7 +57,7 @@ export class CheckoutService {
       .update(schema.orders)
       .set({
         status: 'pending_payment',
-        posProvider: this.pos.name,
+        posProvider: pos.name,
         posOrderId: created.posOrderId,
         posCheckoutId: checkout.posCheckoutId,
         tipCents: req.tipCents ?? 0,
@@ -64,7 +65,7 @@ export class CheckoutService {
       .where(and(eq(schema.orders.id, order.id), eq(schema.orders.storeId, storeId)));
 
     return {
-      provider: this.pos.name,
+      provider: pos.name,
       posOrderId: created.posOrderId,
       posCheckoutId: checkout.posCheckoutId,
       status: checkout.status,

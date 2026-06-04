@@ -98,7 +98,7 @@ export async function authenticateLocal(
   password: string,
 ): Promise<AuthenticatedUser> {
   if (!email || !password) throw BadRequest('email and password required');
-  const user = await findUserByEmail(email);
+  const user = await findUserByEmail(email.toLowerCase());
   if (!user || user.disabledAt) throw Unauthorized('invalid credentials');
   const ok = await verifyPassword(password, user.passwordHash);
   if (!ok) throw Unauthorized('invalid credentials');

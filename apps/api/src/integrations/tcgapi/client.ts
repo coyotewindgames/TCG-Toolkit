@@ -13,7 +13,6 @@
  *
  * Only the endpoints the rest of the codebase actually uses are exposed.
  */
-import { loadEnv, type Env } from '../../config/env';
 
 // ---- Wire-format types (mirror the API's snake_case payload) ---------------
 
@@ -102,14 +101,19 @@ export interface TcgapiPage<T> {
 
 const RETRY_STATUSES = new Set([429, 500, 502, 503, 504]);
 
+export interface TcgapiClientConfig {
+  baseUrl: string;
+  apiKey: string;
+}
+
 export class TcgapiClient {
   private readonly baseUrl: string;
-  private readonly apiKey: string | undefined;
+  private readonly apiKey: string;
 
-  constructor(env: Env = loadEnv()) {
-    const raw = env.TCGAPI_BASE_URL.replace(/\/+$/, '');
+  constructor(config: TcgapiClientConfig) {
+    const raw = (config.baseUrl ?? '').replace(/\/+$/, '');
     this.baseUrl = /\/v\d+$/.test(raw) ? raw : `${raw}/v1`;
-    this.apiKey = env.TCGAPI_KEY;
+    this.apiKey = config.apiKey;
   }
 
   // ---- Catalog reads ------------------------------------------------------
@@ -117,11 +121,13 @@ export class TcgapiClient {
   async search(opts: {
     q: string;
     game?: string;
+    setId?: string;
     page?: number;
     perPage?: number;
   }): Promise<TcgapiPage<TcgapiCard>> {
     const params = new URLSearchParams({ q: opts.q });
     if (opts.game) params.set('game', opts.game);
+    if (opts.setId) params.set('set_id', opts.setId);
     if (opts.page) params.set('page', String(opts.page));
     if (opts.perPage) params.set('per_page', String(opts.perPage));
     const body = await this.get<TcgapiEnvelope<TcgapiCardWire[]>>(`/search?${params.toString()}`);
@@ -172,10 +178,36 @@ export class TcgapiClient {
   }
 
   async listSetsByGame(gameSlug: string): Promise<TcgapiSet[]> {
-    const body = await this.get<
-      TcgapiEnvelope<Array<{ id: number | string; name: string; slug?: string }>>
-    >(`/games/${encodeURIComponent(gameSlug)}/sets`);
-    return body.data.map((s) => ({ id: String(s.id), name: s.name, slug: s.slug }));
+    const all: TcgapiSet[] = [];
+    let page = 1;
+    while (page <= 20) {
+      const body = await this.get<
+        TcgapiEnvelope<Array<{ id: number | string; name: string; slug?: string }>>
+      >(`/games/${encodeURIComponent(gameSlug)}/sets?page=${page}&per_page=100`);
+      for (const s of body.data) all.push({ id: String(s.id), name: s.name, slug: s.slug });
+      if (!body.meta?.has_more) break;
+      page++;
+    }
+    return all;
+  }
+
+  /**
+   * Returns every card in a given set, walking all pages. Used to build a
+   * local set-card index so we can match by `number` without one search per
+   * card (free-tier rate limits are tight).
+   */
+  async listCardsInSet(setId: string): Promise<TcgapiCard[]> {
+    const all: TcgapiCard[] = [];
+    let page = 1;
+    while (page <= 50) {
+      const body = await this.get<TcgapiEnvelope<TcgapiCardWire[]>>(
+        `/sets/${encodeURIComponent(setId)}/cards?page=${page}&per_page=100`,
+      );
+      for (const c of body.data) all.push(mapCard(c));
+      if (!body.meta?.has_more) break;
+      page++;
+    }
+    return all;
   }
 
   // ---- HTTP plumbing ------------------------------------------------------

@@ -109,6 +109,37 @@ export const LoginRequest = z.object({
 });
 export type LoginRequest = z.infer<typeof LoginRequest>;
 
+export const SignupRequest = z.object({
+  storeName: z.string().min(2).max(120),
+  ownerEmail: z.string().email(),
+  ownerPassword: z.string().min(8).max(128),
+  ownerName: z.string().min(1).max(120),
+  timezone: z.string().min(1).max(64).optional(),
+});
+export type SignupRequest = z.infer<typeof SignupRequest>;
+
+export const ForgotPasswordRequest = z.object({
+  email: z.string().email(),
+});
+export type ForgotPasswordRequest = z.infer<typeof ForgotPasswordRequest>;
+
+export const ResetPasswordRequest = z.object({
+  token: z.string().min(16).max(256),
+  password: z.string().min(8).max(128),
+});
+export type ResetPasswordRequest = z.infer<typeof ResetPasswordRequest>;
+
+export const LocationSummary = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+});
+export type LocationSummary = z.infer<typeof LocationSummary>;
+
+export const CreateLocationRequest = z.object({
+  name: z.string().min(1).max(120),
+});
+export type CreateLocationRequest = z.infer<typeof CreateLocationRequest>;
+
 export const AuthTokens = z.object({
   accessToken: z.string(),
   expiresIn: z.number().int().positive(),

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { api } from '../lib/api';
+import { useSession } from '../hooks/useSession';
 
 type ScanResponse = {
   skuId: string;
@@ -13,6 +14,7 @@ type ScanResponse = {
 type Line = ScanResponse & { quantity: number };
 
 export default function TradeInPage() {
+  const session = useSession();
   const [items, setItems] = useState<Line[]>([]);
   const [barcode, setBarcode] = useState('');
   const [payout, setPayout] = useState<'cash' | 'store_credit'>('store_credit');
@@ -34,7 +36,7 @@ export default function TradeInPage() {
       const r = await api.post<{ id: string; status: string; totalValueCents: number }>(
         '/tradeins',
         {
-          locationId: import.meta.env.VITE_LOCATION_ID,
+          locationId: session.locationId,
           payout,
           items: items.map((i) => ({
             skuId: i.skuId,

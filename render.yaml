@@ -17,6 +17,11 @@ services:
         value: 10000
       - key: CORS_ORIGIN
         sync: false
+      # Optional: scope the refresh cookie to a parent domain so the api and
+      # web subdomains share it (e.g. ".tcgtoolkit.com"). Leave unset to keep
+      # the cookie host-only.
+      - key: COOKIE_DOMAIN
+        sync: false
       - key: SENTRY_DSN
         sync: false
 
@@ -89,15 +94,7 @@ envVarGroups:
           property: connectionString
       - key: JWT_SECRET
         generateValue: true
-      - key: TCGAPI_BASE_URL
-        value: https://api.tcgapi.dev/v1
-      - key: TCGAPI_KEY
-        sync: false
-      - key: CLOVER_BASE_URL
-        sync: false
-      - key: CLOVER_ACCESS_TOKEN
-        sync: false
-      - key: CLOVER_MERCHANT_ID
-        sync: false
-      - key: CLOVER_WEBHOOK_SIGNING_SECRET
-        sync: false
+      - key: CONFIG_ENCRYPTION_KEY
+        generateValue: true
+      - key: CLOVER_WEBHOOK_SIGNATURE_HEADER
+        value: x-clover-signature

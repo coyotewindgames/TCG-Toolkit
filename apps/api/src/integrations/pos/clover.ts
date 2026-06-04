@@ -9,7 +9,6 @@
  * specific Clover device class (Mini / Flex / Station / Go).
  */
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import { loadEnv } from '../../config/env';
 
 // ---------- public input/output shapes ----------
 
@@ -79,11 +78,16 @@ export class CloverClient {
   private readonly merchantId: string;
   private readonly webhookSigningSecret: string;
 
-  constructor(env = loadEnv()) {
-    this.baseUrl = env.CLOVER_BASE_URL.replace(/\/$/, '');
-    this.token = env.CLOVER_ACCESS_TOKEN ?? '';
-    this.merchantId = env.CLOVER_MERCHANT_ID ?? '';
-    this.webhookSigningSecret = env.CLOVER_WEBHOOK_SIGNING_SECRET ?? '';
+  constructor(config: {
+    baseUrl: string;
+    accessToken: string;
+    merchantId: string;
+    webhookSigningSecret: string;
+  }) {
+    this.baseUrl = (config.baseUrl ?? '').replace(/\/$/, '');
+    this.token = config.accessToken ?? '';
+    this.merchantId = config.merchantId ?? '';
+    this.webhookSigningSecret = config.webhookSigningSecret ?? '';
   }
 
   async createOrder(opts: CloverCreateOrderInput): Promise<CloverCreateOrderResult> {

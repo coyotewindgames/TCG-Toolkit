@@ -19,6 +19,15 @@ const Env = z.object({
   WORKER_CONCURRENCY: z.coerce.number().int().positive().default(4),
 
   JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 chars'),
+  /**
+   * 32-byte key (base64 or hex) used by the vault to encrypt third-party
+   * credentials stored in Postgres (Clover access tokens, TCGapi keys, etc.).
+   * Generate with: `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`
+   *
+   * Treat as a root secret: rotating it requires re-encrypting every row in
+   * `tcgapi_configs` and `pos_configs`.
+   */
+  CONFIG_ENCRYPTION_KEY: z.string().min(32, 'CONFIG_ENCRYPTION_KEY must be a 32-byte key (base64 or hex)'),
   // Header name Clover uses to deliver the HMAC signature on inbound webhooks.
   // Defaults to the conventional `X-Clover-Signature`; older app integrations
   // send `X-Clover-Auth`. Override here if the merchant's app uses something else.
@@ -30,13 +39,22 @@ const Env = z.object({
   REFRESH_COOKIE_NAME: z.string().default('tcg_refresh'),
   COOKIE_DOMAIN: z.string().optional(),
 
-  TCGAPI_BASE_URL: z.string().default('https://api.tcgapi.dev/v1'),
-  TCGAPI_KEY: z.string().optional(),
+  // Integration credentials (TCGapi.dev, Clover) are stored encrypted in
+  // Postgres per store and managed via the settings UI. See `vault.ts` and
+  // `config-service.ts`. The legacy env vars `TCGAPI_KEY`, `CLOVER_*` are
+  // honoured only by `scripts/seed-configs-from-env.ts` for first-boot import.
 
-  CLOVER_BASE_URL: z.string().default('https://sandbox.dev.clover.com'),
-  CLOVER_ACCESS_TOKEN: z.string().optional(),
-  CLOVER_MERCHANT_ID: z.string().optional(),
-  CLOVER_WEBHOOK_SIGNING_SECRET: z.string().optional(),
+  // Email delivery (used by the password-reset flow). If RESEND_API_KEY is
+  // unset, the app logs reset links to the server console instead — fine for
+  // dev, surfaces a warning in production. MAIL_FROM must be a sender that
+  // your Resend account is allowed to send from.
+  RESEND_API_KEY: z.string().optional(),
+  MAIL_FROM: z.string().optional(),
+  /**
+   * Public base URL of the web app, used to render absolute links in emails
+   * (e.g. password reset). Defaults to localhost for dev.
+   */
+  APP_BASE_URL: z.string().default('http://localhost:5173'),
 
   SENTRY_DSN: z.string().optional(),
 });

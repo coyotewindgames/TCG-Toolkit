@@ -2,6 +2,11 @@
  * BullMQ worker. Consumes background jobs that should not block the request
  * path: price refresh from tcgapi.dev, catalog metadata refresh, and webhook
  * retry placeholder.
+ *
+ * All upstream-calling jobs carry `storeId` because TCGapi credentials live
+ * per-store in the encrypted config tables. The client is built on demand via
+ * the shared ConfigService cache so back-to-back jobs for the same store
+ * don't pay the decrypt cost twice.
  */
 import { Worker, type Processor } from 'bullmq';
 import { eq, sql } from 'drizzle-orm';
@@ -9,16 +14,19 @@ import { loadEnv } from '../config/env';
 import { getLogger } from '../common/logger';
 import { getDb, schema } from '../db/client';
 import { TcgapiClient } from '../integrations/tcgapi/client';
+import { ConfigService } from '../server/services/config-service';
 import { PricingService } from '../server/services/pricing';
 import { QUEUE_NAMES, bullConnection } from './queues';
 
 interface PriceRefreshJob {
+  storeId: string;
   skuId: string;
   tcgapiCardId: string;
   printing?: string;
 }
 
 interface CatalogSyncJob {
+  storeId: string;
   game?: string;
   page?: number;
   perPage?: number;
@@ -27,14 +35,18 @@ interface CatalogSyncJob {
 const env = loadEnv();
 const db = getDb();
 const log = getLogger();
-const tcgapi = new TcgapiClient(env);
+const configs = new ConfigService(db);
 const pricing = new PricingService(db);
 
+async function tcgapiFor(storeId: string): Promise<TcgapiClient> {
+  const creds = await configs.getTcgapi(storeId);
+  return new TcgapiClient({ baseUrl: creds.baseUrl, apiKey: creds.apiKey });
+}
+
 const refreshPrice: Processor<PriceRefreshJob> = async (job) => {
-  const { skuId, tcgapiCardId, printing } = job.data;
+  const { storeId, skuId, tcgapiCardId, printing } = job.data;
+  const tcgapi = await tcgapiFor(storeId);
   const rows = await tcgapi.getCardPrices(tcgapiCardId, { printing });
-  // If a printing was requested, find the matching row; otherwise take the
-  // first (single-printing card).
   const row = printing ? rows.find((r) => r.printing === printing) ?? rows[0] : rows[0];
   if (!row) return { skipped: true };
 
@@ -57,20 +69,27 @@ const refreshPrice: Processor<PriceRefreshJob> = async (job) => {
 };
 
 /**
- * Catalog sync refreshes name/set/image metadata for locally-known products
- * within a game. Walks our own `products` table in pages (not the upstream
- * catalog) so it works on the Starter tcgapi.dev tier without bulk access.
+ * Catalog sync refreshes name/set/image metadata for a single store's known
+ * products within a game. Walks the local `products` table in pages — the
+ * Starter tcgapi.dev tier does not include bulk endpoints.
  */
 const syncCatalog: Processor<CatalogSyncJob> = async (job) => {
+  const { storeId } = job.data;
   const game = job.data.game;
   const page = job.data.page ?? 1;
   const perPage = job.data.perPage ?? 100;
+
+  const tcgapi = await tcgapiFor(storeId);
 
   const offset = (page - 1) * perPage;
   const localProducts = await db
     .select({ id: schema.products.id, tcgapiId: schema.products.tcgapiProductId })
     .from(schema.products)
-    .where(game ? eq(schema.products.game, game as never) : sql`true`)
+    .where(
+      game
+        ? sql`${schema.products.storeId} = ${storeId} AND ${schema.products.game} = ${game}`
+        : eq(schema.products.storeId, storeId),
+    )
     .orderBy(schema.products.id)
     .limit(perPage)
     .offset(offset);
@@ -96,7 +115,7 @@ const syncCatalog: Processor<CatalogSyncJob> = async (job) => {
       log.warn({ productId: p.id, err: (err as Error).message }, 'catalog refresh failed');
     }
   }
-  return { game: game ?? null, page, refreshed, hasMore: localProducts.length === perPage };
+  return { storeId, game: game ?? null, page, refreshed, hasMore: localProducts.length === perPage };
 };
 
 const retryWebhook: Processor<{ eventId: string; provider?: string }> = async (job) => {

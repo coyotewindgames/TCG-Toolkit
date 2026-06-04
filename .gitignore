@@ -22,3 +22,6 @@ npm-debug.log*
 
 # Drizzle output (generated SQL kept in repo, but cache/temp not)
 **/.drizzle/
+
+# Per-workspace temp scratch (dev mailer log, etc.)
+**/.tmp/

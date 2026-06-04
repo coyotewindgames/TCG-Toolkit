@@ -4,6 +4,7 @@ import { schema, getDb } from '../../db/client';
 import { asyncHandler } from '../../common/async-handler';
 import { getLogger } from '../../common/logger';
 import { loadEnv } from '../../config/env';
+import { CloverClient } from '../../integrations/pos/clover';
 import { emitToOrder, SOCKET_EVENTS } from '../realtime/socket';
 import { getQueues } from '../../jobs/queues';
 import type { Container } from '../container';
@@ -14,12 +15,10 @@ import type { Container } from '../container';
  * `app.ts` mounts a raw-body capturing middleware on `/webhooks/*` BEFORE the
  * JSON parser so signature verification has the exact signed bytes.
  *
- * Each handler:
- *   1) verifies the provider signature
- *   2) writes an idempotency row (`webhook_events`, unique on (provider, event_id))
- *   3) processes the event; duplicates short-circuit
- *   4) on processing failure, enqueues `webhook.retry` for out-of-band retry
- *   5) always returns 200 so the provider stops retrying
+ * Because POS credentials now live per-store, the handler must locate the
+ * owning store BEFORE it can verify the signature. Clover always includes
+ * `merchants[0].id` in the payload; that's plaintext and indexed on
+ * `pos_configs.merchant_id`, so the lookup is one DB hit.
  */
 export function webhooksRouter(c: Container): Router {
   const r = Router();
@@ -33,16 +32,43 @@ export function webhooksRouter(c: Container): Router {
       const raw =
         (req as typeof req & { rawBody?: Buffer }).rawBody?.toString('utf8') ??
         JSON.stringify(req.body ?? {});
-      // Accept the configured header first, then a couple of common fallbacks.
       const signature =
         req.header(env.CLOVER_WEBHOOK_SIGNATURE_HEADER) ??
         req.header('x-clover-signature') ??
         req.header('x-clover-auth');
-      const ok = c.pos.verifyWebhook({ rawBody: raw, signatureHeader: signature });
-      const parsed = c.pos.parseWebhook(req.body);
+
+      const body = (req.body ?? {}) as {
+        merchants?: Array<{ id?: string }>;
+      };
+      const merchantId = body.merchants?.[0]?.id;
+
+      if (!merchantId) {
+        log.warn('clover webhook missing merchants[0].id; dropping');
+        return res.json({ ok: true });
+      }
+
+      let creds: Awaited<ReturnType<typeof c.configs.getPosByMerchantId>>;
+      try {
+        creds = await c.configs.getPosByMerchantId(merchantId);
+      } catch {
+        // Unknown merchant — not for any store we manage. 200 so Clover stops
+        // retrying; log so an operator can investigate misconfigured webhooks.
+        log.warn({ merchantId }, 'clover webhook for unknown merchant');
+        return res.json({ ok: true });
+      }
+
+      const pos = new CloverClient({
+        baseUrl: creds.baseUrl,
+        accessToken: creds.accessToken,
+        merchantId: creds.merchantId,
+        webhookSigningSecret: creds.webhookSigningSecret,
+      });
+
+      const ok = pos.verifyWebhook({ rawBody: raw, signatureHeader: signature });
+      const parsed = pos.parseWebhook(req.body);
 
       const inserted = await recordEvent(db, {
-        provider: c.pos.name,
+        provider: pos.name,
         providerEventId: parsed.providerEventId,
         eventType: parsed.eventType,
         signatureOk: ok,
@@ -50,13 +76,19 @@ export function webhooksRouter(c: Container): Router {
       });
       if (!inserted) return res.json({ ok: true });
       if (!ok) {
-        log.warn({ providerEventId: parsed.providerEventId }, 'webhook signature failed');
+        log.warn({ providerEventId: parsed.providerEventId, merchantId }, 'webhook signature failed');
         return res.json({ ok: true });
       }
 
       try {
         if (parsed.paymentCompleted && parsed.referenceId) {
-          await completeOrder(c, parsed.referenceId, parsed.posCheckoutId ?? '');
+          await completeOrder(
+            c,
+            creds.storeId,
+            pos.name,
+            parsed.referenceId,
+            parsed.posCheckoutId ?? '',
+          );
         }
       } catch (err) {
         log.error(
@@ -66,7 +98,7 @@ export function webhooksRouter(c: Container): Router {
         try {
           await getQueues().webhookRetry.add(
             'retry',
-            { eventId: parsed.providerEventId, provider: c.pos.name },
+            { eventId: parsed.providerEventId, provider: pos.name },
             { attempts: 5, backoff: { type: 'exponential', delay: 5_000 } },
           );
         } catch (qerr) {
@@ -100,19 +132,25 @@ async function recordEvent(
     });
     return true;
   } catch (err) {
-    // Only treat unique violations on (provider, provider_event_id) as
-    // duplicates; surface every other failure so we don't silently 200 to the
-    // provider while losing the event.
     const code = (err as { code?: string } | null)?.code;
     if (code === '23505') return false;
     throw err;
   }
 }
 
-async function completeOrder(c: Container, orderId: string, posCheckoutId: string): Promise<void> {
+async function completeOrder(
+  c: Container,
+  storeId: string,
+  providerName: string,
+  orderId: string,
+  posCheckoutId: string,
+): Promise<void> {
   const db = getDb();
   const result = await db.transaction(async (tx) => {
-    const [order] = await tx.select().from(schema.orders).where(eq(schema.orders.id, orderId));
+    const [order] = await tx
+      .select()
+      .from(schema.orders)
+      .where(and(eq(schema.orders.id, orderId), eq(schema.orders.storeId, storeId)));
     if (!order) return null;
     if (order.status === 'paid') return null;
 
@@ -143,7 +181,7 @@ async function completeOrder(c: Container, orderId: string, posCheckoutId: strin
   emitToOrder(result.order.id, SOCKET_EVENTS.orderCompleted, {
     orderId: result.order.id,
     totalCents: result.order.totalCents,
-    paymentProvider: c.pos.name,
+    paymentProvider: providerName,
     receiptUrl: result.order.receiptUrl ?? null,
   });
 }

@@ -14,9 +14,12 @@ import { errorHandler, notFound } from './middleware/error';
 import { rawJsonBody } from './middleware/raw-body';
 import { requestId } from './middleware/request-id';
 import { healthRouter } from './routes/health';
+import { inventoryRouter } from './routes/inventory';
+import { locationsRouter } from './routes/locations';
 import { ordersRouter } from './routes/orders';
 import { productsRouter } from './routes/products';
 import { scansRouter } from './routes/scans';
+import { settingsRouter } from './routes/settings';
 import { skusRouter, barcodesRouter } from './routes/skus';
 import { tradeinsRouter } from './routes/tradeins';
 import { webhooksRouter } from './routes/webhooks';
@@ -60,7 +63,7 @@ export function createApp(): Express {
 
   // Webhook raw-body capture MUST come before the JSON parser.
   app.use('/webhooks', rawJsonBody);
-  app.use(express.json({ limit: '1mb' }));
+  app.use(express.json({ limit: '25mb' }));
   app.use(express.urlencoded({ extended: true }));
 
   // Auth gets its own rate limiter to slow credential stuffing. The refresh
@@ -72,10 +75,13 @@ export function createApp(): Express {
   app.use(healthRouter());
   for (const prefix of ['', '/api']) {
     app.use(`${prefix}/products`, productsRouter(container));
+    app.use(`${prefix}/inventory`, inventoryRouter(container));
+    app.use(`${prefix}/locations`, locationsRouter(container));
     app.use(`${prefix}/scans`, scansRouter(container));
     app.use(`${prefix}/orders`, ordersRouter(container));
     app.use(`${prefix}/tradeins`, tradeinsRouter(container));
     app.use(`${prefix}/skus`, skusRouter(container));
+    app.use(`${prefix}/settings`, settingsRouter(container));
     app.use(`${prefix}/barcodes`, barcodesRouter(container));
   }
   // Webhooks intentionally mount only at /webhooks (no /api prefix) so the

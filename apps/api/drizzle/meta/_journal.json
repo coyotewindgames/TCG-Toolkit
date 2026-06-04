@@ -17,6 +17,20 @@
       "when": 1748736000000,
       "tag": "0001_simplify",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1748822400000,
+      "tag": "0002_config_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1780358400000,
+      "tag": "0003_password_resets",
+      "breakpoints": true
     }
   ]
 }
