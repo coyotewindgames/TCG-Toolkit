@@ -12,15 +12,15 @@ export function getPool(databaseUrl = process.env.DATABASE_URL): Pool {
     throw new Error('DATABASE_URL is not set');
   }
   if (!pool) {
+    // Detect cloud-hosted Postgres (Neon, Supabase, RDS, Render, etc.) by
+    // checking for a non-local hostname. When detected we enforce SSL so the
+    // connection string's `?sslmode=require` is respected regardless of NODE_ENV.
+    const isRemote = !/localhost|127\.0\.0\.1/.test(databaseUrl);
     pool = new Pool({
       connectionString: databaseUrl,
-      // Render's managed Postgres uses a Render-issued CA. In production we
-      // enforce SSL with certificate validation; opt-out is only allowed when
-      // explicitly requested for self-hosted/unmanaged deployments.
-      ssl:
-        process.env.NODE_ENV === 'production'
-          ? { rejectUnauthorized: process.env.PG_SSL_REJECT_UNAUTHORIZED !== 'false' }
-          : undefined,
+      ssl: isRemote
+        ? { rejectUnauthorized: process.env.PG_SSL_REJECT_UNAUTHORIZED !== 'false' }
+        : undefined,
       max: Number(process.env.PG_POOL_MAX ?? 10),
     });
   }

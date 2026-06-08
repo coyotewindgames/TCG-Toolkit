@@ -8,7 +8,7 @@
       "idx": 0,
       "version": "7",
       "when": 0,
-      "tag": "0000_init_search_and_indexes",
+      "tag": "0000_base",
       "breakpoints": true
     },
     {
@@ -30,6 +30,13 @@
       "version": "7",
       "when": 1780358400000,
       "tag": "0003_password_resets",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1780444800000,
+      "tag": "0004_search_and_indexes",
       "breakpoints": true
     }
   ]
