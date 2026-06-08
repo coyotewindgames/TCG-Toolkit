@@ -34,4 +34,21 @@ export class ProductsService {
     if (!row) throw NotFound(`product ${productId} not found`);
     return row;
   }
+
+  async listSkus(storeId: string, productId: string) {
+    const rows = await this.db
+      .select({
+        id: schema.skus.id,
+        barcode: schema.skus.barcode,
+        condition: schema.skus.condition,
+        printing: schema.skus.printing,
+        language: schema.skus.language,
+        sellPriceCents: schema.currentPrices.sellPriceCents,
+      })
+      .from(schema.skus)
+      .leftJoin(schema.currentPrices, eq(schema.currentPrices.skuId, schema.skus.id))
+      .where(and(eq(schema.skus.storeId, storeId), eq(schema.skus.productId, productId)));
+
+    return rows;
+  }
 }

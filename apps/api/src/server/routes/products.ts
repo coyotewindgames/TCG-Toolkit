@@ -24,5 +24,13 @@ export function productsRouter(c: Container): Router {
     }),
   );
 
+  r.get(
+    '/:id/skus',
+    asyncHandler(async (req, res) => {
+      const rows = await c.products.listSkus(req.user!.storeId, req.params.id);
+      res.json({ skus: rows });
+    }),
+  );
+
   return r;
 }

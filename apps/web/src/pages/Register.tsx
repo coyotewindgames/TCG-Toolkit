@@ -42,6 +42,11 @@ export default function RegisterPage() {
   const [status, setStatus] = useState<'idle' | 'scanning' | 'checkout' | 'paid'>('idle');
   const [lastError, setLastError] = useState<string | null>(null);
 
+  const remoteScanUrl =
+    orderId && typeof window !== 'undefined'
+      ? `${window.location.origin}/remote-scan?orderId=${encodeURIComponent(orderId)}`
+      : null;
+
   // Ensure we have an order id
   useEffect(() => {
     if (!session.locationId) return;
@@ -153,6 +158,12 @@ export default function RegisterPage() {
           <h1 className="text-2xl font-bold">Register</h1>
           <div className="text-sm opacity-70">Scan a label to add a card</div>
         </header>
+        {remoteScanUrl && (
+          <div className="mb-3 rounded-lg border border-slate-800 bg-slate-950 p-3">
+            <p className="text-xs text-slate-400">Open this on your phone/scanner device:</p>
+            <p className="text-xs font-mono break-all text-emerald-300">{remoteScanUrl}</p>
+          </div>
+        )}
         <ul className="divide-y divide-slate-800">
           {lines.length === 0 && <li className="py-8 text-center opacity-60">No items yet — scan to begin.</li>}
           {lines.map((l) => (

@@ -12,6 +12,7 @@ import ResetPasswordPage from './pages/ResetPassword';
 import OnboardingPage from './pages/Onboarding';
 import PickLocationPage from './pages/PickLocation';
 import RegisterPage from './pages/Register';
+import RemoteScanPage from './pages/RemoteScan';
 import InventoryPage from './pages/Inventory';
 import TradeInPage from './pages/TradeIn';
 import SettingsIntegrationsPage from './pages/SettingsIntegrations';
@@ -55,6 +56,14 @@ createRoot(root).render(
             element={
               <AuthGuard>
                 <OnboardingPage />
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/remote-scan"
+            element={
+              <AuthGuard>
+                <RemoteScanPage />
               </AuthGuard>
             }
           />

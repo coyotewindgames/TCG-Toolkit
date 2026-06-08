@@ -16,6 +16,15 @@ type Product = {
 };
 
 type ProductSearchResponse = { results: Product[] };
+type ProductSku = {
+  id: string;
+  barcode: string;
+  condition: string;
+  printing: string;
+  language: string;
+  sellPriceCents: number | null;
+};
+type ProductSkusResponse = { skus: ProductSku[] };
 
 interface ImportResult {
   totalRows: number;
@@ -32,6 +41,9 @@ interface ImportResult {
 export default function InventoryPage() {
   const [q, setQ] = useState('');
   const [toolsOpen, setToolsOpen] = useState(false);
+  const [barcodeProduct, setBarcodeProduct] = useState<Product | null>(null);
+  const [printingKey, setPrintingKey] = useState<string | null>(null);
+  const [printErr, setPrintErr] = useState<string | null>(null);
   const debounced = useDebounced(q, 250);
   const { data, isLoading } = useQuery({
     queryKey: ['products', debounced],
@@ -39,6 +51,51 @@ export default function InventoryPage() {
       api.get<ProductSearchResponse>(`/products/search?q=${encodeURIComponent(debounced)}`),
     enabled: debounced.length > 1,
   });
+  const skuQuery = useQuery({
+    queryKey: ['product-skus', barcodeProduct?.id],
+    queryFn: () => api.get<ProductSkusResponse>(`/products/${barcodeProduct!.id}/skus`),
+    enabled: !!barcodeProduct,
+  });
+
+  async function printLabels(items: Array<{ skuId: string; copies?: number }>, fileStem: string) {
+    setPrintErr(null);
+    const blob = await api.postBlob('/skus/labels.pdf', { format: 'code128', items });
+    const url = URL.createObjectURL(blob);
+    const win = window.open(url, '_blank', 'noopener,noreferrer');
+    if (!win) {
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${fileStem.replace(/[^a-z0-9]+/gi, '-').toLowerCase().slice(0, 48)}-labels.pdf`;
+      a.click();
+    }
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  }
+
+  async function onPrintOne(sku: ProductSku) {
+    try {
+      setPrintingKey(`one:${sku.id}`);
+      await printLabels([{ skuId: sku.id, copies: 1 }], barcodeProduct?.name ?? 'barcode');
+    } catch (e) {
+      setPrintErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPrintingKey(null);
+    }
+  }
+
+  async function onPrintAll() {
+    if (!skuQuery.data?.skus?.length) return;
+    try {
+      setPrintingKey('all');
+      await printLabels(
+        skuQuery.data.skus.map((s) => ({ skuId: s.id, copies: 1 })),
+        barcodeProduct?.name ?? 'barcode',
+      );
+    } catch (e) {
+      setPrintErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPrintingKey(null);
+    }
+  }
 
   return (
     <div className="p-4 md:p-6 max-w-5xl mx-auto space-y-6">
@@ -93,10 +150,93 @@ export default function InventoryPage() {
                   {p.setName} • {p.rarity}
                 </div>
               </div>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => setBarcodeProduct(p)}
+              >
+                View barcodes
+              </button>
             </li>
           ))}
         </ul>
       </section>
+
+      {barcodeProduct && (
+        <div className="fixed inset-0 z-50">
+          <button
+            type="button"
+            aria-label="Close barcode popup"
+            className="absolute inset-0 bg-black/70"
+            onClick={() => setBarcodeProduct(null)}
+          />
+          <div className="absolute inset-x-4 top-8 bottom-8 md:inset-x-12 md:top-12 md:bottom-12 bg-slate-900 border border-slate-700 rounded-2xl overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800">
+              <div>
+                <h2 className="text-lg font-semibold">Barcodes</h2>
+                <p className="text-sm text-slate-400">{barcodeProduct.name}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={onPrintAll}
+                  disabled={printingKey === 'all' || (skuQuery.data?.skus.length ?? 0) === 0}
+                >
+                  {printingKey === 'all' ? 'Printing all…' : 'Print all labels'}
+                </button>
+                <button type="button" className="btn" onClick={() => setBarcodeProduct(null)}>
+                  Close
+                </button>
+              </div>
+            </div>
+
+            <div className="p-4 overflow-auto space-y-3">
+              {skuQuery.isLoading && <p className="text-slate-400">Loading barcodes…</p>}
+              {skuQuery.error && (
+                <p className="text-rose-300 text-sm">{String(skuQuery.error)}</p>
+              )}
+              {printErr && <p className="text-rose-300 text-sm">{printErr}</p>}
+              {!skuQuery.isLoading && (skuQuery.data?.skus.length ?? 0) === 0 && (
+                <p className="text-slate-400">No SKUs found for this product yet.</p>
+              )}
+
+              {(skuQuery.data?.skus ?? []).map((sku) => (
+                <article
+                  key={sku.id}
+                  className="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-2"
+                >
+                  <div className="text-sm text-slate-300 flex flex-wrap gap-2">
+                    <span>{sku.condition}</span>
+                    <span>• {sku.printing}</span>
+                    <span>• {sku.language}</span>
+                    {typeof sku.sellPriceCents === 'number' && (
+                      <span>• ${(sku.sellPriceCents / 100).toFixed(2)}</span>
+                    )}
+                  </div>
+                  <img
+                    src={`${import.meta.env.VITE_API_URL ?? ''}/api/skus/${sku.id}/barcode.png?format=code128`}
+                    alt={`Barcode for ${barcodeProduct.name}`}
+                    className="w-full max-w-xl h-20 object-contain bg-white rounded-md p-2"
+                    loading="lazy"
+                  />
+                  <p className="font-mono text-xs text-slate-400 break-all">{sku.barcode}</p>
+                  <div>
+                    <button
+                      type="button"
+                      className="btn"
+                      onClick={() => onPrintOne(sku)}
+                      disabled={printingKey === `one:${sku.id}` || printingKey === 'all'}
+                    >
+                      {printingKey === `one:${sku.id}` ? 'Printing…' : 'Print this label'}
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       <SidePanel
         open={toolsOpen}
