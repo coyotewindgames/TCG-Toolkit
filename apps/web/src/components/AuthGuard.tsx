@@ -21,13 +21,19 @@ export function AuthGuard({ children }: { children: ReactNode }) {
     if (!session.bootstrapping) return;
     let cancelled = false;
     void (async () => {
-      const token = await refreshAccessToken();
-      if (cancelled) return;
-      if (!token) {
-        // No real session — try dev fallback if configured.
-        tryDevUserBootstrap();
+      try {
+        const token = await refreshAccessToken();
+        if (cancelled) return;
+        if (!token) {
+          // No real session — try dev fallback if configured.
+          tryDevUserBootstrap();
+        }
+      } catch {
+        // Network/CORS error during refresh — treat as logged out so the UI
+        // can route to /welcome instead of hanging on the loading screen.
+      } finally {
+        if (!cancelled) setBootstrapping(false);
       }
-      setBootstrapping(false);
     })();
     return () => {
       cancelled = true;
