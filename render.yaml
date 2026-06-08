@@ -98,7 +98,7 @@ services:
 
 databases:
   - name: tcg-postgres
-    plan: starter
+    plan: free
     region: oregon
     postgresMajorVersion: '16'
 
