@@ -13,22 +13,24 @@
   "dependencies": {
     "@tanstack/react-query": "^5.56.2",
     "@tcg/shared": "*",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.1",
     "@zxing/browser": "^0.1.5",
+    "autoprefixer": "^10.4.20",
     "clsx": "^2.1.1",
+    "postcss": "^8.4.45",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router-dom": "^6.26.2",
     "socket.io-client": "^4.8.0",
-    "zustand": "^4.5.5"
-  },
-  "devDependencies": {
-    "@types/react": "^19.0.0",
-    "@types/react-dom": "^19.0.0",
-    "@vitejs/plugin-react": "^4.3.1",
-    "autoprefixer": "^10.4.20",
-    "postcss": "^8.4.45",
     "tailwindcss": "^3.4.10",
     "typescript": "^5.5.4",
-    "vite": "^5.4.6"
+    "vite": "^5.4.6",
+    "zustand": "^4.5.5"
+  },
+  "devDependencies": {},
+  "optionalDependencies": {
+    "@rollup/rollup-win32-x64-msvc": "^4.61.1"
   }
 }
