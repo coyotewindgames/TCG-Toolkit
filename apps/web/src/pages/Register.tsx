@@ -31,6 +31,14 @@ function formatMoney(cents: number) {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
+function toBase64UrlJson(value: unknown): string {
+  const text = JSON.stringify(value);
+  const bytes = new TextEncoder().encode(text);
+  let bin = '';
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
 function isLocalOrigin(origin: string) {
   return /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i.test(origin);
 }
@@ -57,8 +65,15 @@ export default function RegisterPage() {
       : null;
 
   const remoteScanUrl =
-    orderId && remoteScanBase
-      ? `${remoteScanBase}/remote-scan?orderId=${encodeURIComponent(orderId)}`
+    orderId && remoteScanBase && session.user && session.accessToken
+      ? `${remoteScanBase}/remote-scan?orderId=${encodeURIComponent(orderId)}#h=${encodeURIComponent(
+          toBase64UrlJson({
+            accessToken: session.accessToken,
+            user: session.user,
+            locationId: session.locationId,
+            registerId: session.registerId,
+          }),
+        )}`
       : null;
 
   useEffect(() => {

@@ -2,7 +2,34 @@ import { useEffect, type ReactNode } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useSession } from '../hooks/useSession';
 import { refreshAccessToken } from '../lib/api';
-import { setBootstrapping, tryDevUserBootstrap } from '../lib/session';
+import {
+  setBootstrapping,
+  setLocationId,
+  setRegisterId,
+  setUser,
+  type SessionUser,
+  tryDevUserBootstrap,
+} from '../lib/session';
+
+type RemoteScanHandoff = {
+  accessToken: string;
+  user: SessionUser;
+  locationId?: string | null;
+  registerId?: string | null;
+};
+
+function fromBase64UrlJson<T>(raw: string): T | null {
+  try {
+    const b64 = raw.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = b64 + '='.repeat((4 - (b64.length % 4 || 4)) % 4);
+    const binary = atob(padded);
+    const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
+    const text = new TextDecoder().decode(bytes);
+    return JSON.parse(text) as T;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Wraps protected routes. On first mount we attempt a silent token refresh;
@@ -15,6 +42,28 @@ import { setBootstrapping, tryDevUserBootstrap } from '../lib/session';
 export function AuthGuard({ children }: { children: ReactNode }) {
   const session = useSession();
   const location = useLocation();
+
+  useEffect(() => {
+    if (session.user) return;
+    if (location.pathname !== '/remote-scan') return;
+    const hash = location.hash?.startsWith('#') ? location.hash.slice(1) : location.hash;
+    if (!hash) return;
+    const params = new URLSearchParams(hash);
+    const handoff = params.get('h');
+    if (!handoff) return;
+
+    const decoded = fromBase64UrlJson<RemoteScanHandoff>(handoff);
+    if (!decoded?.accessToken || !decoded?.user?.id || !decoded?.user?.storeId) return;
+
+    setUser(decoded.user, decoded.accessToken);
+    setLocationId(decoded.locationId ?? null);
+    setRegisterId(decoded.registerId ?? null);
+
+    if (typeof window !== 'undefined') {
+      const clean = `${window.location.pathname}${window.location.search}`;
+      window.history.replaceState(null, '', clean);
+    }
+  }, [location.hash, location.pathname, session.user]);
 
   useEffect(() => {
     // Only attempt bootstrap once, on the very first mount.
