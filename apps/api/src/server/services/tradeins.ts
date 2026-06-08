@@ -131,7 +131,9 @@ export class TradeinsService {
           barcode: generateBarcodeToken('TLI'),
         });
       }
-      return trd;
+      // Surface the resulting SKUs so the caller can immediately print labels
+      // for the cards they just took in.
+      return { ...trd, lineRows };
     });
 
     if (trade.status === 'approved') {
@@ -144,7 +146,11 @@ export class TradeinsService {
       status: trade.status,
     });
 
-    return trade;
+    const { lineRows: _lineRows, ...tradeRow } = trade;
+    return {
+      ...tradeRow,
+      skuIds: trade.lineRows.map((l) => ({ skuId: l.skuId, quantity: l.qty })),
+    };
   }
 
   async approve(args: { storeId: string; tradeId: string; userId: string }) {

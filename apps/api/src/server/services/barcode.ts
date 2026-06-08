@@ -52,8 +52,19 @@ export class BarcodeService {
   /**
    * Render an Avery 5160-style sheet of labels as a single PDF. Each item is
    * laid out left-to-right, top-to-bottom; sheets break automatically.
+   *
+   * `format` controls what's drawn on each label:
+   *   - 'code128' (default): wide barcode across the label, title above,
+   *     subtitle below.
+   *   - 'qr': square QR pinned to the left side of the label, title and
+   *     subtitle stacked on the right. Suited for sticking onto card
+   *     sleeves where a phone needs to scan it.
    */
-  async labelSheetPdf(items: LabelItem[]): Promise<Buffer> {
+  async labelSheetPdf(
+    items: LabelItem[],
+    opts: { format?: 'code128' | 'qr' } = {},
+  ): Promise<Buffer> {
+    const format = opts.format ?? 'code128';
     const doc = new PDFDocument({
       size: [SHEET.pageWidth, SHEET.pageHeight],
       margin: 0,
@@ -77,7 +88,11 @@ export class BarcodeService {
         const x = SHEET.marginLeft + col * (SHEET.labelWidth + SHEET.hGutter);
         const y = SHEET.marginTop + row * (SHEET.labelHeight + SHEET.vGutter);
 
-        await this.drawLabel(doc, item, x, y);
+        if (format === 'qr') {
+          await this.drawQrLabel(doc, item, x, y);
+        } else {
+          await this.drawLabel(doc, item, x, y);
+        }
         slot += 1;
       }
     }
@@ -126,6 +141,52 @@ export class BarcodeService {
         .text(item.subtitle, x + pad, y + SHEET.labelHeight - 12, {
           width: innerW,
           align: 'center',
+          lineBreak: false,
+        });
+    }
+  }
+
+  /**
+   * QR variant: square QR on the left, title/subtitle stacked on the right.
+   * Designed for sticking onto sleeved cards where a clerk scans with a phone.
+   */
+  private async drawQrLabel(
+    doc: PDFKit.PDFDocument,
+    item: LabelItem,
+    x: number,
+    y: number,
+  ): Promise<void> {
+    const png = await bwipjs.toBuffer({
+      bcid: 'qrcode',
+      text: item.barcode,
+      scale: 4,
+    });
+
+    const pad = 4;
+    // Square QR sized to the label height minus padding.
+    const qrSize = SHEET.labelHeight - pad * 2;
+    doc.image(png, x + pad, y + pad, { width: qrSize, height: qrSize });
+
+    const textX = x + pad + qrSize + pad;
+    const textW = SHEET.labelWidth - (textX - x) - pad;
+
+    if (item.title) {
+      doc
+        .font('Helvetica-Bold')
+        .fontSize(8)
+        .text(item.title.slice(0, 60), textX, y + pad, {
+          width: textW,
+          height: 24,
+          ellipsis: true,
+        });
+    }
+
+    if (item.subtitle) {
+      doc
+        .font('Helvetica')
+        .fontSize(7)
+        .text(item.subtitle, textX, y + SHEET.labelHeight - pad - 9, {
+          width: textW,
           lineBreak: false,
         });
     }

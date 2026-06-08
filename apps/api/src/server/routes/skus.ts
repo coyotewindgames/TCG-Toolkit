@@ -10,6 +10,7 @@ import { requireAuth } from '../auth/middleware';
 const FormatSchema = z.enum(['code128', 'qr']).default('code128');
 
 const LabelsRequest = z.object({
+  format: z.enum(['code128', 'qr']).optional(),
   items: z
     .array(
       z.object({
@@ -84,7 +85,7 @@ export function skusRouter(c: Container): Router {
       const total = labels.reduce((s, l) => s + (l.copies ?? 1), 0);
       if (total > 500) throw BadRequest('total label count exceeds 500');
 
-      const pdf = await c.barcode.labelSheetPdf(labels);
+      const pdf = await c.barcode.labelSheetPdf(labels, { format: body.format });
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', 'attachment; filename="sku-labels.pdf"');
       res.send(pdf);

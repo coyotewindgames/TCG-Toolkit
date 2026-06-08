@@ -97,6 +97,32 @@ export const api = {
   patch: <T,>(p: string, body: unknown) =>
     rawFetch<T>(p, { method: 'PATCH', body: JSON.stringify(body) }),
   del: <T,>(p: string) => rawFetch<T>(p, { method: 'DELETE' }),
+  /**
+   * POST that returns the raw response body as a Blob (for PDF downloads
+   * etc.). Reuses the same auth headers as `rawFetch` but doesn't try to
+   * parse JSON.
+   */
+  postBlob: async (p: string, body: unknown): Promise<Blob> => {
+    const headers: Record<string, string> = { 'content-type': 'application/json' };
+    const session = getSession();
+    if (session.accessToken) {
+      headers['authorization'] = `Bearer ${session.accessToken}`;
+    } else {
+      const dev = devHeader();
+      if (dev) headers['x-tcg-dev-user'] = dev;
+    }
+    const res = await fetch(`${BASE}/api${p}`, {
+      method: 'POST',
+      credentials: 'include',
+      headers,
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`API ${res.status}: ${text}`);
+    }
+    return res.blob();
+  },
 };
 
 /**
