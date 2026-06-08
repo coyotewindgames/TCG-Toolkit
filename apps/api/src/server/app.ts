@@ -67,7 +67,9 @@ export function createApp(): Express {
 
   // Webhook raw-body capture MUST come before the JSON parser.
   app.use('/webhooks', rawJsonBody);
-  app.use(express.json({ limit: '25mb' }));
+  // Inventory CSV imports are posted as JSON text payloads and can be
+  // substantially larger in production than local test files.
+  app.use(express.json({ limit: '60mb' }));
   app.use(express.urlencoded({ extended: true }));
 
   // Auth gets its own rate limiter to slow credential stuffing. The refresh

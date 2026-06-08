@@ -10,7 +10,7 @@ import { InventoryImportService } from '../services/inventory-import';
 import { CatalogEnrichmentService } from '../services/catalog-enrichment';
 
 const ImportBody = z.object({
-  csv: z.string().min(1).max(20_000_000), // ~20 MB cap on the CSV string
+  csv: z.string().min(1).max(50_000_000), // ~50 MB cap on the CSV string
   locationId: z.string().uuid(),
   defaultCondition: z.enum(['NM', 'LP', 'MP', 'HP', 'DMG']).optional(),
   defaultPrinting: z.enum(['Normal', 'Foil', 'Reverse', 'Holo', 'FirstEdition']).optional(),
