@@ -123,6 +123,49 @@ export const api = {
     }
     return res.blob();
   },
+  /**
+   * Multipart/form-data upload with the same auth + refresh behavior as JSON
+   * requests. Used for large file imports where JSON payloads can exceed
+   * gateway limits.
+   */
+  postForm: async <T,>(p: string, form: FormData): Promise<T> => {
+    const send = async (): Promise<Response> => {
+      const headers: Record<string, string> = {};
+      const session = getSession();
+      if (session.accessToken) {
+        headers['authorization'] = `Bearer ${session.accessToken}`;
+      } else {
+        const dev = devHeader();
+        if (dev) headers['x-tcg-dev-user'] = dev;
+      }
+      return fetch(`${BASE}/api${p}`, {
+        method: 'POST',
+        credentials: 'include',
+        headers,
+        body: form,
+      });
+    };
+
+    let res = await send();
+    if (res.status === 401) {
+      const session = getSession();
+      if (session.accessToken) {
+        const fresh = await refreshAccessToken();
+        if (fresh) {
+          res = await send();
+        } else {
+          clearSession();
+        }
+      }
+    }
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`API ${res.status}: ${text}`);
+    }
+    if (res.status === 204) return undefined as T;
+    return (await res.json()) as T;
+  },
 };
 
 /**

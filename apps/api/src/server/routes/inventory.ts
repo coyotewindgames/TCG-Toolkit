@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { eq, inArray } from 'drizzle-orm';
+import multer from 'multer';
 import { z } from 'zod';
 import { asyncHandler } from '../../common/async-handler';
 import { BadRequest } from '../../common/http-errors';
@@ -11,6 +12,13 @@ import { CatalogEnrichmentService } from '../services/catalog-enrichment';
 
 const ImportBody = z.object({
   csv: z.string().min(1).max(50_000_000), // ~50 MB cap on the CSV string
+  locationId: z.string().uuid(),
+  defaultCondition: z.enum(['NM', 'LP', 'MP', 'HP', 'DMG']).optional(),
+  defaultPrinting: z.enum(['Normal', 'Foil', 'Reverse', 'Holo', 'FirstEdition']).optional(),
+  dryRun: z.boolean().optional(),
+});
+
+const ImportFileBody = z.object({
   locationId: z.string().uuid(),
   defaultCondition: z.enum(['NM', 'LP', 'MP', 'HP', 'DMG']).optional(),
   defaultPrinting: z.enum(['Normal', 'Foil', 'Reverse', 'Holo', 'FirstEdition']).optional(),
@@ -34,6 +42,10 @@ const WipeBody = z.object({
 export function inventoryRouter(c: Container): Router {
   const r = Router();
   r.use(requireAuth);
+  const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 50 * 1024 * 1024 },
+  });
 
   const importer = new InventoryImportService(c.db);
   const enricher = new CatalogEnrichmentService(c.db, c.configs);
@@ -65,6 +77,56 @@ export function inventoryRouter(c: Container): Router {
           // ignore — enrichment is best-effort
         }
       }
+      res.json({ ...result, enrichmentRan });
+    }),
+  );
+
+  r.post(
+    '/import/file',
+    requireRole('owner', 'manager'),
+    upload.single('file'),
+    asyncHandler(async (req, res) => {
+      if (!req.file?.buffer) throw BadRequest('CSV file is required');
+      const body = ImportFileBody.parse({
+        locationId: req.body?.locationId,
+        defaultCondition: req.body?.defaultCondition || undefined,
+        defaultPrinting: req.body?.defaultPrinting || undefined,
+        dryRun:
+          req.body?.dryRun === 'true'
+            ? true
+            : req.body?.dryRun === 'false'
+              ? false
+              : undefined,
+      });
+
+      const csv = req.file.buffer.toString('utf8');
+      const result = await importer.import({
+        storeId: req.user!.storeId,
+        req: {
+          csv,
+          locationId: body.locationId,
+          defaultCondition: body.defaultCondition,
+          defaultPrinting: body.defaultPrinting,
+          dryRun: body.dryRun,
+        },
+      });
+
+      let enrichmentRan = false;
+      if (!result.dryRun && result.productsCreated > 0) {
+        try {
+          const status = await c.configs.getTcgapiStatus(req.user!.storeId);
+          if (status.configured && status.hasKey) {
+            await enricher.enrichStore({
+              storeId: req.user!.storeId,
+              onlyMissingImage: true,
+            });
+            enrichmentRan = true;
+          }
+        } catch {
+          // ignore — enrichment is best-effort
+        }
+      }
+
       res.json({ ...result, enrichmentRan });
     }),
   );

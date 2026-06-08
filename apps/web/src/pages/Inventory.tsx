@@ -261,7 +261,7 @@ export default function InventoryPage() {
 function CsvImporter() {
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
-  const [csv, setCsv] = useState<string>('');
+  const [file, setFile] = useState<File | null>(null);
   const [filename, setFilename] = useState<string>('');
   const [defaultCondition, setDefaultCondition] = useState<'NM' | 'LP' | 'MP' | 'HP' | 'DMG'>(
     'NM',
@@ -275,14 +275,17 @@ function CsvImporter() {
   const locationId = useSession().locationId;
 
   const submit = useMutation({
-    mutationFn: (dryRun: boolean) =>
-      api.post<ImportResult>('/inventory/import', {
-        csv,
-        locationId,
-        defaultCondition,
-        defaultPrinting,
-        dryRun,
-      }),
+    mutationFn: (dryRun: boolean) => {
+      if (!file) throw new Error('Choose a CSV file first.');
+      if (!locationId) throw new Error('No location selected.');
+      const form = new FormData();
+      form.append('file', file, file.name);
+      form.append('locationId', locationId);
+      form.append('defaultCondition', defaultCondition);
+      form.append('defaultPrinting', defaultPrinting);
+      form.append('dryRun', String(dryRun));
+      return api.postForm<ImportResult>('/inventory/import/file', form);
+    },
     onSuccess: (data) => {
       setResult(data);
       setError(null);
@@ -298,11 +301,9 @@ function CsvImporter() {
     const f = e.target.files?.[0];
     if (!f) return;
     setFilename(f.name);
+    setFile(f);
     setResult(null);
     setError(null);
-    const reader = new FileReader();
-    reader.onload = () => setCsv(String(reader.result ?? ''));
-    reader.readAsText(f);
   }
 
   return (
@@ -358,8 +359,7 @@ function CsvImporter() {
 
       {filename && (
         <p className="text-xs text-slate-400">
-          Loaded: <span className="text-slate-200">{filename}</span> ({csv.length.toLocaleString()}{' '}
-          chars)
+          Loaded: <span className="text-slate-200">{filename}</span> ({((file?.size ?? 0) / (1024 * 1024)).toFixed(2)} MB)
         </p>
       )}
 
@@ -368,7 +368,7 @@ function CsvImporter() {
           type="button"
           className="btn"
           onClick={() => submit.mutate(true)}
-          disabled={!csv || !locationId || submit.isPending}
+          disabled={!file || !locationId || submit.isPending}
         >
           {submit.isPending && submit.variables === true ? 'Previewing…' : 'Preview (dry run)'}
         </button>
@@ -376,7 +376,7 @@ function CsvImporter() {
           type="button"
           className="btn-primary"
           onClick={() => submit.mutate(false)}
-          disabled={!csv || !locationId || submit.isPending}
+          disabled={!file || !locationId || submit.isPending}
         >
           {submit.isPending && submit.variables === false ? 'Importing…' : 'Import'}
         </button>
