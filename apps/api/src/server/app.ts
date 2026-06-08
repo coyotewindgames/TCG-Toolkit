@@ -34,7 +34,10 @@ export function createApp(): Express {
   configurePassport();
 
   app.disable('x-powered-by');
-  app.set('trust proxy', true);
+  // Trust the first proxy hop (Render/Cloudflare load balancer). Using a
+  // specific number instead of `true` satisfies express-rate-limit's
+  // anti-spoofing check (ERR_ERL_PERMISSIVE_TRUST_PROXY).
+  app.set('trust proxy', 1);
 
   app.use(requestId);
   app.use(
