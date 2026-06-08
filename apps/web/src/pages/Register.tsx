@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import QRCode from 'qrcode';
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
 import { useSession } from '../hooks/useSession';
 import { api } from '../lib/api';
@@ -30,6 +31,10 @@ function formatMoney(cents: number) {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
+function isLocalOrigin(origin: string) {
+  return /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i.test(origin);
+}
+
 export default function RegisterPage() {
   const session = useSession();
   const [orderId, setOrderId] = useState<string | null>(null);
@@ -41,11 +46,42 @@ export default function RegisterPage() {
   });
   const [status, setStatus] = useState<'idle' | 'scanning' | 'checkout' | 'paid'>('idle');
   const [lastError, setLastError] = useState<string | null>(null);
+  const [remoteScanQr, setRemoteScanQr] = useState<string | null>(null);
+
+  const configuredRemoteBase = import.meta.env.VITE_REMOTE_SCAN_BASE_URL?.trim();
+  const browserOrigin = typeof window !== 'undefined' ? window.location.origin : null;
+  const remoteScanBase = configuredRemoteBase
+    ? configuredRemoteBase.replace(/\/+$/, '')
+    : browserOrigin && !isLocalOrigin(browserOrigin)
+      ? browserOrigin
+      : null;
 
   const remoteScanUrl =
-    orderId && typeof window !== 'undefined'
-      ? `${window.location.origin}/remote-scan?orderId=${encodeURIComponent(orderId)}`
+    orderId && remoteScanBase
+      ? `${remoteScanBase}/remote-scan?orderId=${encodeURIComponent(orderId)}`
       : null;
+
+  useEffect(() => {
+    if (!remoteScanUrl) {
+      setRemoteScanQr(null);
+      return;
+    }
+    let cancelled = false;
+    void QRCode.toDataURL(remoteScanUrl, {
+      errorCorrectionLevel: 'M',
+      margin: 1,
+      width: 320,
+    })
+      .then((url) => {
+        if (!cancelled) setRemoteScanQr(url);
+      })
+      .catch(() => {
+        if (!cancelled) setRemoteScanQr(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [remoteScanUrl]);
 
   // Ensure we have an order id
   useEffect(() => {
@@ -159,9 +195,27 @@ export default function RegisterPage() {
           <div className="text-sm opacity-70">Scan a label to add a card</div>
         </header>
         {remoteScanUrl && (
-          <div className="mb-3 rounded-lg border border-slate-800 bg-slate-950 p-3">
-            <p className="text-xs text-slate-400">Open this on your phone/scanner device:</p>
-            <p className="text-xs font-mono break-all text-emerald-300">{remoteScanUrl}</p>
+          <div className="mb-3 rounded-lg border border-slate-800 bg-slate-950 p-4">
+            <p className="text-xs text-slate-400 mb-2">Scan this QR on your phone/scanner device:</p>
+            <div className="flex items-start justify-center">
+              <div className="w-48 h-48 md:w-56 md:h-56 rounded bg-white p-2 shrink-0 flex items-center justify-center">
+                {remoteScanQr ? (
+                  <img
+                    src={remoteScanQr}
+                    alt="QR code for remote scanner"
+                    className="w-full h-full object-contain"
+                  />
+                ) : (
+                  <span className="text-[10px] text-slate-500">QR unavailable</span>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+        {!remoteScanUrl && orderId && (
+          <div className="mb-3 rounded-lg border border-amber-700/50 bg-amber-950/30 p-3 text-xs text-amber-200">
+            Remote scan QR is disabled on localhost. Set VITE_REMOTE_SCAN_BASE_URL to a phone-
+            reachable URL (for example your deployed web URL or LAN IP host).
           </div>
         )}
         <ul className="divide-y divide-slate-800">

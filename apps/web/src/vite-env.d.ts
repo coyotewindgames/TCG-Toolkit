@@ -14,6 +14,8 @@ interface ImportMetaEnv {
   readonly VITE_DEV_USER?: string;
   /** Optional Clover device id used by the demo register page. */
   readonly VITE_CLOVER_DEVICE_ID?: string;
+  /** Optional public web base URL used for remote scanner QR links. */
+  readonly VITE_REMOTE_SCAN_BASE_URL?: string;
 }
 
 interface ImportMeta {
