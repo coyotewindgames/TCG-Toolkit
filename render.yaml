@@ -13,13 +13,19 @@ services:
     autoDeploy: true
     envVars:
       - fromGroup: tcg-shared-env
+      - key: DATABASE_URL
+        fromDatabase:
+          name: tcg-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: tcg-redis
+          property: connectionString
       - key: PORT
         value: 10000
       - key: CORS_ORIGIN
         sync: false
-      # Optional: scope the refresh cookie to a parent domain so the api and
-      # web subdomains share it (e.g. ".tcgtoolkit.com"). Leave unset to keep
-      # the cookie host-only.
       - key: COOKIE_DOMAIN
         sync: false
       - key: SENTRY_DSN
@@ -36,6 +42,15 @@ services:
     autoDeploy: true
     envVars:
       - fromGroup: tcg-shared-env
+      - key: DATABASE_URL
+        fromDatabase:
+          name: tcg-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: tcg-redis
+          property: connectionString
 
   - type: cron
     name: tcg-nightly-catalog
@@ -43,11 +58,20 @@ services:
     plan: starter
     region: oregon
     rootDir: .
-    schedule: '0 7 * * *' # 07:00 UTC nightly
+    schedule: '0 7 * * *'
     buildCommand: npm ci && npm run build --workspace=@tcg/shared && npm run build --workspace=@tcg/api
     startCommand: node apps/api/dist/jobs/cron/catalog-sync.js
     envVars:
       - fromGroup: tcg-shared-env
+      - key: DATABASE_URL
+        fromDatabase:
+          name: tcg-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: tcg-redis
+          property: connectionString
 
   - type: web
     name: tcg-web
@@ -83,15 +107,6 @@ envVarGroups:
     envVars:
       - key: NODE_ENV
         value: production
-      - key: DATABASE_URL
-        fromDatabase:
-          name: tcg-postgres
-          property: connectionString
-      - key: REDIS_URL
-        fromService:
-          type: keyvalue
-          name: tcg-redis
-          property: connectionString
       - key: JWT_SECRET
         generateValue: true
       - key: CONFIG_ENCRYPTION_KEY
