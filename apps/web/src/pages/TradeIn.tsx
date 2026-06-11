@@ -69,6 +69,16 @@ const CONDITIONS: CardCondition[] = ['NM', 'LP', 'MP', 'HP', 'DMG'];
 const PRINTINGS: CardPrinting[] = ['Normal', 'Foil', 'Reverse', 'Holo', 'FirstEdition'];
 const LANGUAGES: CardLanguage[] = ['EN', 'JP', 'DE', 'FR', 'IT', 'ES', 'PT', 'KO', 'CN'];
 
+const GRADING_COMPANIES = ['PSA', 'CGC', 'Beckett', 'TAG'] as const;
+type GradingCompany = (typeof GRADING_COMPANIES)[number];
+
+const GRADE_OPTIONS: Record<GradingCompany, string[]> = {
+  PSA: ['10', '9', '8.5', '8', '7.5', '7', '6', '5', '4', '3', '2', '1.5', '1'],
+  CGC: ['10', '9.5', '9', '8.5', '8', '7.5', '7', '6.5', '6', '5.5', '5', '4.5', '4', '3.5', '3', '2.5', '2', '1.5', '1'],
+  Beckett: ['10', '9.5', '9', '8.5', '8', '7.5', '7', '6.5', '6', '5.5', '5', '4.5', '4', '3', '2', '1'],
+  TAG: ['10', '9', '8', '7', '6', '5', '4', '3', '2', '1'],
+};
+
 // Multipliers mirror the server's `PAYOUT_MULTIPLIERS` in tradeins.ts. Kept
 // in sync manually because exporting them from the server would drag the
 // API workspace into the web bundle. Only used for the on-screen suggested
@@ -427,6 +437,9 @@ function IntakeDetailBody({
 }) {
   const qc = useQueryClient();
   const [activeCard, setActiveCard] = useState<TcgapiCard>(card);
+  const [isGraded, setIsGraded] = useState(false);
+  const [gradingCompany, setGradingCompany] = useState<GradingCompany>('PSA');
+  const [gradedGrade, setGradedGrade] = useState('10');
   const [condition, setCondition] = useState<CardCondition>('NM');
   const [printing, setPrinting] = useState<CardPrinting>('Normal');
   const [language, setLanguage] = useState<CardLanguage>('EN');
@@ -468,6 +481,12 @@ function IntakeDetailBody({
     }
     return Array.from(seen.values());
   }, [variants.data]);
+
+  const ebayGradedUrl = useMemo(() => {
+    if (!isGraded) return null;
+    const q = encodeURIComponent(`${activeCard.name} ${gradingCompany} ${gradedGrade}`);
+    return `https://www.ebay.com/sch/i.html?_nkw=${q}&LH_Complete=1&LH_Sold=1`;
+  }, [isGraded, activeCard.name, gradingCompany, gradedGrade]);
 
   const suggested = useMemo(
     () =>
@@ -679,6 +698,63 @@ function IntakeDetailBody({
                 </button>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* Graded card section */}
+        <label className="flex items-center gap-2 cursor-pointer select-none text-sm text-slate-300">
+          <input
+            type="checkbox"
+            checked={isGraded}
+            onChange={(e) => setIsGraded(e.target.checked)}
+            className="rounded accent-emerald-500"
+          />
+          Graded card (PSA / CGC / Beckett / TAG)
+        </label>
+
+        {isGraded && (
+          <div className="bg-slate-950 border border-slate-700 rounded-xl p-3 space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Grading company">
+                <select
+                  value={gradingCompany}
+                  onChange={(e) => {
+                    setGradingCompany(e.target.value as GradingCompany);
+                    setGradedGrade('10');
+                  }}
+                  className="input"
+                >
+                  {GRADING_COMPANIES.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Grade">
+                <select
+                  value={gradedGrade}
+                  onChange={(e) => setGradedGrade(e.target.value)}
+                  className="input"
+                >
+                  {GRADE_OPTIONS[gradingCompany].map((g) => (
+                    <option key={g} value={g}>{gradingCompany} {g}</option>
+                  ))}
+                </select>
+              </Field>
+            </div>
+            {ebayGradedUrl && (
+              <a
+                href={ebayGradedUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 underline-offset-2 underline"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                View {gradingCompany} {gradedGrade} recently sold on eBay
+              </a>
+            )}
+            <p className="text-[11px] text-slate-500">
+              Graded card prices vary by pop report — use Override unit value to set the exact payout.
+            </p>
           </div>
         )}
 
