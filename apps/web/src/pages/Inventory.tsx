@@ -90,6 +90,7 @@ interface ImportResult {
 export default function InventoryPage() {
   const [q, setQ] = useState('');
   const [toolsOpen, setToolsOpen] = useState(false);
+  const [expandedProductId, setExpandedProductId] = useState<string | null>(null);
   const [barcodeProduct, setBarcodeProduct] = useState<Product | null>(null);
   const [printingKey, setPrintingKey] = useState<string | null>(null);
   const [printErr, setPrintErr] = useState<string | null>(null);
@@ -105,6 +106,19 @@ export default function InventoryPage() {
     queryFn: () => api.get<ProductSkusResponse>(`/products/${barcodeProduct!.id}/skus`),
     enabled: !!barcodeProduct,
   });
+  const expandedSkuQuery = useQuery({
+    queryKey: ['product-skus', expandedProductId],
+    queryFn: () => api.get<ProductSkusResponse>(`/products/${expandedProductId!}/skus`),
+    enabled: !!expandedProductId,
+  });
+
+  useEffect(() => {
+    if (!expandedProductId) return;
+    const stillVisible = data?.results.some((p) => p.id === expandedProductId) ?? false;
+    if (!stillVisible) {
+      setExpandedProductId(null);
+    }
+  }, [data?.results, expandedProductId]);
 
   async function printLabels(items: Array<{ skuId: string; copies?: number }>, fileStem: string) {
     setPrintErr(null);
@@ -180,32 +194,107 @@ export default function InventoryPage() {
         )}
         <ul className="mt-4 space-y-2">
           {data?.results.map((p) => (
-            <li key={p.id} className="bg-slate-900 rounded-xl p-3 flex gap-4">
-              {p.imageSourceUrl ? (
-                <img
-                  src={p.imageSourceUrl}
-                  alt={p.name}
-                  className="w-16 h-24 rounded object-cover bg-slate-800"
-                  loading="lazy"
-                />
-              ) : (
-                <div className="w-16 h-24 rounded bg-slate-800 border border-dashed border-slate-700" />
-              )}
-              <div className="flex-1">
-                <div className="font-semibold">
-                  {p.name} <span className="opacity-50 text-sm">#{p.cardNumber}</span>
-                </div>
-                <div className="text-sm opacity-70">
-                  {p.setName} • {p.rarity}
-                </div>
-              </div>
+            <li key={p.id} className="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden">
               <button
                 type="button"
-                className="btn"
-                onClick={() => setBarcodeProduct(p)}
+                className="w-full p-3 flex gap-4 text-left hover:bg-slate-900/80"
+                onClick={() => setExpandedProductId((current) => (current === p.id ? null : p.id))}
+                aria-expanded={expandedProductId === p.id}
               >
-                View barcodes
+                {p.imageSourceUrl ? (
+                  <img
+                    src={p.imageSourceUrl}
+                    alt={p.name}
+                    className="w-16 h-24 rounded object-cover bg-slate-800"
+                    loading="lazy"
+                  />
+                ) : (
+                  <div className="w-16 h-24 rounded bg-slate-800 border border-dashed border-slate-700" />
+                )}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="font-semibold text-base leading-tight">{p.name}</div>
+                      <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-300">
+                        <span className="rounded-full border border-slate-700 px-2 py-1 bg-slate-950/80">
+                          Set: {p.setName || 'Unknown set'}
+                        </span>
+                        <span className="rounded-full border border-slate-700 px-2 py-1 bg-slate-950/80">
+                          Card #: {p.cardNumber || 'N/A'}
+                        </span>
+                        {p.rarity && (
+                          <span className="rounded-full border border-slate-700 px-2 py-1 bg-slate-950/80">
+                            {p.rarity}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <span className="text-xs text-slate-400 shrink-0 pt-1">
+                      {expandedProductId === p.id ? 'Hide details' : 'Show details'}
+                    </span>
+                  </div>
+                </div>
               </button>
+
+              {expandedProductId === p.id && (
+                <div className="border-t border-slate-800 bg-slate-950/50 px-4 py-3 space-y-3">
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+                    <span>Product ID: {p.id}</span>
+                    <span>•</span>
+                    <span>Set: {p.setName || 'Unknown set'}</span>
+                    <span>•</span>
+                    <span>Card #: {p.cardNumber || 'N/A'}</span>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      className="btn"
+                      onClick={() => setBarcodeProduct(p)}
+                    >
+                      View barcodes
+                    </button>
+                  </div>
+
+                  {expandedSkuQuery.isLoading && (
+                    <p className="text-sm text-slate-400">Loading item details…</p>
+                  )}
+                  {expandedSkuQuery.error && (
+                    <p className="text-sm text-rose-300">{String(expandedSkuQuery.error)}</p>
+                  )}
+                  {!expandedSkuQuery.isLoading && !expandedSkuQuery.error && (
+                    <div className="space-y-2">
+                      <p className="text-xs uppercase tracking-wide text-slate-400">
+                        SKU details ({expandedSkuQuery.data?.skus.length ?? 0})
+                      </p>
+                      {(expandedSkuQuery.data?.skus.length ?? 0) === 0 ? (
+                        <p className="text-sm text-slate-400">No SKUs found for this product yet.</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {(expandedSkuQuery.data?.skus ?? []).map((sku) => (
+                            <div
+                              key={sku.id}
+                              className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-2"
+                            >
+                              <div className="flex flex-wrap gap-2 text-sm text-slate-200">
+                                <span>{sku.condition}</span>
+                                <span>• {sku.printing}</span>
+                                <span>• {sku.language}</span>
+                                {typeof sku.sellPriceCents === 'number' && (
+                                  <span>• ${(sku.sellPriceCents / 100).toFixed(2)}</span>
+                                )}
+                              </div>
+                              <p className="mt-1 text-xs text-slate-400 break-all">
+                                Barcode: {sku.barcode}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </li>
           ))}
         </ul>
