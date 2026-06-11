@@ -4,8 +4,8 @@
   "private": true,
   "description": "Express API for the TCG Toolkit: inventory, POS checkout, trade-ins, real-time events.",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "tsc -b tsconfig.json",
+    "typecheck": "tsc -b tsconfig.json",
     "dev": "tsx watch --env-file=../../.env --env-file=.env src/server/main.ts",
     "start": "node dist/server/main.js",
     "lint": "echo 'no lint configured'",

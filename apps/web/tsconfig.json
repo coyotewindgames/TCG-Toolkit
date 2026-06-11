@@ -5,6 +5,9 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "moduleResolution": "Bundler",
+    "paths": {
+      "@tcg/shared": ["../../packages/shared/src/index.ts"]
+    },
     "jsx": "react-jsx",
     "noEmit": true,
     "allowImportingTsExtensions": false,
