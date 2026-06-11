@@ -7,7 +7,7 @@ import { BadRequest, NotFound } from '../../common/http-errors';
 import type { Container } from '../container';
 import { requireAuth } from '../auth/middleware';
 
-const FormatSchema = z.enum(['code128', 'qr']).default('code128');
+const FormatSchema = z.enum(['code128', 'qr']).default('qr');
 
 const LabelsRequest = z.object({
   format: z.enum(['code128', 'qr']).optional(),

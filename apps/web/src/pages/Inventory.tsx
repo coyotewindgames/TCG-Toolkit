@@ -59,7 +59,7 @@ export default function InventoryPage() {
 
   async function printLabels(items: Array<{ skuId: string; copies?: number }>, fileStem: string) {
     setPrintErr(null);
-    const blob = await api.postBlob('/skus/labels.pdf', { format: 'code128', items });
+    const blob = await api.postBlob('/skus/labels.pdf', { format: 'qr', items });
     const url = URL.createObjectURL(blob);
     const win = window.open(url, '_blank', 'noopener,noreferrer');
     if (!win) {
@@ -215,8 +215,8 @@ export default function InventoryPage() {
                     )}
                   </div>
                   <img
-                    src={`${import.meta.env.VITE_API_URL ?? ''}/api/skus/${sku.id}/barcode.png?format=code128`}
-                    alt={`Barcode for ${barcodeProduct.name}`}
+                    src={`${import.meta.env.VITE_API_URL ?? ''}/api/skus/${sku.id}/barcode.png?format=qr`}
+                    alt={`QR code for ${barcodeProduct.name}`}
                     className="w-full max-w-xl h-20 object-contain bg-white rounded-md p-2"
                     loading="lazy"
                   />
