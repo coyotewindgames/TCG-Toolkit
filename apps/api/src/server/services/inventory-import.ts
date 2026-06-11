@@ -127,7 +127,6 @@ function indexHeaders(headers: string[]): Record<string, number> {
   return idx;
 }
 
-// ---------- value coercion ----------
 
 type Game = (typeof GAMES)[number];
 const GAMES = [
