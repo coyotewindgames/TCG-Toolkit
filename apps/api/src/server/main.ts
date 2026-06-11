@@ -13,8 +13,8 @@ async function main() {
   const http = createServer(app);
   await initRealtime(http);
 
-  http.listen(env.PORT, () => {
-    log.info({ port: env.PORT, env: env.NODE_ENV }, 'api listening');
+  http.listen(env.PORT, env.HOST, () => {
+    log.info({ host: env.HOST, port: env.PORT, env: env.NODE_ENV }, 'api listening');
   });
 
   let shuttingDown = false;

@@ -8,6 +8,7 @@ import { z } from 'zod';
 const Env = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(3000),
+  HOST: z.string().default('0.0.0.0'),
   LOG_LEVEL: z.string().default('info'),
   CORS_ORIGIN: z.string().default('http://localhost:5173'),
 
