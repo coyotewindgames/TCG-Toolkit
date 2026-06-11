@@ -163,6 +163,8 @@ export const TradeItemInput = z.object({
   printing: z.enum(CARD_PRINTINGS),
   language: z.enum(CARD_LANGUAGES).default('EN'),
   quantity: z.number().int().positive(),
+  // Percentage modifier applied after the base payout multiplier.
+  payoutModifierPercent: z.number().finite().optional(),
   // Overrides for the suggested trade value (cents per unit):
   overrideValueCents: z.number().int().nonnegative().optional(),
 });

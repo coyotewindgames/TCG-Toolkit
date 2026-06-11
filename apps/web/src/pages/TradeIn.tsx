@@ -137,6 +137,7 @@ function suggestedUnitValueCents(
   printing: CardPrinting,
   condition: CardCondition,
   payout: PayoutKind,
+  payoutModifierPercent: number,
 ): number {
   if (!prices?.length) return 0;
   const match =
@@ -148,7 +149,8 @@ function suggestedUnitValueCents(
     (n): n is number => typeof n === 'number' && n > 0,
   );
   const base = candidates.length ? Math.min(...candidates) : 0;
-  return Math.max(0, Math.floor(base * PAYOUT_MULTIPLIERS[payout][condition]));
+  const payoutBase = Math.max(0, Math.floor(base * PAYOUT_MULTIPLIERS[payout][condition]));
+  return Math.max(0, Math.floor(payoutBase * (1 + payoutModifierPercent / 100)));
 }
 
 export default function TradeInPage() {
@@ -429,6 +431,7 @@ function IntakeDetailBody({
   const [language, setLanguage] = useState<CardLanguage>('EN');
   const [quantity, setQuantity] = useState(1);
   const [payout, setPayout] = useState<PayoutKind>('cash');
+  const [payoutModifierPercent, setPayoutModifierPercent] = useState<string>('0');
   const [overrideValue, setOverrideValue] = useState<string>('');
   const [submitMsg, setSubmitMsg] = useState<string | null>(null);
   const [submitErr, setSubmitErr] = useState<string | null>(null);
@@ -446,9 +449,21 @@ function IntakeDetailBody({
   });
 
   const suggested = useMemo(
-    () => suggestedUnitValueCents(prices.data?.prices, printing, condition, payout),
-    [prices.data, printing, condition, payout],
+    () =>
+      suggestedUnitValueCents(
+        prices.data?.prices,
+        printing,
+        condition,
+        payout,
+        Number(payoutModifierPercent) || 0,
+      ),
+    [prices.data, printing, condition, payout, payoutModifierPercent],
   );
+
+  const payoutModifier = useMemo(() => {
+    const n = Number(payoutModifierPercent);
+    return Number.isFinite(n) ? n : 0;
+  }, [payoutModifierPercent]);
 
   const overrideCents = useMemo(() => {
     const v = overrideValue.trim();
@@ -475,6 +490,7 @@ function IntakeDetailBody({
             printing,
             language,
             quantity,
+            payoutModifierPercent: payoutModifier,
             overrideValueCents: overrideCents ?? undefined,
           },
         ],
@@ -685,8 +701,21 @@ function IntakeDetailBody({
             </div>
           </Field>
           <Field
+            label="Modifier %"
+            hint="Applies after the base payout percentage. Positive increases payout; negative reduces it."
+          >
+            <input
+              type="number"
+              step="0.1"
+              value={payoutModifierPercent}
+              onChange={(e) => setPayoutModifierPercent(e.target.value)}
+              placeholder="0"
+              className="input"
+            />
+          </Field>
+          <Field
             label={`Suggested unit value (${payout === 'cash' ? 'cash' : 'credit'})`}
-            hint="Computed from the lowest of market/median × payout multiplier."
+            hint={`Computed from the lowest of market/median × payout multiplier${payoutModifier ? ` × ${((1 + payoutModifier / 100) * 100).toFixed(1)}%` : ''}.`}
           >
             <div className="input bg-slate-950 text-slate-200 font-mono">
               {formatCents(suggested)}

@@ -90,6 +90,39 @@ async function rawFetch<T>(path: string, init?: RequestInit, retried = false): P
 
 export const api = {
   get: <T,>(p: string) => rawFetch<T>(p),
+  getBlob: async (p: string): Promise<Blob> => {
+    const headers: Record<string, string> = {};
+    const session = getSession();
+    if (session.accessToken) {
+      headers['authorization'] = `Bearer ${session.accessToken}`;
+    } else {
+      const dev = devHeader();
+      if (dev) headers['x-tcg-dev-user'] = dev;
+    }
+
+    const send = async (): Promise<Response> =>
+      fetch(`${BASE}/api${p}`, {
+        method: 'GET',
+        credentials: 'include',
+        headers,
+      });
+
+    let res = await send();
+    if (res.status === 401 && session.accessToken) {
+      const fresh = await refreshAccessToken();
+      if (fresh) {
+        res = await send();
+      } else {
+        clearSession();
+      }
+    }
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`API ${res.status}: ${text}`);
+    }
+    return res.blob();
+  },
   post: <T,>(p: string, body: unknown) =>
     rawFetch<T>(p, { method: 'POST', body: JSON.stringify(body) }),
   put: <T,>(p: string, body: unknown) =>

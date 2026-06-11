@@ -20,6 +20,11 @@ const PAYOUT_MULTIPLIERS: Record<PayoutKind, Record<CardCondition, number>> = {
 
 const APPROVAL_THRESHOLD_CENTS = 5_000; // trades above $50 need manager sign-off
 
+function applyPayoutModifierPercent(baseCents: number, modifierPercent?: number): number {
+  const modifier = modifierPercent ?? 0;
+  return Math.max(0, Math.floor(baseCents * (1 + modifier / 100)));
+}
+
 /**
  * Pure helper: trade-in value given best available market signal + condition.
  * Exported so unit tests can exercise it without a DB.
@@ -29,13 +34,14 @@ export function computeSuggestedUnitValueCents(args: {
   medianCents: number | null | undefined;
   condition: CardCondition;
   payout: PayoutKind;
+  payoutModifierPercent?: number;
 }): number {
   const candidates = [args.marketCents, args.medianCents].filter(
     (n): n is number => typeof n === 'number' && n > 0,
   );
   const base = candidates.length ? Math.min(...candidates) : 0;
   const mult = PAYOUT_MULTIPLIERS[args.payout][args.condition];
-  return Math.max(0, Math.floor(base * mult));
+  return applyPayoutModifierPercent(Math.max(0, Math.floor(base * mult)), args.payoutModifierPercent);
 }
 
 export class TradeinsService {
@@ -49,6 +55,7 @@ export class TradeinsService {
       skuId: string;
       condition: CardCondition;
       payout: PayoutKind;
+        payoutModifierPercent?: number;
     },
     db: Database = this.db,
   ): Promise<number> {
@@ -61,6 +68,7 @@ export class TradeinsService {
       medianCents: price?.marketMedianCents,
       condition: args.condition,
       payout: args.payout,
+      payoutModifierPercent: args.payoutModifierPercent,
     });
   }
 
@@ -92,6 +100,8 @@ export class TradeinsService {
 
       for (const item of body.items) {
         const skuId = item.skuId ?? (await this.upsertSku(tx, storeId, item));
+        const payoutModifierPercent =
+          (item as TradeItemInput & { payoutModifierPercent?: number }).payoutModifierPercent;
         const unit =
           item.overrideValueCents ??
           (await this.suggestUnitValueCents(
@@ -99,6 +109,7 @@ export class TradeinsService {
               skuId,
               condition: item.condition,
               payout: body.payout,
+              payoutModifierPercent,
             },
             tx,
           ));

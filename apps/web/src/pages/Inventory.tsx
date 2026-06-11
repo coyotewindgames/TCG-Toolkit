@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api';
 import { useDebounced } from '../hooks/useBarcodeScanner';
 import { useSession } from '../hooks/useSession';
@@ -25,6 +25,53 @@ type ProductSku = {
   sellPriceCents: number | null;
 };
 type ProductSkusResponse = { skus: ProductSku[] };
+
+function QrImage({ skuId, label }: { skuId: string; label: string }) {
+  const [src, setSrc] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    let objectUrl: string | null = null;
+
+    setSrc(null);
+    setError(null);
+
+    void api
+      .getBlob(`/skus/${skuId}/barcode.png?format=qr`)
+      .then((blob) => {
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setSrc(objectUrl);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : String(err));
+      });
+
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [skuId]);
+
+  if (error) {
+    return <p className="text-rose-300 text-xs">{error}</p>;
+  }
+
+  if (!src) {
+    return <div className="w-full max-w-xl h-20 rounded-md bg-slate-800 animate-pulse" />;
+  }
+
+  return (
+    <img
+      src={src}
+      alt={label}
+      className="w-full max-w-xl h-20 object-contain bg-white rounded-md p-2"
+      loading="lazy"
+    />
+  );
+}
 
 interface ImportResult {
   totalRows: number;
@@ -214,12 +261,7 @@ export default function InventoryPage() {
                       <span>• ${(sku.sellPriceCents / 100).toFixed(2)}</span>
                     )}
                   </div>
-                  <img
-                    src={`${import.meta.env.VITE_API_URL ?? ''}/api/skus/${sku.id}/barcode.png?format=qr`}
-                    alt={`QR code for ${barcodeProduct.name}`}
-                    className="w-full max-w-xl h-20 object-contain bg-white rounded-md p-2"
-                    loading="lazy"
-                  />
+                  <QrImage skuId={sku.id} label={`QR code for ${barcodeProduct.name}`} />
                   <p className="font-mono text-xs text-slate-400 break-all">{sku.barcode}</p>
                   <div>
                     <button
