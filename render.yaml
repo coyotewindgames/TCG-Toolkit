@@ -64,9 +64,9 @@ services:
   - type: web
     name: tcg-web
     runtime: static
-    rootDir: apps/web
-    buildCommand: cd ../.. && npm ci --include=dev && npm run build --workspace=@tcg/shared && npm run build --workspace=@tcg/web
-    staticPublishPath: ./dist
+    rootDir: .
+    buildCommand: npm ci --include=dev && npm run build --workspace=@tcg/shared && npm run build --workspace=@tcg/web
+    staticPublishPath: apps/web/dist
     routes:
       - type: rewrite
         source: /*
