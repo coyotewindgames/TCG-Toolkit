@@ -101,7 +101,8 @@ export class TradeinsService {
       for (const item of body.items) {
         const imageSourceUrl = (item as TradeItemInput & { imageSourceUrl?: string | null })
           .imageSourceUrl;
-        const skuId = item.skuId ?? (await this.upsertSku(tx, storeId, item, imageSourceUrl));
+        const rarity = (item as TradeItemInput & { rarity?: string | null }).rarity;
+        const skuId = item.skuId ?? (await this.upsertSku(tx, storeId, item, imageSourceUrl, rarity));
         const payoutModifierPercent =
           (item as TradeItemInput & { payoutModifierPercent?: number }).payoutModifierPercent;
         const unit =
@@ -247,6 +248,7 @@ export class TradeinsService {
     storeId: string,
     item: TradeItemInput,
     imageSourceUrl?: string | null,
+    rarity?: string | null,
   ): Promise<string> {
     if (!item.tcgapiProductId) {
       throw BadRequest('item must include skuId or tcgapiProductId for new card intake');
@@ -276,6 +278,7 @@ export class TradeinsService {
           game: item.game ?? 'other',
           name: item.name ?? `TCGapi ${item.tcgapiProductId}`,
           imageSourceUrl,
+          rarity: rarity ?? null,
         })
         .returning();
     }
@@ -288,6 +291,14 @@ export class TradeinsService {
         .where(eq(schema.products.id, product.id))
         .returning();
       if (!product) throw new Error('failed to update product image');
+    }
+    if (rarity && !product.rarity) {
+      [product] = await tx
+        .update(schema.products)
+        .set({ rarity, updatedAt: new Date() })
+        .where(eq(schema.products.id, product.id))
+        .returning();
+      if (!product) throw new Error('failed to update product rarity');
     }
 
     const [existing] = await tx

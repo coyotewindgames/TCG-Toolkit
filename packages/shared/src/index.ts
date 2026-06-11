@@ -160,6 +160,7 @@ export const TradeItemInput = z.object({
   game: z.enum(GAMES).optional(),
   name: z.string().min(1).optional(),
   imageSourceUrl: z.string().url().nullable().optional(),
+  rarity: z.string().min(1).nullable().optional(),
   condition: z.enum(CARD_CONDITIONS),
   printing: z.enum(CARD_PRINTINGS),
   language: z.enum(CARD_LANGUAGES).default('EN'),

@@ -410,7 +410,7 @@ function IntakeDetail({ card, locationId, onClose }: IntakeDetailProps) {
           open ? 'translate-x-0' : 'translate-x-full'
         }`}
       >
-        {open && card && <IntakeDetailBody card={card} locationId={locationId} onClose={onClose} />}
+        {open && card && <IntakeDetailBody key={card.id} card={card} locationId={locationId} onClose={onClose} />}
       </aside>
     </>
   );
@@ -426,6 +426,7 @@ function IntakeDetailBody({
   onClose: () => void;
 }) {
   const qc = useQueryClient();
+  const [activeCard, setActiveCard] = useState<TcgapiCard>(card);
   const [condition, setCondition] = useState<CardCondition>('NM');
   const [printing, setPrinting] = useState<CardPrinting>('Normal');
   const [language, setLanguage] = useState<CardLanguage>('EN');
@@ -443,10 +444,30 @@ function IntakeDetailBody({
   const [printingLabels, setPrintingLabels] = useState(false);
 
   const prices = useQuery<PricesResponse>({
-    queryKey: ['tcgapi.prices', card.id],
-    queryFn: () => api.get<PricesResponse>(`/tcgapi/cards/${encodeURIComponent(card.id)}/prices`),
+    queryKey: ['tcgapi.prices', activeCard.id],
+    queryFn: () => api.get<PricesResponse>(`/tcgapi/cards/${encodeURIComponent(activeCard.id)}/prices`),
     staleTime: 5 * 60_000,
   });
+
+  const variants = useQuery<SearchResponse>({
+    queryKey: ['tcgapi.variants', activeCard.setId, activeCard.name],
+    queryFn: () => {
+      const params = new URLSearchParams({ q: activeCard.name, perPage: '50' });
+      if (activeCard.setId) params.set('setId', activeCard.setId);
+      return api.get<SearchResponse>(`/tcgapi/search?${params.toString()}`);
+    },
+    enabled: !!activeCard.setId,
+    staleTime: 5 * 60_000,
+  });
+
+  const rarityVariants = useMemo(() => {
+    const seen = new Map<string, TcgapiCard>();
+    for (const v of variants.data?.results ?? []) {
+      const key = v.rarity ?? 'Unknown';
+      if (!seen.has(key)) seen.set(key, v);
+    }
+    return Array.from(seen.values());
+  }, [variants.data]);
 
   const suggested = useMemo(
     () =>
@@ -483,9 +504,10 @@ function IntakeDetailBody({
         payout,
         items: [
           {
-            tcgapiProductId: card.id,
-            name: card.name,
-            imageSourceUrl: card.imageUrl,
+            tcgapiProductId: activeCard.id,
+            name: activeCard.name,
+            imageSourceUrl: activeCard.imageUrl,
+            rarity: activeCard.rarity ?? undefined,
             game: 'other' as const,
             condition,
             printing,
@@ -510,7 +532,7 @@ function IntakeDetailBody({
       setSubmitMsg(
         data.status === 'pending_approval'
           ? `Created trade ${data.id.slice(0, 8)}… for $${dollars} — needs manager approval before it lands in inventory.`
-          : `Added ${quantity} × ${card.name} (${condition}/${printing}) to inventory. Payout $${dollars}.`,
+          : `Added ${quantity} × ${activeCard.name} (${condition}/${printing}) to inventory. Payout $${dollars}.`,
       );
       qc.invalidateQueries({ queryKey: ['products'] });
       qc.invalidateQueries({ queryKey: ['inventory'] });
@@ -518,11 +540,11 @@ function IntakeDetailBody({
       // a print only when the trade actually landed in inventory; pending
       // trades wait for manager approval before a label makes sense.
       if (data.skuIds?.length) {
-        setLabelInfo({ skuIds: data.skuIds, cardName: card.name });
+        setLabelInfo({ skuIds: data.skuIds, cardName: activeCard.name });
         if (data.status !== 'pending_approval') {
           // Fire-and-forget; user sees the result via the print dialog.
           // If popup-blocked, the manual button below still works.
-          void printQrLabels(data.skuIds, card.name).catch((e) =>
+          void printQrLabels(data.skuIds, activeCard.name).catch((e) =>
             setLabelErr(e instanceof Error ? e.message : String(e)),
           );
         }
@@ -553,11 +575,11 @@ function IntakeDetailBody({
       {/* Sticky header keeps Close button visible while body scrolls. */}
       <header className="flex items-start justify-between gap-2 p-4 border-b border-slate-800">
         <div className="min-w-0">
-          <h2 className="text-lg font-bold truncate" title={card.name}>
-            {card.name}
+          <h2 className="text-lg font-bold truncate" title={activeCard.name}>
+            {activeCard.name}
           </h2>
           <p className="text-xs text-slate-400 truncate">
-            {[card.setName, card.gameName, card.number ? `#${card.number}` : null, card.rarity]
+            {[activeCard.setName, activeCard.gameName, activeCard.number ? `#${activeCard.number}` : null, activeCard.rarity]
               .filter(Boolean)
               .join(' · ')}
           </p>
@@ -576,10 +598,10 @@ function IntakeDetailBody({
         <div className="flex gap-3">
           <div className="w-32 shrink-0">
             <div className="aspect-[3/4] bg-slate-800 rounded-lg overflow-hidden flex items-center justify-center">
-              {card.imageUrl ? (
+              {activeCard.imageUrl ? (
                 <img
-                  src={card.imageUrl}
-                  alt={card.name}
+                  src={activeCard.imageUrl}
+                  alt={activeCard.name}
                   className="w-full h-full object-contain"
                 />
               ) : (
@@ -629,6 +651,36 @@ function IntakeDetailBody({
             </div>
           )}
         </div>
+
+        {rarityVariants.length > 1 && (
+          <div>
+            <h3 className="text-xs uppercase tracking-wide text-slate-400 mb-2">Rarity variant</h3>
+            <div className="flex flex-wrap gap-2">
+              {rarityVariants.map((v) => (
+                <button
+                  key={v.id}
+                  type="button"
+                  onClick={() => {
+                    setActiveCard(v);
+                    setCondition('NM');
+                    setPrinting('Normal');
+                    setSubmitMsg(null);
+                    setSubmitErr(null);
+                    setLabelInfo(null);
+                    setOverrideValue('');
+                  }}
+                  className={`text-xs px-2.5 py-1 rounded-full border transition ${
+                    activeCard.id === v.id
+                      ? 'bg-emerald-500 border-emerald-500 text-slate-900 font-semibold'
+                      : 'bg-slate-800 border-slate-700 text-slate-200 hover:border-emerald-500'
+                  }`}
+                >
+                  {v.rarity ?? 'Unknown'}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="grid grid-cols-2 gap-3">
           <Field label="Condition">
