@@ -13,6 +13,8 @@ type Product = {
   cardNumber: string | null;
   rarity: string | null;
   imageSourceUrl?: string | null;
+  minSellPriceCents: number | null;
+  maxSellPriceCents: number | null;
 };
 
 type ProductSearchResponse = { results: Product[] };
@@ -25,6 +27,11 @@ type ProductSku = {
   sellPriceCents: number | null;
 };
 type ProductSkusResponse = { skus: ProductSku[] };
+type InventorySummary = {
+  estimatedCostCents: number;
+  qtyOnHand: number;
+  skuCount: number;
+};
 
 function QrImage({ skuId, label }: { skuId: string; label: string }) {
   const [src, setSrc] = useState<string | null>(null);
@@ -84,7 +91,6 @@ interface ImportResult {
   marketPricesApplied: number;
   errors: Array<{ row: number; message: string }>;
   dryRun: boolean;
-  enrichmentRan?: boolean;
 }
 
 export default function InventoryPage() {
@@ -100,6 +106,10 @@ export default function InventoryPage() {
     queryFn: () =>
       api.get<ProductSearchResponse>(`/products/search?q=${encodeURIComponent(debounced)}`),
     enabled: debounced.length > 1,
+  });
+  const summaryQuery = useQuery({
+    queryKey: ['inventory-summary'],
+    queryFn: () => api.get<InventorySummary>('/inventory/summary'),
   });
   const skuQuery = useQuery({
     queryKey: ['product-skus', barcodeProduct?.id],
@@ -160,6 +170,47 @@ export default function InventoryPage() {
     }
   }
 
+  async function onPrintAllVisible() {
+    const visibleProducts = data?.results ?? [];
+    if (visibleProducts.length === 0) return;
+
+    try {
+      setPrintingKey('page-all');
+      const skuGroups = await Promise.all(
+        visibleProducts.map((product) => api.get<ProductSkusResponse>(`/products/${product.id}/skus`)),
+      );
+      const items = skuGroups.flatMap((group) =>
+        group.skus.map((sku) => ({ skuId: sku.id, copies: 1 })),
+      );
+      if (items.length === 0) {
+        throw new Error('No SKUs found in the current search results.');
+      }
+      if (items.length > 500) {
+        throw new Error('Current search results exceed the 500-label print limit. Narrow the search first.');
+      }
+      await printLabels(items, debounced || 'inventory');
+    } catch (e) {
+      setPrintErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPrintingKey(null);
+    }
+  }
+
+  function renderPriceSummary(product: Product) {
+    if (product.minSellPriceCents == null && product.maxSellPriceCents == null) {
+      return 'No price yet';
+    }
+    const min = product.minSellPriceCents ?? product.maxSellPriceCents;
+    const max = product.maxSellPriceCents ?? product.minSellPriceCents;
+    if (min == null || max == null) {
+      return 'No price yet';
+    }
+    if (min === max) {
+      return `$${(min / 100).toFixed(2)}`;
+    }
+    return `$${(min / 100).toFixed(2)} - $${(max / 100).toFixed(2)}`;
+  }
+
   return (
     <div className="p-4 md:p-6 max-w-5xl mx-auto space-y-6">
       <header className="flex items-center justify-between gap-3 flex-wrap">
@@ -167,20 +218,58 @@ export default function InventoryPage() {
           <h1 className="text-2xl font-bold">Inventory</h1>
           <p className="text-sm text-slate-400">Search products, import CSVs, and backfill images.</p>
         </div>
-        <button
-          type="button"
-          className="btn-primary inline-flex items-center gap-2"
-          onClick={() => setToolsOpen(true)}
-          aria-expanded={toolsOpen}
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
-          </svg>
-          Tools
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            className="btn"
+            onClick={() => void onPrintAllVisible()}
+            disabled={printingKey === 'page-all' || isLoading || (data?.results.length ?? 0) === 0}
+          >
+            {printingKey === 'page-all' ? 'Printing all…' : 'Print all visible'}
+          </button>
+          <button
+            type="button"
+            className="btn-primary inline-flex items-center gap-2"
+            onClick={() => setToolsOpen(true)}
+            aria-expanded={toolsOpen}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
+            </svg>
+            Tools
+          </button>
+        </div>
       </header>
 
       <section>
+        <div className="mb-4 rounded-2xl border border-emerald-900/50 bg-emerald-950/20 px-4 py-3">
+          <div className="text-xs uppercase tracking-wide text-emerald-300/80">
+            Total estimated inventory cost
+          </div>
+          <div className="mt-1 flex flex-wrap items-end justify-between gap-3">
+            <div>
+              {summaryQuery.isLoading ? (
+                <p className="text-2xl font-semibold text-emerald-100">Loading…</p>
+              ) : summaryQuery.isError ? (
+                <p className="text-sm text-rose-300">Could not load inventory summary.</p>
+              ) : (
+                <p className="text-2xl font-semibold text-emerald-100">
+                  ${(summaryQuery.data!.estimatedCostCents / 100).toLocaleString(undefined, {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}
+                </p>
+              )}
+            </div>
+            {!summaryQuery.isLoading && !summaryQuery.isError && summaryQuery.data && (
+              <div className="text-sm text-emerald-200/80">
+                {summaryQuery.data.qtyOnHand.toLocaleString()} items on hand across{' '}
+                {summaryQuery.data.skuCount.toLocaleString()} inventory rows
+              </div>
+            )}
+          </div>
+        </div>
+
         <input
           autoFocus
           value={q}
@@ -189,6 +278,7 @@ export default function InventoryPage() {
           className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 outline-none focus:border-emerald-500"
         />
         {isLoading && <p className="opacity-60 mt-4">Searching…</p>}
+        {printErr && <p className="text-rose-300 text-sm mt-4">{printErr}</p>}
         {!isLoading && debounced.length > 1 && (data?.results.length ?? 0) === 0 && (
           <p className="opacity-60 mt-4">No results.</p>
         )}
@@ -222,6 +312,9 @@ export default function InventoryPage() {
                         <span className="rounded-full border border-slate-700 px-2 py-1 bg-slate-950/80">
                           Card #: {p.cardNumber || 'N/A'}
                         </span>
+                        <span className="rounded-full border border-emerald-700/60 px-2 py-1 bg-emerald-950/40 text-emerald-200">
+                          Price: {renderPriceSummary(p)}
+                        </span>
                         {p.rarity && (
                           <span className="rounded-full border border-slate-700 px-2 py-1 bg-slate-950/80">
                             {p.rarity}
@@ -244,6 +337,8 @@ export default function InventoryPage() {
                     <span>Set: {p.setName || 'Unknown set'}</span>
                     <span>•</span>
                     <span>Card #: {p.cardNumber || 'N/A'}</span>
+                    <span>•</span>
+                    <span>Price: {renderPriceSummary(p)}</span>
                   </div>
 
                   <div className="flex flex-wrap gap-2">
@@ -425,6 +520,7 @@ function CsvImporter() {
       if (!data.dryRun) {
         qc.invalidateQueries({ queryKey: ['products'] });
         qc.invalidateQueries({ queryKey: ['inventory'] });
+        qc.invalidateQueries({ queryKey: ['inventory-summary'] });
         qc.invalidateQueries({ queryKey: ['product-skus'] });
       }
     },
@@ -550,15 +646,10 @@ function CsvImporter() {
               Dry run — nothing was committed. Click Import to apply.
             </p>
           )}
-          {!result.dryRun && result.enrichmentRan && (
-            <p className="col-span-full text-emerald-300 text-xs">
-              Image backfill started in the background. Visit Settings → Integrations to
-              keep backfilling 10 at a time (free tier is capped at 100 requests/day).
-            </p>
-          )}
-          {!result.dryRun && !result.enrichmentRan && result.productsCreated > 0 && (
-            <p className="col-span-full text-amber-300 text-xs">
-              Configure TCGapi.dev in Settings to fetch product images automatically on import.
+          {!result.dryRun && result.productsCreated > 0 && (
+            <p className="col-span-full text-sky-300 text-xs">
+              New products were imported. Use Backfill product images below to pull images, and
+              configured stores will continue image enrichment in the background.
             </p>
           )}
           {result.errors.length > 0 && (
@@ -617,6 +708,7 @@ function WipeInventoryPanel() {
       // Anything that displays inventory counts is now stale.
       qc.invalidateQueries({ queryKey: ['products'] });
       qc.invalidateQueries({ queryKey: ['inventory'] });
+      qc.invalidateQueries({ queryKey: ['inventory-summary'] });
     },
     onError: (e: unknown) => {
       setError(e instanceof Error ? e.message : String(e));

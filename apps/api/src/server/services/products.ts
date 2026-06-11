@@ -1,4 +1,4 @@
-import { and, eq, ilike, or } from 'drizzle-orm';
+import { and, eq, ilike, or, sql } from 'drizzle-orm';
 import { schema, type Database } from '../../db/client';
 import { NotFound } from '../../common/http-errors';
 
@@ -10,8 +10,21 @@ export class ProductsService {
     if (!trimmed) return [];
     const pattern = `%${trimmed}%`;
     return this.db
-      .select()
+      .select({
+        id: schema.products.id,
+        name: schema.products.name,
+        setName: schema.products.setName,
+        cardNumber: schema.products.cardNumber,
+        rarity: schema.products.rarity,
+        imageSourceUrl: schema.products.imageSourceUrl,
+        minSellPriceCents:
+          sql<number | null>`min(${schema.currentPrices.sellPriceCents})`.as('min_sell_price_cents'),
+        maxSellPriceCents:
+          sql<number | null>`max(${schema.currentPrices.sellPriceCents})`.as('max_sell_price_cents'),
+      })
       .from(schema.products)
+      .leftJoin(schema.skus, eq(schema.skus.productId, schema.products.id))
+      .leftJoin(schema.currentPrices, eq(schema.currentPrices.skuId, schema.skus.id))
       .where(
         and(
           eq(schema.products.storeId, storeId),
@@ -21,6 +34,14 @@ export class ProductsService {
             ilike(schema.products.cardNumber, pattern),
           ),
         ),
+      )
+      .groupBy(
+        schema.products.id,
+        schema.products.name,
+        schema.products.setName,
+        schema.products.cardNumber,
+        schema.products.rarity,
+        schema.products.imageSourceUrl,
       )
       .limit(limit);
   }

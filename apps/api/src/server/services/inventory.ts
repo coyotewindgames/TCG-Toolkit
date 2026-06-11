@@ -1,4 +1,4 @@
-import { and, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import { schema, type Database } from '../../db/client';
 import { Conflict, NotFound } from '../../common/http-errors';
 import { emitToStore, SOCKET_EVENTS } from '../realtime/socket';
@@ -11,6 +11,35 @@ import { emitToStore, SOCKET_EVENTS } from '../realtime/socket';
  */
 export class InventoryService {
   constructor(private readonly db: Database) {}
+
+  async findReservableLocation(args: {
+    storeId: string;
+    skuId: string;
+    preferredLocationId: string;
+    qty: number;
+  }): Promise<string | null> {
+    const rows = await this.db
+      .select({
+        locationId: schema.inventory.locationId,
+        qtyOnHand: schema.inventory.qtyOnHand,
+        qtyReserved: schema.inventory.qtyReserved,
+      })
+      .from(schema.inventory)
+      .innerJoin(schema.locations, eq(schema.locations.id, schema.inventory.locationId))
+      .where(
+        and(
+          eq(schema.inventory.skuId, args.skuId),
+          eq(schema.locations.storeId, args.storeId),
+        ),
+      )
+      .orderBy(
+        desc(sql<number>`case when ${schema.inventory.locationId} = ${args.preferredLocationId} then 1 else 0 end`),
+        desc(sql<number>`${schema.inventory.qtyOnHand} - ${schema.inventory.qtyReserved}`),
+      );
+
+    const reservable = rows.filter((row) => row.qtyOnHand - row.qtyReserved >= args.qty);
+    return reservable[0]?.locationId ?? null;
+  }
 
   async reserve(args: {
     storeId: string;
@@ -120,6 +149,31 @@ export class InventoryService {
       });
     await this.emitUpdated(args.storeId, args.skuId);
   }
+
+    async summary(storeId: string): Promise<{
+      estimatedCostCents: number;
+      qtyOnHand: number;
+      skuCount: number;
+    }> {
+      const [row] = await this.db
+        .select({
+          estimatedCostCents:
+            sql<number>`coalesce(sum(${schema.inventory.qtyOnHand} * ${schema.inventory.costAvgCents}), 0)`.as(
+              'estimated_cost_cents',
+            ),
+          qtyOnHand: sql<number>`coalesce(sum(${schema.inventory.qtyOnHand}), 0)`.as('qty_on_hand'),
+          skuCount: sql<number>`count(*)::int`.as('sku_count'),
+        })
+        .from(schema.inventory)
+        .innerJoin(schema.locations, eq(schema.locations.id, schema.inventory.locationId))
+        .where(eq(schema.locations.storeId, storeId));
+
+      return {
+        estimatedCostCents: Number(row?.estimatedCostCents ?? 0),
+        qtyOnHand: Number(row?.qtyOnHand ?? 0),
+        skuCount: Number(row?.skuCount ?? 0),
+      };
+    }
 
   private async emitUpdated(storeId: string, skuId: string): Promise<void> {
     const [row] = await this.db

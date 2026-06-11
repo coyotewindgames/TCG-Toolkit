@@ -50,18 +50,17 @@ export function inventoryRouter(c: Container): Router {
   const importer = new InventoryImportService(c.db);
   const enricher = new CatalogEnrichmentService(c.db, c.configs);
 
-  async function queueImageEnrichment(storeId: string, result: { dryRun: boolean; productsCreated: number }) {
-    if (result.dryRun || result.productsCreated <= 0) return false;
-    try {
-      const status = await c.configs.getTcgapiStatus(storeId);
-      if (!status.configured || !status.hasKey) return false;
-      void enricher.enrichStore({ storeId, onlyMissingImage: true }).catch((err) => {
+  function queueImageEnrichment(storeId: string, result: { dryRun: boolean; productsCreated: number }) {
+    if (result.dryRun || result.productsCreated <= 0) return;
+    void (async () => {
+      try {
+        const status = await c.configs.getTcgapiStatus(storeId);
+        if (!status.configured || !status.hasKey) return;
+        await enricher.enrichStore({ storeId, onlyMissingImage: true });
+      } catch (err) {
         console.error('[inventory-import] image enrichment failed', err);
-      });
-      return true;
-    } catch {
-      return false;
-    }
+      }
+    })();
   }
 
   r.post(
@@ -70,9 +69,8 @@ export function inventoryRouter(c: Container): Router {
     asyncHandler(async (req, res) => {
       const body = ImportBody.parse(req.body ?? {});
       const result = await importer.import({ storeId: req.user!.storeId, req: body });
-
-      const enrichmentRan = await queueImageEnrichment(req.user!.storeId, result);
-      res.json({ ...result, enrichmentRan });
+      queueImageEnrichment(req.user!.storeId, result);
+      res.json(result);
     }),
   );
 
@@ -105,10 +103,8 @@ export function inventoryRouter(c: Container): Router {
           dryRun: body.dryRun,
         },
       });
-
-      const enrichmentRan = await queueImageEnrichment(req.user!.storeId, result);
-
-      res.json({ ...result, enrichmentRan });
+      queueImageEnrichment(req.user!.storeId, result);
+      res.json(result);
     }),
   );
 
@@ -121,6 +117,14 @@ export function inventoryRouter(c: Container): Router {
         storeId: req.user!.storeId,
         onlyMissingImage: body.onlyMissingImage,
       });
+      res.json(result);
+    }),
+  );
+
+  r.get(
+    '/summary',
+    asyncHandler(async (req, res) => {
+      const result = await c.inventory.summary(req.user!.storeId);
       res.json(result);
     }),
   );

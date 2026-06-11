@@ -1,6 +1,6 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { schema, type Database } from '../../db/client';
-import { BadRequest, NotFound } from '../../common/http-errors';
+import { BadRequest, Conflict, NotFound } from '../../common/http-errors';
 import { emitToOrder, SOCKET_EVENTS } from '../realtime/socket';
 import { InventoryService } from './inventory';
 import { ScansService } from './scans';
@@ -41,10 +41,39 @@ export class OrdersService {
       barcode: args.barcode,
     });
 
+    const reservableLocationId = await this.inventory.findReservableLocation({
+      storeId: args.storeId,
+      skuId: scan.skuId,
+      preferredLocationId: order.locationId,
+      qty: 1,
+    });
+    if (!reservableLocationId) {
+      throw Conflict('item is out of stock at every location');
+    }
+
+    let reserveLocationId = order.locationId;
+    if (reservableLocationId !== order.locationId) {
+      const [lineCountRow] = await this.db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(schema.orderItems)
+        .where(eq(schema.orderItems.orderId, order.id));
+      const lineCount = Number(lineCountRow?.count ?? 0);
+      if (lineCount > 0) {
+        throw Conflict('item is stocked at a different location than the current cart');
+      }
+
+      await this.db
+        .update(schema.orders)
+        .set({ locationId: reservableLocationId })
+        .where(eq(schema.orders.id, order.id));
+      reserveLocationId = reservableLocationId;
+      order.locationId = reservableLocationId;
+    }
+
     await this.inventory.reserve({
       storeId: args.storeId,
       skuId: scan.skuId,
-      locationId: order.locationId,
+      locationId: reserveLocationId,
       qty: 1,
     });
 
