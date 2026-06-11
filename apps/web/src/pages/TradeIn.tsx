@@ -485,6 +485,7 @@ function IntakeDetailBody({
           {
             tcgapiProductId: card.id,
             name: card.name,
+            imageSourceUrl: card.imageUrl,
             game: 'other' as const,
             condition,
             printing,

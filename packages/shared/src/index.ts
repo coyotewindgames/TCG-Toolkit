@@ -159,6 +159,7 @@ export const TradeItemInput = z.object({
   tcgapiProductId: z.string().min(1).optional(),
   game: z.enum(GAMES).optional(),
   name: z.string().min(1).optional(),
+  imageSourceUrl: z.string().url().nullable().optional(),
   condition: z.enum(CARD_CONDITIONS),
   printing: z.enum(CARD_PRINTINGS),
   language: z.enum(CARD_LANGUAGES).default('EN'),

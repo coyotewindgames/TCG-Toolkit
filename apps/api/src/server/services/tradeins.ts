@@ -99,7 +99,9 @@ export class TradeinsService {
       const lineRows: Array<{ skuId: string; qty: number; unitValueCents: number }> = [];
 
       for (const item of body.items) {
-        const skuId = item.skuId ?? (await this.upsertSku(tx, storeId, item));
+        const imageSourceUrl = (item as TradeItemInput & { imageSourceUrl?: string | null })
+          .imageSourceUrl;
+        const skuId = item.skuId ?? (await this.upsertSku(tx, storeId, item, imageSourceUrl));
         const payoutModifierPercent =
           (item as TradeItemInput & { payoutModifierPercent?: number }).payoutModifierPercent;
         const unit =
@@ -244,6 +246,7 @@ export class TradeinsService {
     tx: Database,
     storeId: string,
     item: TradeItemInput,
+    imageSourceUrl?: string | null,
   ): Promise<string> {
     if (!item.tcgapiProductId) {
       throw BadRequest('item must include skuId or tcgapiProductId for new card intake');
@@ -272,10 +275,20 @@ export class TradeinsService {
           tcgapiProductId: item.tcgapiProductId,
           game: item.game ?? 'other',
           name: item.name ?? `TCGapi ${item.tcgapiProductId}`,
+          imageSourceUrl,
         })
         .returning();
     }
     if (!product) throw new Error('failed to create product');
+
+    if (imageSourceUrl && !product.imageSourceUrl) {
+      [product] = await tx
+        .update(schema.products)
+        .set({ imageSourceUrl, updatedAt: new Date() })
+        .where(eq(schema.products.id, product.id))
+        .returning();
+      if (!product) throw new Error('failed to update product image');
+    }
 
     const [existing] = await tx
       .select()
