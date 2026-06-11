@@ -472,7 +472,7 @@ export default function InventoryPage() {
         title="Inventory tools"
         subtitle="Bulk operations and integrations"
       >
-        <PanelSection title="Import CSV">
+        <PanelSection title="Import CSV/XLSX">
           <CsvImporter />
         </PanelSection>
         <PanelSection title="Backfill product images" defaultOpen={false}>
@@ -504,7 +504,7 @@ function CsvImporter() {
 
   const submit = useMutation({
     mutationFn: (dryRun: boolean) => {
-      if (!file) throw new Error('Choose a CSV file first.');
+      if (!file) throw new Error('Choose a CSV/XLSX file first.');
       if (!locationId) throw new Error('No location selected.');
       const form = new FormData();
       form.append('file', file, file.name);
@@ -542,7 +542,7 @@ function CsvImporter() {
   return (
     <div className="space-y-3">
       <p className="text-xs text-slate-400">
-        Collectr / TCGplayer / Deckbox / generic CSVs
+        Collectr / TCGplayer / Deckbox / generic CSVs and spreadsheets
       </p>
 
       <p className="text-sm text-slate-400">
@@ -551,8 +551,8 @@ function CsvImporter() {
           Name, Set, Set Code, Card Number, Game, Variant/Foil, Condition, Language, Quantity,
           Purchase Price/Cost, Market Price
         </code>
-        . Whatever the CSV says wins; defaults below are only used when a row's Condition or
-        Printing cell is empty. Re-importing the same CSV is safe — quantities add to existing
+        . Whatever the file says wins; defaults below are only used when a row's Condition or
+        Printing cell is empty. Re-importing the same file is safe — quantities add to existing
         rows.
       </p>
 
@@ -560,7 +560,7 @@ function CsvImporter() {
         <input
           ref={fileRef}
           type="file"
-          accept=".csv,text/csv"
+          accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
           onChange={onFile}
           className="text-sm"
         />

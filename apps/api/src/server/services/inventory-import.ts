@@ -109,13 +109,18 @@ const HEADER_MAP: Record<string, string> = {
   pricepaid: 'costCents',
   paid: 'costCents',
   marketprice: 'marketCents',
+  marketpriceusd: 'marketCents',
+  marketpricecad: 'marketCents',
+  marketpriceaud: 'marketCents',
   market: 'marketCents',
   tcgmarket: 'marketCents',
   tcgmarketprice: 'marketCents',
+  tcgmarketpriceusd: 'marketCents',
   tcgplayermarketprice: 'marketCents',
   price: 'marketCents',
   currentvalue: 'marketCents',
   marketvalue: 'marketCents',
+  marketvalueusd: 'marketCents',
 };
 
 function indexHeaders(headers: string[]): Record<string, number> {

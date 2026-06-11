@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { eq, inArray } from 'drizzle-orm';
 import multer from 'multer';
+import * as XLSX from 'xlsx';
 import { z } from 'zod';
 import { asyncHandler } from '../../common/async-handler';
 import { BadRequest } from '../../common/http-errors';
@@ -38,6 +39,57 @@ const WIPE_CONFIRM_PHRASE = 'DELETE ALL INVENTORY';
 const WipeBody = z.object({
   confirm: z.literal(WIPE_CONFIRM_PHRASE),
 });
+
+function hasZipSignature(buf: Buffer): boolean {
+  return (
+    buf.length >= 4 &&
+    buf[0] === 0x50 &&
+    buf[1] === 0x4b &&
+    buf[2] === 0x03 &&
+    buf[3] === 0x04
+  );
+}
+
+function hasNulByte(buf: Buffer): boolean {
+  const sample = Math.min(buf.length, 2048);
+  for (let i = 0; i < sample; i++) {
+    if (buf[i] === 0x00) return true;
+  }
+  return false;
+}
+
+function parseImportUpload(file: Express.Multer.File): string {
+  const originalName = (file.originalname ?? '').toLowerCase();
+  const mime = (file.mimetype ?? '').toLowerCase();
+  const spreadsheetHint =
+    originalName.endsWith('.xlsx') ||
+    originalName.endsWith('.xls') ||
+    originalName.endsWith('.xlsm') ||
+    mime.includes('spreadsheetml') ||
+    mime === 'application/vnd.ms-excel';
+
+  if (spreadsheetHint || hasZipSignature(file.buffer)) {
+    try {
+      const wb = XLSX.read(file.buffer, { type: 'buffer' });
+      const sheetName = wb.SheetNames[0];
+      if (!sheetName) throw BadRequest('Spreadsheet has no sheets');
+      const sheet = wb.Sheets[sheetName];
+      const csv = XLSX.utils.sheet_to_csv(sheet, { FS: ',', RS: '\n', blankrows: false });
+      if (!csv.trim()) throw BadRequest('Spreadsheet appears empty');
+      return csv;
+    } catch (err) {
+      if (err instanceof Error && err.message.includes('Spreadsheet')) throw err;
+      throw BadRequest('Could not parse spreadsheet file. Upload .csv or .xlsx.');
+    }
+  }
+
+  if (hasNulByte(file.buffer)) {
+    throw BadRequest('Unsupported file type. Upload a CSV or XLSX spreadsheet.');
+  }
+
+  // Default to text CSV parsing for plain-text uploads.
+  return file.buffer.toString('utf8');
+}
 
 export function inventoryRouter(c: Container): Router {
   const r = Router();
@@ -79,7 +131,7 @@ export function inventoryRouter(c: Container): Router {
     requireRole('owner', 'manager'),
     upload.single('file'),
     asyncHandler(async (req, res) => {
-      if (!req.file?.buffer) throw BadRequest('CSV file is required');
+      if (!req.file?.buffer) throw BadRequest('CSV/XLSX file is required');
       const body = ImportFileBody.parse({
         locationId: req.body?.locationId,
         defaultCondition: req.body?.defaultCondition || undefined,
@@ -92,7 +144,7 @@ export function inventoryRouter(c: Container): Router {
               : undefined,
       });
 
-      const csv = req.file.buffer.toString('utf8');
+      const csv = parseImportUpload(req.file);
       const result = await importer.import({
         storeId: req.user!.storeId,
         req: {
