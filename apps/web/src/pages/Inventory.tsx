@@ -79,7 +79,9 @@ interface ImportResult {
   skusCreated: number;
   inventoryCreated: number;
   inventoryUpdated: number;
+  costsApplied: number;
   pricesSeeded: number;
+  marketPricesApplied: number;
   errors: Array<{ row: number; message: string }>;
   dryRun: boolean;
   enrichmentRan?: boolean;
@@ -331,7 +333,11 @@ function CsvImporter() {
     onSuccess: (data) => {
       setResult(data);
       setError(null);
-      if (!data.dryRun) qc.invalidateQueries({ queryKey: ['products'] });
+      if (!data.dryRun) {
+        qc.invalidateQueries({ queryKey: ['products'] });
+        qc.invalidateQueries({ queryKey: ['inventory'] });
+        qc.invalidateQueries({ queryKey: ['product-skus'] });
+      }
     },
     onError: (e: unknown) => {
       setError(String(e));
@@ -358,7 +364,7 @@ function CsvImporter() {
         Recognised columns (case-insensitive, any subset):{' '}
         <code className="text-slate-300">
           Name, Set, Set Code, Card Number, Game, Variant/Foil, Condition, Language, Quantity,
-          Purchase Price, Market Price
+          Purchase Price/Cost, Market Price
         </code>
         . Whatever the CSV says wins; defaults below are only used when a row's Condition or
         Printing cell is empty. Re-importing the same CSV is safe — quantities add to existing
@@ -434,11 +440,21 @@ function CsvImporter() {
 
       {result && (
         <div className="grid grid-cols-2 gap-3 text-sm">
+          {!result.dryRun && (
+            <p className="col-span-full text-emerald-300 text-xs">
+              Import complete. Processed {result.totalRows.toLocaleString()} row
+              {result.totalRows === 1 ? '' : 's'} with{' '}
+              {(result.totalRows - result.errors.length).toLocaleString()} successful row
+              {result.totalRows - result.errors.length === 1 ? '' : 's'}.
+            </p>
+          )}
           <Stat label="Rows" value={result.totalRows} />
           <Stat label="Products created" value={result.productsCreated} />
           <Stat label="SKUs created" value={result.skusCreated} />
           <Stat label="Inventory rows created" value={result.inventoryCreated} />
           <Stat label="Inventory rows updated" value={result.inventoryUpdated} />
+          <Stat label="Costs applied" value={result.costsApplied} />
+          <Stat label="Market prices imported" value={result.marketPricesApplied} />
           <Stat label="Prices seeded" value={result.pricesSeeded} />
           {result.dryRun && (
             <p className="col-span-full text-amber-300 text-xs">

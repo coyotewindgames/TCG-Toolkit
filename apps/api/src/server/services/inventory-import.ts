@@ -99,10 +99,20 @@ const HEADER_MAP: Record<string, string> = {
   count: 'qty',
   // prices
   purchaseprice: 'costCents',
+  purchasecost: 'costCents',
   buyprice: 'costCents',
+  costbasis: 'costCents',
   cost: 'costCents',
+  unitcost: 'costCents',
+  itemcost: 'costCents',
+  yourprice: 'costCents',
+  pricepaid: 'costCents',
   paid: 'costCents',
   marketprice: 'marketCents',
+  market: 'marketCents',
+  tcgmarket: 'marketCents',
+  tcgmarketprice: 'marketCents',
+  tcgplayermarketprice: 'marketCents',
   price: 'marketCents',
   currentvalue: 'marketCents',
   marketvalue: 'marketCents',
@@ -218,7 +228,9 @@ export interface ImportResult {
   skusCreated: number;
   inventoryCreated: number;
   inventoryUpdated: number;
+  costsApplied: number;
   pricesSeeded: number;
+  marketPricesApplied: number;
   errors: Array<{ row: number; message: string; data?: Record<string, string> }>;
   dryRun: boolean;
 }
@@ -234,7 +246,9 @@ export class InventoryImportService {
       skusCreated: 0,
       inventoryCreated: 0,
       inventoryUpdated: 0,
+      costsApplied: 0,
       pricesSeeded: 0,
+      marketPricesApplied: 0,
       errors: [],
       dryRun: !!req.dryRun,
     };
@@ -420,7 +434,11 @@ export class InventoryImportService {
             result.inventoryCreated++;
           }
 
-          // ---- seed current_prices (only if missing; tcgapi worker will refresh later) ----
+          if (costCents != null) {
+            result.costsApplied++;
+          }
+
+          // ---- write current_prices from the import when present ----
           if (marketCents != null) {
             const existingPrice = await tx
               .select({ skuId: schema.currentPrices.skuId })
@@ -435,7 +453,17 @@ export class InventoryImportService {
                 marketPriceCents: marketCents,
               });
               result.pricesSeeded++;
+            } else {
+              await tx
+                .update(schema.currentPrices)
+                .set({
+                  sellPriceCents: marketCents,
+                  buyPriceCents: Math.round(marketCents * 0.5),
+                  marketPriceCents: marketCents,
+                })
+                .where(eq(schema.currentPrices.skuId, skuId));
             }
+            result.marketPricesApplied++;
           }
         } catch (err) {
           result.errors.push({
