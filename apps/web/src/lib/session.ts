@@ -15,6 +15,9 @@
  */
 import type { UserRole } from '@tcg/shared';
 
+const AUTH_KEY = 'tcg.auth';
+const AUTH_TTL_MS = 60 * 60 * 1000;
+
 export interface SessionUser {
   id: string;
   storeId: string;
@@ -28,8 +31,15 @@ export interface SessionState {
   accessToken: string | null;
   locationId: string | null;
   registerId: string | null;
+  sessionExpiresAt: number | null;
   /** True until the initial /auth/refresh round-trip resolves. */
   bootstrapping: boolean;
+}
+
+interface PersistedAuthSession {
+  user: SessionUser;
+  accessToken: string;
+  sessionExpiresAt: number;
 }
 
 const LOC_KEY = (storeId: string) => `tcg.location.${storeId}`;
@@ -41,8 +51,75 @@ let state: SessionState = {
   accessToken: null,
   locationId: null,
   registerId: null,
+  sessionExpiresAt: null,
   bootstrapping: true,
 };
+
+let expiryTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearExpiryTimer(): void {
+  if (expiryTimer) {
+    clearTimeout(expiryTimer);
+    expiryTimer = null;
+  }
+}
+
+function scheduleExpiry(sessionExpiresAt: number): void {
+  clearExpiryTimer();
+  const delay = Math.max(0, sessionExpiresAt - Date.now());
+  expiryTimer = setTimeout(() => {
+    clearSession();
+  }, delay);
+}
+
+function persistAuthSession(session: PersistedAuthSession): void {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(AUTH_KEY, JSON.stringify(session));
+}
+
+function clearPersistedAuthSession(): void {
+  if (typeof window === 'undefined') return;
+  window.localStorage.removeItem(AUTH_KEY);
+}
+
+function readPersistedAuthSession(): PersistedAuthSession | null {
+  if (typeof window === 'undefined') return null;
+  const raw = window.localStorage.getItem(AUTH_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<PersistedAuthSession>;
+    if (!parsed.user || !parsed.accessToken || typeof parsed.sessionExpiresAt !== 'number') return null;
+    if (parsed.sessionExpiresAt <= Date.now()) {
+      clearPersistedAuthSession();
+      return null;
+    }
+    return {
+      user: parsed.user,
+      accessToken: parsed.accessToken,
+      sessionExpiresAt: parsed.sessionExpiresAt,
+    };
+  } catch {
+    clearPersistedAuthSession();
+    return null;
+  }
+}
+
+function bootstrapSessionFromStorage(): SessionState {
+  const persisted = readPersistedAuthSession();
+  if (!persisted) return state;
+  const { locationId, registerId } = loadPerStorePrefs(persisted.user.storeId);
+  scheduleExpiry(persisted.sessionExpiresAt);
+  return {
+    user: persisted.user,
+    accessToken: persisted.accessToken,
+    locationId,
+    registerId,
+    sessionExpiresAt: persisted.sessionExpiresAt,
+    bootstrapping: false,
+  };
+}
+
+state = bootstrapSessionFromStorage();
 
 function emit() {
   for (const fn of listeners) fn();
@@ -65,9 +142,11 @@ function loadPerStorePrefs(storeId: string): { locationId: string | null; regist
   };
 }
 
-export function setUser(user: SessionUser, accessToken: string): void {
+export function setUser(user: SessionUser, accessToken: string, sessionExpiresAt = Date.now() + AUTH_TTL_MS): void {
   const { locationId, registerId } = loadPerStorePrefs(user.storeId);
-  state = { user, accessToken, locationId, registerId, bootstrapping: false };
+  state = { user, accessToken, locationId, registerId, sessionExpiresAt, bootstrapping: false };
+  persistAuthSession({ user, accessToken, sessionExpiresAt });
+  scheduleExpiry(sessionExpiresAt);
   emit();
 }
 
@@ -77,7 +156,16 @@ export function setAccessToken(accessToken: string | null): void {
 }
 
 export function clearSession(): void {
-  state = { user: null, accessToken: null, locationId: null, registerId: null, bootstrapping: false };
+  clearExpiryTimer();
+  clearPersistedAuthSession();
+  state = {
+    user: null,
+    accessToken: null,
+    locationId: null,
+    registerId: null,
+    sessionExpiresAt: null,
+    bootstrapping: false,
+  };
   emit();
 }
 
@@ -125,7 +213,7 @@ export function tryDevUserBootstrap(): SessionUser | null {
       displayName: u.displayName ?? u.email,
     };
     const { locationId, registerId } = loadPerStorePrefs(user.storeId);
-    state = { user, accessToken: null, locationId, registerId, bootstrapping: false };
+    state = { user, accessToken: null, locationId, registerId, sessionExpiresAt: null, bootstrapping: false };
     emit();
     return user;
   } catch {

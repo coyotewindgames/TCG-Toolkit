@@ -34,7 +34,7 @@ const Env = z.object({
   CLOVER_WEBHOOK_SIGNATURE_HEADER: z.string().default('x-clover-signature'),
   JWT_ISSUER: z.string().default('tcg-toolkit'),
   JWT_AUDIENCE: z.string().default('tcg-toolkit-api'),
-  JWT_ACCESS_TTL_SECONDS: z.coerce.number().int().positive().default(900),
+  JWT_ACCESS_TTL_SECONDS: z.coerce.number().int().positive().default(3600),
   REFRESH_TTL_DAYS: z.coerce.number().int().positive().default(30),
   REFRESH_COOKIE_NAME: z.string().default('tcg_refresh'),
   COOKIE_DOMAIN: z.string().optional(),

@@ -49,7 +49,7 @@ export async function refreshAccessToken(): Promise<string | null> {
   });
   if (!res.ok) return null;
   const body = (await res.json()) as RefreshResponse;
-  setUser(body.user, body.accessToken);
+  setUser(body.user, body.accessToken, Date.now() + body.expiresIn * 1000);
   return body.accessToken;
 }
 
@@ -217,7 +217,7 @@ export async function login(email: string, password: string): Promise<SessionUse
     throw new Error(`Login failed (${res.status}): ${body}`);
   }
   const data = (await res.json()) as RefreshResponse;
-  setUser(data.user, data.accessToken);
+  setUser(data.user, data.accessToken, Date.now() + data.expiresIn * 1000);
   return data.user;
 }
 
@@ -248,7 +248,7 @@ export async function signup(input: SignupInput): Promise<SignupResult> {
     throw new Error(`Signup failed (${res.status}): ${body}`);
   }
   const data = (await res.json()) as SignupResult & { expiresIn: number };
-  setUser(data.user, data.accessToken);
+  setUser(data.user, data.accessToken, Date.now() + data.expiresIn * 1000);
   return data;
 }
 
