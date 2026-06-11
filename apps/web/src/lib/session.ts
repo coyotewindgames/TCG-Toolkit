@@ -142,7 +142,11 @@ function loadPerStorePrefs(storeId: string): { locationId: string | null; regist
   };
 }
 
-export function setUser(user: SessionUser, accessToken: string, sessionExpiresAt = Date.now() + AUTH_TTL_MS): void {
+export function oneHourFromNow(): number {
+  return Date.now() + AUTH_TTL_MS;
+}
+
+export function setUser(user: SessionUser, accessToken: string, sessionExpiresAt = oneHourFromNow()): void {
   const { locationId, registerId } = loadPerStorePrefs(user.storeId);
   state = { user, accessToken, locationId, registerId, sessionExpiresAt, bootstrapping: false };
   persistAuthSession({ user, accessToken, sessionExpiresAt });

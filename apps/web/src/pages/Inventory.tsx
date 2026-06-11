@@ -447,9 +447,8 @@ function CsvImporter() {
           )}
           {!result.dryRun && result.enrichmentRan && (
             <p className="col-span-full text-emerald-300 text-xs">
-              Pulled images for up to 10 products from tcgapi.dev. Visit Settings →
-              Integrations to keep backfilling 10 at a time (free tier is capped at 100
-              requests/day).
+              Image backfill started in the background. Visit Settings → Integrations to
+              keep backfilling 10 at a time (free tier is capped at 100 requests/day).
             </p>
           )}
           {!result.dryRun && !result.enrichmentRan && result.productsCreated > 0 && (

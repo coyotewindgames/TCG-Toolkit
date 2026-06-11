@@ -13,7 +13,14 @@
  * The session is the single source of truth for `storeId`, `locationId`,
  * `registerId` — none of those are pulled from `import.meta.env` anymore.
  */
-import { clearSession, getSession, setAccessToken, setUser, type SessionUser } from './session';
+import {
+  clearSession,
+  getSession,
+  oneHourFromNow,
+  setAccessToken,
+  setUser,
+  type SessionUser,
+} from './session';
 
 const BASE = import.meta.env.VITE_API_URL ?? '';
 
@@ -49,7 +56,7 @@ export async function refreshAccessToken(): Promise<string | null> {
   });
   if (!res.ok) return null;
   const body = (await res.json()) as RefreshResponse;
-  setUser(body.user, body.accessToken, Date.now() + body.expiresIn * 1000);
+  setUser(body.user, body.accessToken, oneHourFromNow());
   return body.accessToken;
 }
 
@@ -217,7 +224,7 @@ export async function login(email: string, password: string): Promise<SessionUse
     throw new Error(`Login failed (${res.status}): ${body}`);
   }
   const data = (await res.json()) as RefreshResponse;
-  setUser(data.user, data.accessToken, Date.now() + data.expiresIn * 1000);
+  setUser(data.user, data.accessToken, oneHourFromNow());
   return data.user;
 }
 
@@ -248,7 +255,7 @@ export async function signup(input: SignupInput): Promise<SignupResult> {
     throw new Error(`Signup failed (${res.status}): ${body}`);
   }
   const data = (await res.json()) as SignupResult & { expiresIn: number };
-  setUser(data.user, data.accessToken, Date.now() + data.expiresIn * 1000);
+  setUser(data.user, data.accessToken, oneHourFromNow());
   return data;
 }
 
