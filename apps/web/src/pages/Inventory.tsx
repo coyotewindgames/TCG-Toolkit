@@ -17,7 +17,21 @@ type Product = {
   maxSellPriceCents: number | null;
 };
 
-type ProductSearchResponse = { results: Product[] };
+type ProductSort = 'name_asc' | 'price_desc' | 'price_asc';
+
+type ProductSearchResponse = {
+  results: Product[];
+  pagination: {
+    page: number;
+    pageSize: number;
+    total: number;
+    totalPages: number;
+  };
+  filters: {
+    sets: string[];
+    rarities: string[];
+  };
+};
 type ProductSku = {
   id: string;
   barcode: string;
@@ -100,18 +114,33 @@ type ImportProgressState =
 
 export default function InventoryPage() {
   const [q, setQ] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [sort, setSort] = useState<ProductSort>('name_asc');
+  const [setFilter, setSetFilter] = useState('');
+  const [rarityFilter, setRarityFilter] = useState('');
   const [toolsOpen, setToolsOpen] = useState(false);
   const [expandedProductId, setExpandedProductId] = useState<string | null>(null);
   const [barcodeProduct, setBarcodeProduct] = useState<Product | null>(null);
   const [printingKey, setPrintingKey] = useState<string | null>(null);
   const [printErr, setPrintErr] = useState<string | null>(null);
   const debounced = useDebounced(q, 250);
-  const { data, isLoading } = useQuery({
-    queryKey: ['products', debounced],
-    queryFn: () =>
-      api.get<ProductSearchResponse>(`/products/search?q=${encodeURIComponent(debounced)}`),
-    enabled: debounced.length > 1,
+  const productsQuery = useQuery({
+    queryKey: ['products', debounced, page, pageSize, sort, setFilter, rarityFilter],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      params.set('q', debounced);
+      params.set('page', String(page));
+      params.set('pageSize', String(pageSize));
+      params.set('sort', sort);
+      if (setFilter) params.set('set', setFilter);
+      if (rarityFilter) params.set('rarity', rarityFilter);
+      return api.get<ProductSearchResponse>(`/products/search?${params.toString()}`);
+    },
+    enabled: debounced.length === 0 || debounced.length > 1,
+    placeholderData: (prev) => prev,
   });
+  const { data, isLoading } = productsQuery;
   const summaryQuery = useQuery({
     queryKey: ['inventory-summary'],
     queryFn: () => api.get<InventorySummary>('/inventory/summary'),
@@ -134,6 +163,15 @@ export default function InventoryPage() {
       setExpandedProductId(null);
     }
   }, [data?.results, expandedProductId]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [debounced, sort, setFilter, rarityFilter]);
+
+  useEffect(() => {
+    const totalPages = data?.pagination.totalPages ?? 1;
+    if (page > totalPages) setPage(totalPages);
+  }, [data?.pagination.totalPages, page]);
 
   async function printLabels(items: Array<{ skuId: string; copies?: number }>, fileStem: string) {
     setPrintErr(null);
@@ -282,9 +320,103 @@ export default function InventoryPage() {
           placeholder="Search by name, set, or card number…"
           className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 outline-none focus:border-emerald-500"
         />
+        <div className="mt-3 grid gap-2 md:grid-cols-4">
+          <label className="text-xs text-slate-300">
+            <span className="block mb-1">Sort</span>
+            <select
+              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2"
+              value={sort}
+              onChange={(e) => setSort(e.target.value as ProductSort)}
+            >
+              <option value="name_asc">Name A-Z</option>
+              <option value="price_desc">Price: high to low</option>
+              <option value="price_asc">Price: low to high</option>
+            </select>
+          </label>
+
+          <label className="text-xs text-slate-300">
+            <span className="block mb-1">Set</span>
+            <select
+              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2"
+              value={setFilter}
+              onChange={(e) => setSetFilter(e.target.value)}
+            >
+              <option value="">All sets</option>
+              {(data?.filters.sets ?? []).map((setName) => (
+                <option key={setName} value={setName}>
+                  {setName}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="text-xs text-slate-300">
+            <span className="block mb-1">Rarity</span>
+            <select
+              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2"
+              value={rarityFilter}
+              onChange={(e) => setRarityFilter(e.target.value)}
+            >
+              <option value="">All rarities</option>
+              {(data?.filters.rarities ?? []).map((rarity) => (
+                <option key={rarity} value={rarity}>
+                  {rarity}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="text-xs text-slate-300">
+            <span className="block mb-1">Per page</span>
+            <select
+              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2"
+              value={String(pageSize)}
+              onChange={(e) => {
+                const next = Number(e.target.value) || 25;
+                setPageSize(next);
+                setPage(1);
+              }}
+            >
+              <option value="25">25</option>
+              <option value="50">50</option>
+              <option value="100">100</option>
+            </select>
+          </label>
+        </div>
+        {!isLoading && data?.pagination && (
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
+            <p>
+              Showing page {data.pagination.page.toLocaleString()} of{' '}
+              {data.pagination.totalPages.toLocaleString()} ({data.pagination.total.toLocaleString()}{' '}
+              products)
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="btn"
+                onClick={() => setPage((current) => Math.max(1, current - 1))}
+                disabled={isLoading || page <= 1}
+              >
+                Previous
+              </button>
+              <button
+                type="button"
+                className="btn"
+                onClick={() =>
+                  setPage((current) =>
+                    Math.min(data.pagination.totalPages || 1, current + 1),
+                  )
+                }
+                disabled={isLoading || page >= (data.pagination.totalPages || 1)}
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
         {isLoading && <p className="opacity-60 mt-4">Searching…</p>}
         {printErr && <p className="text-rose-300 text-sm mt-4">{printErr}</p>}
-        {!isLoading && debounced.length > 1 && (data?.results.length ?? 0) === 0 && (
+        {!isLoading && (data?.results.length ?? 0) === 0 && (
           <p className="opacity-60 mt-4">No results.</p>
         )}
         <ul className="mt-4 space-y-2">
