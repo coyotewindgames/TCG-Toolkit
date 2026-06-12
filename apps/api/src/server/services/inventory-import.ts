@@ -268,6 +268,40 @@ export interface ImportResult {
   dryRun: boolean;
 }
 
+function formatImportError(err: unknown): {
+  message: string;
+  code?: string;
+  detail?: string;
+  constraint?: string;
+  table?: string;
+} {
+  if (!(err instanceof Error)) {
+    return { message: String(err) };
+  }
+
+  const dbErr = err as Error & {
+    code?: string;
+    detail?: string;
+    constraint?: string;
+    table?: string;
+    cause?: {
+      code?: string;
+      detail?: string;
+      constraint?: string;
+      table?: string;
+      message?: string;
+    };
+  };
+
+  return {
+    message: dbErr.message,
+    code: dbErr.code ?? dbErr.cause?.code,
+    detail: dbErr.detail ?? dbErr.cause?.detail,
+    constraint: dbErr.constraint ?? dbErr.cause?.constraint,
+    table: dbErr.table ?? dbErr.cause?.table,
+  };
+}
+
 export class InventoryImportService {
   constructor(private readonly db: Database) {}
 
@@ -350,7 +384,7 @@ export class InventoryImportService {
     const inventoryPresenceCache = new Set<string>();
     const currentPricePresenceCache = new Set<string>();
 
-    type TxLike = Pick<Database, 'select' | 'insert' | 'update'>;
+    type TxLike = Pick<Database, 'select' | 'insert' | 'update' | 'transaction'>;
 
     const processRow = async (tx: TxLike, r: number, rawRow: ParsedCsvRow) => {
       const row = normalizeParsedRow(rawRow);
@@ -575,14 +609,26 @@ export class InventoryImportService {
           result.marketPricesApplied++;
         }
       } catch (err) {
+        const formattedError = formatImportError(err);
         console.error('[inventory-import] Row processing error', {
           row: r + 2,
-          error: err instanceof Error ? err.message : String(err),
+          error: formattedError.message,
+          code: formattedError.code,
+          detail: formattedError.detail,
+          constraint: formattedError.constraint,
+          table: formattedError.table,
           data: mapRowData(rawRow),
         });
         result.errors.push({
           row: r + 2,
-          message: err instanceof Error ? err.message : String(err),
+          message: [
+            formattedError.message,
+            formattedError.code ? `code=${formattedError.code}` : null,
+            formattedError.constraint ? `constraint=${formattedError.constraint}` : null,
+            formattedError.detail ?? null,
+          ]
+            .filter(Boolean)
+            .join(' | '),
           data: mapRowData(rawRow),
         });
       }
@@ -592,7 +638,9 @@ export class InventoryImportService {
       await this.db
         .transaction(async (tx) => {
           for (let r = 0; r < rows.length; r++) {
-            await processRow(tx, r, rows[r]);
+            await tx.transaction(async (rowTx) => {
+              await processRow(rowTx as TxLike, r, rows[r]);
+            });
           }
 
           // Roll the transaction back so dry runs are read-only while still
@@ -610,7 +658,9 @@ export class InventoryImportService {
 
         await this.db.transaction(async (tx) => {
           for (let r = batchStart; r < batchEndExclusive; r++) {
-            await processRow(tx, r, rows[r]);
+            await tx.transaction(async (rowTx) => {
+              await processRow(rowTx as TxLike, r, rows[r]);
+            });
           }
         });
 
