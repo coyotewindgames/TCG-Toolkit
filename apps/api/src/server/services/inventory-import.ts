@@ -1,67 +1,40 @@
 import { and, eq, sql } from 'drizzle-orm';
+import csvToJson from 'csvtojson';
 import { schema, type Database } from '../../db/client';
 import { BadRequest } from '../../common/http-errors';
 
-// ---------- CSV parser (RFC 4180-ish, dependency-free) ----------
+type ParsedCsvRow = Record<string, string>;
 
-export function parseCsv(text: string): string[][] {
-  const rows: string[][] = [];
-  let row: string[] = [];
-  let field = '';
-  let inQuotes = false;
-  // Strip BOM
-  if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
+// ---------- CSV parser ----------
+
+export async function parseCsv(text: string): Promise<ParsedCsvRow[]> {
+  const hasBOM = text.charCodeAt(0) === 0xfeff;
+  const csvText = hasBOM ? text.slice(1) : text;
 
   console.info('[csv-parser] Starting CSV parse', {
-    textLength: text.length,
-    hasBOM: text.charCodeAt(0) === 0xfeff,
+    textLength: csvText.length,
+    hasBOM,
   });
 
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i];
-    if (inQuotes) {
-      if (c === '"') {
-        if (text[i + 1] === '"') {
-          field += '"';
-          i++;
-        } else {
-          inQuotes = false;
-        }
-      } else {
-        field += c;
-      }
-      continue;
-    }
-    if (c === '"') {
-      inQuotes = true;
-    } else if (c === ',') {
-      row.push(field);
-      field = '';
-    } else if (c === '\n' || c === '\r') {
-      // line break (handle \r\n)
-      if (c === '\r' && text[i + 1] === '\n') i++;
-      row.push(field);
-      field = '';
-      // ignore fully-blank lines
-      if (row.length > 1 || row[0] !== '') rows.push(row);
-      row = [];
-    } else {
-      field += c;
-    }
-  }
-  // flush last field/row
-  if (field !== '' || row.length > 0) {
-    row.push(field);
-    if (row.length > 1 || row[0] !== '') rows.push(row);
-  }
+  const rows = await csvToJson({
+    trim: false,
+    checkType: false,
+    ignoreEmpty: true,
+  }).fromString(csvText);
+
+  const parsedRows = rows.map((row) =>
+    Object.fromEntries(
+      Object.entries(row).map(([key, value]) => [key, typeof value === 'string' ? value : String(value ?? '')]),
+    ),
+  );
 
   console.info('[csv-parser] CSV parse complete', {
-    totalRows: rows.length,
-    headerRow: rows[0],
-    sampleDataRow: rows[1],
+    totalRows: parsedRows.length,
+    headers: Object.keys(parsedRows[0] ?? {}),
+    sampleDataRow: parsedRows[0],
   });
 
-  return rows;
+  return parsedRows;
 }
 
 // ---------- header normalization ----------
@@ -96,6 +69,7 @@ const HEADER_MAP: Record<string, string> = {
   category: 'game',
   // variant / printing
   variant: 'printing',
+  variance: 'printing',
   foil: 'printing',
   finish: 'printing',
   printing: 'printing',
@@ -103,6 +77,7 @@ const HEADER_MAP: Record<string, string> = {
   // condition
   condition: 'condition',
   cond: 'condition',
+  cardcondition: 'condition',
   // language
   language: 'language',
   lang: 'language',
@@ -121,6 +96,7 @@ const HEADER_MAP: Record<string, string> = {
   yourprice: 'costCents',
   pricepaid: 'costCents',
   paid: 'costCents',
+  averagecostpaid: 'costCents',
   marketprice: 'marketCents',
   marketpriceusd: 'marketCents',
   marketpricecad: 'marketCents',
@@ -139,10 +115,25 @@ const HEADER_MAP: Record<string, string> = {
 function indexHeaders(headers: string[]): Record<string, number> {
   const idx: Record<string, number> = {};
   headers.forEach((h, i) => {
-    const key = HEADER_MAP[norm(h)];
+    const normalizedHeader = norm(h);
+    const key =
+      HEADER_MAP[normalizedHeader] ??
+      (normalizedHeader.startsWith('marketpriceasof') ? 'marketCents' : undefined);
     if (key && idx[key] === undefined) idx[key] = i;
   });
   return idx;
+}
+
+function normalizeParsedRow(row: ParsedCsvRow): Record<string, string> {
+  const normalized: Record<string, string> = {};
+  for (const [header, value] of Object.entries(row)) {
+    const key = indexHeaders([header]);
+    const canonicalKey = Object.keys(key)[0];
+    if (canonicalKey && normalized[canonicalKey] === undefined) {
+      normalized[canonicalKey] = value;
+    }
+  }
+  return normalized;
 }
 
 type Game = (typeof GAMES)[number];
@@ -227,8 +218,8 @@ function toCents(v: string | undefined): number | null {
   return Math.round(f * 100);
 }
 
-function mapRowData(headers: string[], cells: string[]): Record<string, string> {
-  return Object.fromEntries(headers.map((h, i) => [h, cells[i] ?? '']));
+function mapRowData(row: ParsedCsvRow): Record<string, string> {
+  return row;
 }
 
 function productIdentityKey(args: {
@@ -325,8 +316,8 @@ export class InventoryImportService {
       locationId: req.locationId,
     });
 
-    const rows = parseCsv(req.csv);
-    if (rows.length < 2) {
+    const rows = await parseCsv(req.csv);
+    if (rows.length < 1) {
       console.error('[inventory-import] CSV validation failed - insufficient rows', {
         storeId,
         rowCount: rows.length,
@@ -334,7 +325,7 @@ export class InventoryImportService {
       throw BadRequest('CSV must have a header row and at least one data row');
     }
 
-    const headers = rows[0];
+    const headers = Object.keys(rows[0] ?? {});
     const idx = indexHeaders(headers);
 
     console.info('[inventory-import] Headers indexed', {
@@ -361,14 +352,15 @@ export class InventoryImportService {
 
     type TxLike = Pick<Database, 'select' | 'insert' | 'update'>;
 
-    const processRow = async (tx: TxLike, r: number, cells: string[]) => {
-      const get = (k: string) => (idx[k] !== undefined ? cells[idx[k]]?.trim() : undefined);
+    const processRow = async (tx: TxLike, r: number, rawRow: ParsedCsvRow) => {
+      const row = normalizeParsedRow(rawRow);
+      const get = (k: string) => row[k]?.trim();
       result.totalRows++;
 
       try {
         const name = get('name');
         if (!name) {
-          result.errors.push({ row: r + 1, message: 'missing name', data: mapRowData(headers, cells) });
+          result.errors.push({ row: r + 2, message: 'missing name', data: mapRowData(rawRow) });
           return;
         }
 
@@ -584,14 +576,14 @@ export class InventoryImportService {
         }
       } catch (err) {
         console.error('[inventory-import] Row processing error', {
-          row: r + 1,
+          row: r + 2,
           error: err instanceof Error ? err.message : String(err),
-          data: mapRowData(headers, cells),
+          data: mapRowData(rawRow),
         });
         result.errors.push({
-          row: r + 1,
+          row: r + 2,
           message: err instanceof Error ? err.message : String(err),
-          data: mapRowData(headers, cells),
+          data: mapRowData(rawRow),
         });
       }
     };
@@ -599,7 +591,7 @@ export class InventoryImportService {
     if (req.dryRun) {
       await this.db
         .transaction(async (tx) => {
-          for (let r = 1; r < rows.length; r++) {
+          for (let r = 0; r < rows.length; r++) {
             await processRow(tx, r, rows[r]);
           }
 
@@ -612,7 +604,7 @@ export class InventoryImportService {
           throw err;
         });
     } else {
-      for (let batchStart = 1; batchStart < rows.length; batchStart += IMPORT_BATCH_SIZE) {
+      for (let batchStart = 0; batchStart < rows.length; batchStart += IMPORT_BATCH_SIZE) {
         const batchEndExclusive = Math.min(rows.length, batchStart + IMPORT_BATCH_SIZE);
         const batchStartedAtMs = Date.now();
 
@@ -625,8 +617,8 @@ export class InventoryImportService {
         console.info('[inventory-import] batch committed', {
           storeId,
           locationId: req.locationId,
-          startRow: batchStart + 1,
-          endRow: batchEndExclusive,
+          startRow: batchStart + 2,
+          endRow: batchEndExclusive + 1,
           rowsProcessed: batchEndExclusive - batchStart,
           elapsedMs: Date.now() - batchStartedAtMs,
         });

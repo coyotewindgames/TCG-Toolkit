@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { eq, inArray } from 'drizzle-orm';
 import multer from 'multer';
+import * as XLSX from 'xlsx';
 import { z } from 'zod';
 import { asyncHandler } from '../../common/async-handler';
 import { BadRequest } from '../../common/http-errors';
@@ -69,7 +70,6 @@ function parseImportUpload(file: Express.Multer.File): string {
     mimetype: file.mimetype,
   });
 
-  // STRICT CSV-ONLY: reject XLSX/XLS files explicitly
   const isSpreadsheet =
     originalName.endsWith('.xlsx') ||
     originalName.endsWith('.xls') ||
@@ -79,14 +79,40 @@ function parseImportUpload(file: Express.Multer.File): string {
     hasZipSignature(file.buffer);
 
   if (isSpreadsheet) {
-    console.error('[csv-import] REJECTED: XLSX/XLS file detected', {
+    console.info('[csv-import] Spreadsheet upload detected', {
       filename: file.originalname,
       mimetype: file.mimetype,
       hasZipSignature: hasZipSignature(file.buffer),
     });
-    throw BadRequest(
-      'Only CSV files are accepted. XLSX/XLS files are not supported. Please export your spreadsheet to CSV format and try again.',
-    );
+
+    try {
+      const workbook = XLSX.read(file.buffer, { type: 'buffer' });
+      const firstSheetName = workbook.SheetNames[0];
+      const firstSheet = firstSheetName ? workbook.Sheets[firstSheetName] : undefined;
+
+      if (!firstSheet) {
+        throw BadRequest('Spreadsheet file does not contain any sheets.');
+      }
+
+      const csvText = XLSX.utils.sheet_to_csv(firstSheet, { blankrows: false });
+      console.info('[csv-import] Spreadsheet converted to CSV', {
+        filename: file.originalname,
+        sheetName: firstSheetName,
+        textLength: csvText.length,
+      });
+      return csvText;
+    } catch (err) {
+      if (err instanceof Error && err.message === 'Spreadsheet file does not contain any sheets.') {
+        throw err;
+      }
+
+      console.error('[csv-import] Failed to parse spreadsheet upload', {
+        filename: file.originalname,
+        mimetype: file.mimetype,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      throw BadRequest('Unsupported spreadsheet file. Please upload a valid CSV, XLSX, or XLS file.');
+    }
   }
 
   if (hasNulByte(file.buffer)) {
@@ -97,7 +123,6 @@ function parseImportUpload(file: Express.Multer.File): string {
     throw BadRequest('Unsupported file type. Only plain CSV text files are accepted.');
   }
 
-  // Parse as plain text CSV
   const csvText = file.buffer.toString('utf8');
   console.info('[csv-import] CSV text extracted', {
     filename: file.originalname,
@@ -148,19 +173,6 @@ export function inventoryRouter(c: Container): Router {
   const importer = new InventoryImportService(c.db);
   const enricher = new CatalogEnrichmentService(c.db, c.configs);
 
-  function queueImageEnrichment(storeId: string, result: { dryRun: boolean; productsCreated: number }) {
-    if (result.dryRun || result.productsCreated <= 0) return;
-    void (async () => {
-      try {
-        const status = await c.configs.getTcgapiStatus(storeId);
-        if (!status.configured || !status.hasKey) return;
-        await enricher.enrichStore({ storeId, onlyMissingImage: true });
-      } catch (err) {
-        console.error('[inventory-import] image enrichment failed', err);
-      }
-    })();
-  }
-
   r.post(
     '/import',
     requireRole('owner', 'manager'),
@@ -178,7 +190,6 @@ export function inventoryRouter(c: Container): Router {
           locationId,
         },
       });
-      queueImageEnrichment(req.user!.storeId, result);
       res.json(result);
     }),
   );
@@ -267,7 +278,6 @@ export function inventoryRouter(c: Container): Router {
         dryRun: result.dryRun,
       });
 
-      queueImageEnrichment(req.user!.storeId, result);
       res.json(result);
     }),
   );
