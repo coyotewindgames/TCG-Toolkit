@@ -386,17 +386,19 @@ export class InventoryImportService {
 
     type TxLike = Pick<Database, 'select' | 'insert' | 'update' | 'transaction'>;
 
+    // processRow MUST throw on all errors so they propagate out of the
+    // savepoint boundary — callers handle errors and record them externally.
     const processRow = async (tx: TxLike, r: number, rawRow: ParsedCsvRow) => {
       const row = normalizeParsedRow(rawRow);
       const get = (k: string) => row[k]?.trim();
       result.totalRows++;
 
-      try {
-        const name = get('name');
-        if (!name) {
-          result.errors.push({ row: r + 2, message: 'missing name', data: mapRowData(rawRow) });
-          return;
-        }
+      const name = get('name');
+      if (!name) {
+        throw new Error('missing name');
+      }
+
+      {  // block keeps old indentation intact — no semantic change
 
         const game = toGame(get('game'));
         const setName = get('set') || null;
@@ -608,39 +610,45 @@ export class InventoryImportService {
 
           result.marketPricesApplied++;
         }
-      } catch (err) {
-        const formattedError = formatImportError(err);
-        console.error('[inventory-import] Row processing error', {
-          row: r + 2,
-          error: formattedError.message,
-          code: formattedError.code,
-          detail: formattedError.detail,
-          constraint: formattedError.constraint,
-          table: formattedError.table,
-          data: mapRowData(rawRow),
-        });
-        result.errors.push({
-          row: r + 2,
-          message: [
-            formattedError.message,
-            formattedError.code ? `code=${formattedError.code}` : null,
-            formattedError.constraint ? `constraint=${formattedError.constraint}` : null,
-            formattedError.detail ?? null,
-          ]
-            .filter(Boolean)
-            .join(' | '),
-          data: mapRowData(rawRow),
-        });
-      }
+      } // end block
+    };
+
+    const handleRowError = (r: number, rawRow: ParsedCsvRow, err: unknown) => {
+      const formattedError = formatImportError(err);
+      console.error('[inventory-import] Row processing error', {
+        row: r + 2,
+        error: formattedError.message,
+        code: formattedError.code,
+        detail: formattedError.detail,
+        constraint: formattedError.constraint,
+        table: formattedError.table,
+        data: mapRowData(rawRow),
+      });
+      result.errors.push({
+        row: r + 2,
+        message: [
+          formattedError.message,
+          formattedError.code ? `code=${formattedError.code}` : null,
+          formattedError.constraint ? `constraint=${formattedError.constraint}` : null,
+          formattedError.detail ?? null,
+        ]
+          .filter(Boolean)
+          .join(' | '),
+        data: mapRowData(rawRow),
+      });
     };
 
     if (req.dryRun) {
       await this.db
         .transaction(async (tx) => {
           for (let r = 0; r < rows.length; r++) {
-            await tx.transaction(async (rowTx) => {
-              await processRow(rowTx as TxLike, r, rows[r]);
-            });
+            try {
+              await tx.transaction(async (rowTx) => {
+                await processRow(rowTx as TxLike, r, rows[r]);
+              });
+            } catch (err) {
+              handleRowError(r, rows[r], err);
+            }
           }
 
           // Roll the transaction back so dry runs are read-only while still
@@ -658,9 +666,13 @@ export class InventoryImportService {
 
         await this.db.transaction(async (tx) => {
           for (let r = batchStart; r < batchEndExclusive; r++) {
-            await tx.transaction(async (rowTx) => {
-              await processRow(rowTx as TxLike, r, rows[r]);
-            });
+            try {
+              await tx.transaction(async (rowTx) => {
+                await processRow(rowTx as TxLike, r, rows[r]);
+              });
+            } catch (err) {
+              handleRowError(r, rows[r], err);
+            }
           }
         });
 
