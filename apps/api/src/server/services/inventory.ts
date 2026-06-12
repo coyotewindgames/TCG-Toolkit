@@ -158,7 +158,14 @@ export class InventoryService {
       const [row] = await this.db
         .select({
           estimatedCostCents:
-            sql<number>`coalesce(sum(${schema.inventory.qtyOnHand} * ${schema.inventory.costAvgCents}), 0)`.as(
+            sql<number>`coalesce(sum(
+              ${schema.inventory.qtyOnHand} * coalesce(
+                nullif(${schema.inventory.costAvgCents}, 0),
+                ${schema.currentPrices.marketPriceCents},
+                ${schema.currentPrices.sellPriceCents},
+                0
+              )
+            ), 0)`.as(
               'estimated_cost_cents',
             ),
           qtyOnHand: sql<number>`coalesce(sum(${schema.inventory.qtyOnHand}), 0)`.as('qty_on_hand'),
@@ -166,6 +173,7 @@ export class InventoryService {
         })
         .from(schema.inventory)
         .innerJoin(schema.locations, eq(schema.locations.id, schema.inventory.locationId))
+        .leftJoin(schema.currentPrices, eq(schema.currentPrices.skuId, schema.inventory.skuId))
         .where(eq(schema.locations.storeId, storeId));
 
       return {
