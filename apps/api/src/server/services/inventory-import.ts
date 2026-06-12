@@ -610,6 +610,11 @@ export class InventoryImportService {
         let skuId = skuCache.get(skuKey);
 
         if (!skuId) {
+          // Generate the UUID up-front so we can use it as the PK and also
+          // set barcode/internalSku to the same value in a single INSERT,
+          // instead of inserting with 'pending' and then updating.
+          // (barcode == internalSku == id is the invariant maintained by schema design;
+          //  see schema comment on skus.barcode.)
           const newSkuId = randomUUID();
           const insertedSku = await tx
             .insert(schema.skus)
