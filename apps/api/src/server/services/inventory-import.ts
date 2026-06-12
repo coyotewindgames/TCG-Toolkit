@@ -730,14 +730,14 @@ export class InventoryImportService {
             .onConflictDoUpdate({
               target: [schema.inventory.skuId, schema.inventory.locationId],
               set: {
-                qtyOnHand: sql`${schema.inventory.qtyOnHand} + ${qty}`,
+                qtyOnHand: sql`${schema.inventory.qtyOnHand} + ${qty}::integer`,
                 ...(costCents != null
                   ? {
                       costAvgCents: sql`case
-                        when ${schema.inventory.qtyOnHand} + ${qty} = 0 then 0::int
+                        when ${schema.inventory.qtyOnHand} + ${qty}::integer = 0 then 0::int
                         else round(
-                          (${schema.inventory.costAvgCents} * ${schema.inventory.qtyOnHand} + ${costCents} * ${qty})
-                          / (${schema.inventory.qtyOnHand} + ${qty})
+                          (${schema.inventory.costAvgCents} * ${schema.inventory.qtyOnHand} + ${costCents}::integer * ${qty}::integer)
+                          / (${schema.inventory.qtyOnHand} + ${qty}::integer)
                         )::int
                       end`,
                     }
