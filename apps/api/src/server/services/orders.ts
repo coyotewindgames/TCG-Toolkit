@@ -209,8 +209,29 @@ export class OrdersService {
       .where(and(eq(schema.orders.id, orderId), eq(schema.orders.storeId, storeId)));
     if (!order) throw NotFound('order not found');
     const items = await this.db
-      .select()
+      .select({
+        id: schema.orderItems.id,
+        skuId: schema.orderItems.skuId,
+        quantity: schema.orderItems.quantity,
+        unitPriceCents: schema.orderItems.unitPriceCents,
+        productNameSnapshot: schema.orderItems.productNameSnapshot,
+        condition: schema.skus.condition,
+        imageUrl: schema.products.imageSourceUrl,
+        qtyRemaining:
+          sql<number>`GREATEST(COALESCE(${schema.inventory.qtyOnHand}, 0) - COALESCE(${schema.inventory.qtyReserved}, 0), 0)`.as(
+            'qty_remaining',
+          ),
+      })
       .from(schema.orderItems)
+      .innerJoin(schema.skus, eq(schema.skus.id, schema.orderItems.skuId))
+      .innerJoin(schema.products, eq(schema.products.id, schema.skus.productId))
+      .leftJoin(
+        schema.inventory,
+        and(
+          eq(schema.inventory.skuId, schema.skus.id),
+          eq(schema.inventory.locationId, order.locationId),
+        ),
+      )
       .where(eq(schema.orderItems.orderId, order.id));
     return { order, items };
   }

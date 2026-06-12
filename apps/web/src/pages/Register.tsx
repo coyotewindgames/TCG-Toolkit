@@ -13,6 +13,7 @@ type Line = {
   unitPriceCents: number;
   qty: number;
   imageUrl?: string;
+  qtyRemaining?: number;
 };
 
 type AddItemResult = {
@@ -39,6 +40,9 @@ type OrderDetailResult = {
     quantity: number;
     unitPriceCents: number;
     productNameSnapshot: string | null;
+    condition: string;
+    imageUrl: string | null;
+    qtyRemaining: number;
   }>;
 };
 
@@ -104,9 +108,11 @@ export default function RegisterPage() {
         id: item.id,
         skuId: item.skuId,
         name: item.productNameSnapshot ?? 'Scanned item',
-        condition: '',
+        condition: item.condition,
         unitPriceCents: item.unitPriceCents,
         qty: item.quantity,
+        imageUrl: item.imageUrl ?? undefined,
+        qtyRemaining: item.qtyRemaining,
       })),
     );
   }, [orderId]);
@@ -245,10 +251,21 @@ export default function RegisterPage() {
           {lines.length === 0 && <li className="py-8 text-center opacity-60">No items yet — scan to begin.</li>}
           {lines.map((l) => (
             <li key={l.skuId} className="flex items-center gap-4 py-3">
-              {l.imageUrl && <img src={l.imageUrl} alt="" className="w-12 h-16 rounded object-cover" />}
+              {l.imageUrl ? (
+                <img
+                  src={l.imageUrl}
+                  alt={l.name}
+                  className="w-12 h-16 rounded object-cover bg-slate-800"
+                />
+              ) : (
+                <div className="w-12 h-16 rounded border border-dashed border-slate-700 bg-slate-800/50" />
+              )}
               <div className="flex-1">
                 <div className="font-semibold">{l.name}</div>
-                <div className="text-xs opacity-70">{l.condition}</div>
+                <div className="text-xs opacity-70">
+                  {l.condition}
+                  {typeof l.qtyRemaining === 'number' ? ` • ${l.qtyRemaining} remaining` : ''}
+                </div>
               </div>
               <div className="text-sm w-14 text-right">×{l.qty}</div>
               <div className="font-mono w-20 text-right">{formatMoney(l.unitPriceCents * l.qty)}</div>
