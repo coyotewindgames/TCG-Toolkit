@@ -549,7 +549,7 @@ export class InventoryImportService {
                     costAvgCents: sql`case
                       when ${schema.inventory.qtyOnHand} + ${qty} = 0 then 0
                       else round(
-                        (${schema.inventory.costAvgCents} * ${schema.inventory.qtyOnHand} + ${costCents} * ${qty})::numeric
+                        (${schema.inventory.costAvgCents} * ${schema.inventory.qtyOnHand} + ${costCents} * ${qty})
                         / (${schema.inventory.qtyOnHand} + ${qty})
                       )::int
                     end`,
