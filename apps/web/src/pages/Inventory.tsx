@@ -580,7 +580,7 @@ function CsvImporter() {
   return (
     <div className="space-y-3">
       <p className="text-xs text-slate-400">
-        Collectr / TCGplayer / Deckbox / generic CSVs and spreadsheets
+        Collectr / TCGplayer / Deckbox / generic CSVs (CSV format only - XLSX not supported)
       </p>
 
       <p className="text-sm text-slate-400">
@@ -598,7 +598,7 @@ function CsvImporter() {
         <input
           ref={fileRef}
           type="file"
-          accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+          accept=".csv,text/csv"
           onChange={onFile}
           className="text-sm"
         />

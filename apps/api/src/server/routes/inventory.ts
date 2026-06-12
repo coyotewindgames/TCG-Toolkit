@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import { eq, inArray } from 'drizzle-orm';
 import multer from 'multer';
-import * as XLSX from 'xlsx';
 import { z } from 'zod';
 import { asyncHandler } from '../../common/async-handler';
 import { BadRequest } from '../../common/http-errors';
@@ -63,34 +62,50 @@ function hasNulByte(buf: Buffer): boolean {
 function parseImportUpload(file: Express.Multer.File): string {
   const originalName = (file.originalname ?? '').toLowerCase();
   const mime = (file.mimetype ?? '').toLowerCase();
-  const spreadsheetHint =
+  
+  console.info('[csv-import] parseImportUpload called', {
+    filename: file.originalname,
+    size: file.size,
+    mimetype: file.mimetype,
+  });
+
+  // STRICT CSV-ONLY: reject XLSX/XLS files explicitly
+  const isSpreadsheet =
     originalName.endsWith('.xlsx') ||
     originalName.endsWith('.xls') ||
     originalName.endsWith('.xlsm') ||
     mime.includes('spreadsheetml') ||
-    mime === 'application/vnd.ms-excel';
+    mime === 'application/vnd.ms-excel' ||
+    hasZipSignature(file.buffer);
 
-  if (spreadsheetHint || hasZipSignature(file.buffer)) {
-    try {
-      const wb = XLSX.read(file.buffer, { type: 'buffer' });
-      const sheetName = wb.SheetNames[0];
-      if (!sheetName) throw BadRequest('Spreadsheet has no sheets');
-      const sheet = wb.Sheets[sheetName];
-      const csv = XLSX.utils.sheet_to_csv(sheet, { FS: ',', RS: '\n', blankrows: false });
-      if (!csv.trim()) throw BadRequest('Spreadsheet appears empty');
-      return csv;
-    } catch (err) {
-      if (err instanceof Error && err.message.includes('Spreadsheet')) throw err;
-      throw BadRequest('Could not parse spreadsheet file. Upload .csv or .xlsx.');
-    }
+  if (isSpreadsheet) {
+    console.error('[csv-import] REJECTED: XLSX/XLS file detected', {
+      filename: file.originalname,
+      mimetype: file.mimetype,
+      hasZipSignature: hasZipSignature(file.buffer),
+    });
+    throw BadRequest(
+      'Only CSV files are accepted. XLSX/XLS files are not supported. Please export your spreadsheet to CSV format and try again.',
+    );
   }
 
   if (hasNulByte(file.buffer)) {
-    throw BadRequest('Unsupported file type. Upload a CSV or XLSX spreadsheet.');
+    console.error('[csv-import] REJECTED: Binary file with null bytes', {
+      filename: file.originalname,
+      mimetype: file.mimetype,
+    });
+    throw BadRequest('Unsupported file type. Only plain CSV text files are accepted.');
   }
 
-  // Default to text CSV parsing for plain-text uploads.
-  return file.buffer.toString('utf8');
+  // Parse as plain text CSV
+  const csvText = file.buffer.toString('utf8');
+  console.info('[csv-import] CSV text extracted', {
+    filename: file.originalname,
+    textLength: csvText.length,
+    preview: csvText.slice(0, 200),
+  });
+  
+  return csvText;
 }
 
 async function resolveImportLocationId(args: {
@@ -173,9 +188,19 @@ export function inventoryRouter(c: Container): Router {
     requireRole('owner', 'manager'),
     upload.single('file'),
     asyncHandler(async (req, res) => {
+      console.info('[csv-import] /import/file request received', {
+        storeId: req.user!.storeId,
+        hasFile: !!req.file,
+        fileName: req.file?.originalname,
+        fileSize: req.file?.size,
+        mimetype: req.file?.mimetype,
+        bodyKeys: Object.keys(req.body ?? {}),
+      });
+
       if (!req.file?.buffer) {
+        console.error('[csv-import] No file in request');
         throw BadRequest(
-          'CSV/XLSX file is required. Send multipart/form-data with a file field named "file".',
+          'CSV file is required. Send multipart/form-data with a file field named "file".',
         );
       }
       const body = ImportFileBody.parse({
@@ -192,13 +217,34 @@ export function inventoryRouter(c: Container): Router {
               : undefined,
       });
 
+      console.info('[csv-import] Parsed request body', {
+        locationId: body.locationId,
+        location_id: body.location_id,
+        locationID: body.locationID,
+        defaultCondition: body.defaultCondition,
+        defaultPrinting: body.defaultPrinting,
+        dryRun: body.dryRun,
+      });
+
       const resolvedLocationId = await resolveImportLocationId({
         db: c.db,
         storeId: req.user!.storeId,
         requestedLocationId: body.locationId ?? body.location_id ?? body.locationID,
       });
 
+      console.info('[csv-import] Resolved location', {
+        locationId: resolvedLocationId,
+      });
+
       const csv = parseImportUpload(req.file);
+      
+      console.info('[csv-import] Calling import service', {
+        storeId: req.user!.storeId,
+        locationId: resolvedLocationId,
+        csvLength: csv.length,
+        dryRun: body.dryRun,
+      });
+
       const result = await importer.import({
         storeId: req.user!.storeId,
         req: {
@@ -209,6 +255,18 @@ export function inventoryRouter(c: Container): Router {
           dryRun: body.dryRun,
         },
       });
+
+      console.info('[csv-import] Import completed', {
+        storeId: req.user!.storeId,
+        totalRows: result.totalRows,
+        productsCreated: result.productsCreated,
+        skusCreated: result.skusCreated,
+        inventoryCreated: result.inventoryCreated,
+        inventoryUpdated: result.inventoryUpdated,
+        errors: result.errors.length,
+        dryRun: result.dryRun,
+      });
+
       queueImageEnrichment(req.user!.storeId, result);
       res.json(result);
     }),

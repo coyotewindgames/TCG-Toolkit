@@ -12,6 +12,11 @@ export function parseCsv(text: string): string[][] {
   // Strip BOM
   if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
 
+  console.info('[csv-parser] Starting CSV parse', {
+    textLength: text.length,
+    hasBOM: text.charCodeAt(0) === 0xfeff,
+  });
+
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
     if (inQuotes) {
@@ -49,6 +54,13 @@ export function parseCsv(text: string): string[][] {
     row.push(field);
     if (row.length > 1 || row[0] !== '') rows.push(row);
   }
+
+  console.info('[csv-parser] CSV parse complete', {
+    totalRows: rows.length,
+    headerRow: rows[0],
+    sampleDataRow: rows[1],
+  });
+
   return rows;
 }
 
@@ -272,6 +284,15 @@ export class InventoryImportService {
     const { storeId, req } = args;
     const startedAtMs = Date.now();
 
+    console.info('[inventory-import] Starting import', {
+      storeId,
+      locationId: req.locationId,
+      csvLength: req.csv.length,
+      dryRun: !!req.dryRun,
+      defaultCondition: req.defaultCondition,
+      defaultPrinting: req.defaultPrinting,
+    });
+
     const result: ImportResult = {
       totalRows: 0,
       productsCreated: 0,
@@ -291,14 +312,42 @@ export class InventoryImportService {
       .from(schema.locations)
       .where(and(eq(schema.locations.id, req.locationId), eq(schema.locations.storeId, storeId)))
       .limit(1);
-    if (!loc) throw BadRequest('locationId not found in this store');
+    if (!loc) {
+      console.error('[inventory-import] Location validation failed', {
+        storeId,
+        locationId: req.locationId,
+      });
+      throw BadRequest('locationId not found in this store');
+    }
+
+    console.info('[inventory-import] Location validated', {
+      storeId,
+      locationId: req.locationId,
+    });
 
     const rows = parseCsv(req.csv);
-    if (rows.length < 2) throw BadRequest('CSV must have a header row and at least one data row');
+    if (rows.length < 2) {
+      console.error('[inventory-import] CSV validation failed - insufficient rows', {
+        storeId,
+        rowCount: rows.length,
+      });
+      throw BadRequest('CSV must have a header row and at least one data row');
+    }
 
     const headers = rows[0];
     const idx = indexHeaders(headers);
+
+    console.info('[inventory-import] Headers indexed', {
+      storeId,
+      headers,
+      indexedKeys: Object.keys(idx),
+    });
+
     if (idx.name === undefined) {
+      console.error('[inventory-import] CSV validation failed - missing Name column', {
+        storeId,
+        headers,
+      });
       throw BadRequest('CSV must include a Name column (accepted: Name, Card Name, Product Name, Title)');
     }
 
@@ -370,6 +419,13 @@ export class InventoryImportService {
               .returning({ id: schema.products.id });
             productId = p.id;
             result.productsCreated++;
+            console.info('[inventory-import] Product created', {
+              productId,
+              name,
+              game,
+              setName,
+              cardNumber,
+            });
           }
 
           productCache.set(productKey, productId);
@@ -400,6 +456,13 @@ export class InventoryImportService {
               .set({ barcode: skuId, internalSku: skuId })
               .where(eq(schema.skus.id, skuId));
             result.skusCreated++;
+            console.info('[inventory-import] SKU created', {
+              skuId,
+              productId,
+              condition,
+              printing,
+              language,
+            });
           } else {
             const existingSkus = await tx
               .select({ id: schema.skus.id })
@@ -473,6 +536,11 @@ export class InventoryImportService {
         } else {
           result.inventoryCreated++;
           inventoryPresenceCache.add(invKey);
+          console.info('[inventory-import] Inventory row created', {
+            skuId,
+            locationId: req.locationId,
+            qty,
+          });
         }
 
         if (costCents != null) {
@@ -515,6 +583,11 @@ export class InventoryImportService {
           result.marketPricesApplied++;
         }
       } catch (err) {
+        console.error('[inventory-import] Row processing error', {
+          row: r + 1,
+          error: err instanceof Error ? err.message : String(err),
+          data: mapRowData(headers, cells),
+        });
         result.errors.push({
           row: r + 1,
           message: err instanceof Error ? err.message : String(err),
