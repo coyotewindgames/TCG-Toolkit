@@ -82,7 +82,7 @@ export class CatalogEnrichmentService {
 
     // Pick products that still need enrichment. Either no tcgapi mapping yet,
     // or (if onlyMissingImage) just no image. Skip games where tcgapi has no
-    // catalogue (sealed/supplies/other).
+    // catalogue (sealed/supplies/other). Only process products with actual inventory.
     const where = and(
       eq(schema.products.storeId, args.storeId),
       sql`${schema.products.game} not in ('sealed','supplies','other')`,
@@ -108,13 +108,40 @@ export class CatalogEnrichmentService {
         imageSourceUrl: schema.products.imageSourceUrl,
       })
       .from(schema.products)
-      .where(where)
+      .leftJoin(schema.skus, eq(schema.skus.productId, schema.products.id))
+      .leftJoin(schema.inventory, eq(schema.inventory.skuId, schema.skus.id))
+      .innerJoin(schema.locations, eq(schema.locations.id, schema.inventory.locationId))
+      .where(
+        and(
+          where,
+          eq(schema.locations.storeId, args.storeId),
+        ),
+      )
+      .groupBy(
+        schema.products.id,
+        schema.products.name,
+        schema.products.setName,
+        schema.products.cardNumber,
+        schema.products.game,
+        schema.products.tcgapiProductId,
+        schema.products.imageSourceUrl,
+      )
+      .having(sql`sum(${schema.inventory.qtyOnHand}) > 0`)
       .limit(limit);
 
     const remainingRows = await this.db
-      .select({ n: sql<number>`count(*)::int` })
+      .select({ n: sql<number>`count(distinct ${schema.products.id})::int` })
       .from(schema.products)
-      .where(where);
+      .leftJoin(schema.skus, eq(schema.skus.productId, schema.products.id))
+      .leftJoin(schema.inventory, eq(schema.inventory.skuId, schema.skus.id))
+      .innerJoin(schema.locations, eq(schema.locations.id, schema.inventory.locationId))
+      .where(
+        and(
+          where,
+          eq(schema.locations.storeId, args.storeId),
+        ),
+      )
+      .having(sql`sum(${schema.inventory.qtyOnHand}) > 0`);
     const totalToDo = Number(remainingRows[0]?.n ?? 0);
 
     const result: EnrichResult = {
@@ -198,7 +225,7 @@ export class CatalogEnrichmentService {
     return BACKGROUND_RUNS.has(`${args.storeId}:${args.onlyMissingImage ? 'img' : 'all'}`);
   }
 
-  /** Count of products that still need enrichment under the given filter. */
+  /** Count of products that still need enrichment under the given filter. Only counts products with inventory. */
   async pendingCount(args: {
     storeId: string;
     onlyMissingImage?: boolean;
@@ -214,9 +241,18 @@ export class CatalogEnrichmentService {
           ),
     );
     const [row] = await this.db
-      .select({ n: sql<number>`count(*)::int` })
+      .select({ n: sql<number>`count(distinct ${schema.products.id})::int` })
       .from(schema.products)
-      .where(where);
+      .leftJoin(schema.skus, eq(schema.skus.productId, schema.products.id))
+      .leftJoin(schema.inventory, eq(schema.inventory.skuId, schema.skus.id))
+      .innerJoin(schema.locations, eq(schema.locations.id, schema.inventory.locationId))
+      .where(
+        and(
+          where,
+          eq(schema.locations.storeId, args.storeId),
+        ),
+      )
+      .having(sql`sum(${schema.inventory.qtyOnHand}) > 0`);
     return Number(row?.n ?? 0);
   }
 
