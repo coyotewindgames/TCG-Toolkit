@@ -32,6 +32,7 @@ class FakeDb {
 
 class FakeSelectBuilder {
   private table: unknown;
+  private whereCalled = false;
 
   from(table: unknown) {
     this.table = table;
@@ -39,12 +40,18 @@ class FakeSelectBuilder {
   }
 
   where() {
+    this.whereCalled = true;
     return this;
   }
 
   limit() {
     if (this.table === schema.locations) {
-      return Promise.resolve([{ id: 'location-1' }]);
+      return Promise.resolve([{ id: 'location-1', storeId: 'store-1' }]);
+    }
+
+    // Handle pre-flight validation queries for SKUs
+    if (this.table === schema.skus && this.whereCalled) {
+      return Promise.resolve([{ id: 'sku-1', storeId: 'store-1' }]);
     }
 
     return Promise.resolve([]);
