@@ -136,6 +136,60 @@ export class OrdersService {
     return { totals };
   }
 
+  async recordSale(args: { storeId: string; orderId: string }) {
+    const result = await this.db.transaction(async (tx) => {
+      const [order] = await tx
+        .select()
+        .from(schema.orders)
+        .where(and(eq(schema.orders.id, args.orderId), eq(schema.orders.storeId, args.storeId)));
+
+      if (!order) throw NotFound('order not found');
+      if (order.status === 'paid') return { order, items: [] as Array<{ skuId: string; quantity: number }> };
+      if (order.status !== 'open' && order.status !== 'pending_payment') {
+        throw BadRequest(`order is ${order.status}`);
+      }
+
+      const items = await tx
+        .select({ skuId: schema.orderItems.skuId, quantity: schema.orderItems.quantity })
+        .from(schema.orderItems)
+        .where(eq(schema.orderItems.orderId, order.id));
+
+      if (items.length === 0) throw BadRequest('order has no items');
+
+      const [updatedOrder] = await tx
+        .update(schema.orders)
+        .set({ status: 'paid', closedAt: new Date() })
+        .where(and(eq(schema.orders.id, order.id), eq(schema.orders.storeId, args.storeId)))
+        .returning();
+
+      if (!updatedOrder) throw new Error('failed to mark order as paid');
+      return { order: updatedOrder, items };
+    });
+
+    for (const line of result.items) {
+      await this.inventory.commitSale({
+        storeId: result.order.storeId,
+        skuId: line.skuId,
+        locationId: result.order.locationId,
+        qty: line.quantity,
+      });
+    }
+
+    emitToOrder(result.order.id, SOCKET_EVENTS.orderCompleted, {
+      orderId: result.order.id,
+      totalCents: result.order.totalCents,
+      // Record-sale flow is DB-only; keep this literal for current shared socket type.
+      paymentProvider: 'clover',
+      receiptUrl: result.order.receiptUrl ?? null,
+    });
+
+    return {
+      orderId: result.order.id,
+      status: result.order.status,
+      totalCents: result.order.totalCents,
+    };
+  }
+
   async requireOpenOrder(storeId: string, orderId: string) {
     const [order] = await this.db
       .select()

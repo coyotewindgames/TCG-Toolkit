@@ -201,10 +201,9 @@ export default function RegisterPage() {
     if (!orderId) return;
     setStatus('checkout');
     try {
-      await api.post(`/orders/${orderId}/checkout`, {
-        provider: 'clover',
-        deviceId: import.meta.env.VITE_CLOVER_DEVICE_ID ?? 'mvp-device',
-      });
+      await api.post(`/orders/${orderId}/record-sale`, {});
+      setStatus('paid');
+      setLastError(null);
     } catch (e) {
       setLastError(String(e));
       setStatus('idle');
@@ -268,7 +267,7 @@ export default function RegisterPage() {
           onClick={checkout}
           className="mt-auto bg-emerald-500 hover:bg-emerald-400 disabled:bg-slate-700 text-slate-900 font-bold rounded-xl py-4 text-lg"
         >
-          {status === 'checkout' ? 'Charging…' : status === 'paid' ? 'Paid ✓' : 'Charge Card'}
+          {status === 'checkout' ? 'Recording…' : status === 'paid' ? 'Sale recorded ✓' : 'Record Sale'}
         </button>
         {lastError && <p className="text-rose-400 text-xs mt-3 break-all">{lastError}</p>}
       </aside>

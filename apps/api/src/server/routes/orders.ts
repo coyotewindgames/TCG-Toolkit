@@ -48,6 +48,18 @@ export function ordersRouter(c: Container): Router {
     }),
   );
 
+  r.post(
+    '/:id/record-sale',
+    requireRole('clerk', 'manager', 'owner'),
+    asyncHandler(async (req, res) => {
+      const out = await c.orders.recordSale({
+        storeId: req.user!.storeId,
+        orderId: req.params.id,
+      });
+      res.json(out);
+    }),
+  );
+
   r.delete(
     '/:id/items/:lineId',
     asyncHandler(async (req, res) => {
