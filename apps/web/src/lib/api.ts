@@ -144,7 +144,7 @@ async function rawFetch<T>(path: string, init?: RequestInit, retried = false): P
   const session = getSession();
   const accessToken = normalizedAccessToken(session.accessToken);
   if (accessToken) {
-    headers['authorization'] = `******;
+    headers['authorization'] = `Bearer ${accessToken}`;
   } else {
     const dev = devHeader();
     if (dev) headers['x-tcg-dev-user'] = dev;
@@ -180,7 +180,7 @@ export const api = {
     const session = getSession();
     const accessToken = normalizedAccessToken(session.accessToken);
     if (accessToken) {
-      headers['authorization'] = `******;
+      headers['authorization'] = `Bearer ${accessToken}`;
     } else {
       const dev = devHeader();
       if (dev) headers['x-tcg-dev-user'] = dev;
@@ -226,7 +226,7 @@ export const api = {
     const session = getSession();
     const accessToken = normalizedAccessToken(session.accessToken);
     if (accessToken) {
-      headers['authorization'] = `******;
+      headers['authorization'] = `Bearer ${accessToken}`;
     } else {
       const dev = devHeader();
       if (dev) headers['x-tcg-dev-user'] = dev;
@@ -275,7 +275,7 @@ export const api = {
       const session = getSession();
       const accessToken = normalizedAccessToken(session.accessToken);
       if (accessToken) {
-        headers['authorization'] = `******;
+        headers['authorization'] = `Bearer ${accessToken}`;
       } else {
         const dev = devHeader();
         if (dev) headers['x-tcg-dev-user'] = dev;
@@ -321,7 +321,6 @@ export const api = {
       status: res.status,
       bodyPreview: res.bodyText.slice(0, 500),
     });
-
     if (res.status === 401) {
       console.info('[api] postForm received 401, attempting token refresh');
       const fresh = await refreshAccessToken();
