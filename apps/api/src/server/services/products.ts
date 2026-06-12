@@ -25,9 +25,12 @@ export class ProductsService {
       .from(schema.products)
       .leftJoin(schema.skus, eq(schema.skus.productId, schema.products.id))
       .leftJoin(schema.currentPrices, eq(schema.currentPrices.skuId, schema.skus.id))
+      .leftJoin(schema.inventory, eq(schema.inventory.skuId, schema.skus.id))
+      .innerJoin(schema.locations, eq(schema.locations.id, schema.inventory.locationId))
       .where(
         and(
           eq(schema.products.storeId, storeId),
+          eq(schema.locations.storeId, storeId),
           or(
             ilike(schema.products.name, pattern),
             ilike(schema.products.setName, pattern),
@@ -43,6 +46,7 @@ export class ProductsService {
         schema.products.rarity,
         schema.products.imageSourceUrl,
       )
+      .having(sql`sum(${schema.inventory.qtyOnHand}) > 0`)
       .limit(limit);
   }
 
