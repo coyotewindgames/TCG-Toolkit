@@ -268,12 +268,86 @@ export interface ImportResult {
   dryRun: boolean;
 }
 
+/**
+ * Recursively inspect an error object to extract database error details.
+ * Handles Drizzle ORM error wrapping and PostgreSQL driver errors.
+ */
+function inspectDatabaseError(err: unknown): {
+  postgresCode?: string;
+  postgresDetail?: string;
+  postgresHint?: string;
+  postgresConstraint?: string;
+  postgresTable?: string;
+  postgresColumn?: string;
+  postgresSchema?: string;
+  driverError?: unknown;
+  stack?: string;
+  rawError?: string;
+} {
+  const result: ReturnType<typeof inspectDatabaseError> = {};
+
+  if (!err) return result;
+
+  try {
+    // Serialize the entire error for debugging
+    result.rawError = JSON.stringify(err, Object.getOwnPropertyNames(err), 2);
+  } catch {
+    result.rawError = String(err);
+  }
+
+  if (err instanceof Error) {
+    result.stack = err.stack;
+
+    // Check for direct PostgreSQL error properties
+    const anyErr = err as any;
+    result.postgresCode = anyErr.code;
+    result.postgresDetail = anyErr.detail;
+    result.postgresHint = anyErr.hint;
+    result.postgresConstraint = anyErr.constraint;
+    result.postgresTable = anyErr.table;
+    result.postgresColumn = anyErr.column;
+    result.postgresSchema = anyErr.schema;
+
+    // Check for nested error in 'cause' property (common in Drizzle)
+    if (anyErr.cause) {
+      const causeInspection = inspectDatabaseError(anyErr.cause);
+      result.postgresCode = result.postgresCode ?? causeInspection.postgresCode;
+      result.postgresDetail = result.postgresDetail ?? causeInspection.postgresDetail;
+      result.postgresHint = result.postgresHint ?? causeInspection.postgresHint;
+      result.postgresConstraint = result.postgresConstraint ?? causeInspection.postgresConstraint;
+      result.postgresTable = result.postgresTable ?? causeInspection.postgresTable;
+      result.postgresColumn = result.postgresColumn ?? causeInspection.postgresColumn;
+      result.postgresSchema = result.postgresSchema ?? causeInspection.postgresSchema;
+      result.driverError = anyErr.cause;
+    }
+
+    // Check for driver error property (node-postgres)
+    if (anyErr.driverError) {
+      const driverInspection = inspectDatabaseError(anyErr.driverError);
+      result.postgresCode = result.postgresCode ?? driverInspection.postgresCode;
+      result.postgresDetail = result.postgresDetail ?? driverInspection.postgresDetail;
+      result.postgresHint = result.postgresHint ?? driverInspection.postgresHint;
+      result.postgresConstraint = result.postgresConstraint ?? driverInspection.postgresConstraint;
+      result.postgresTable = result.postgresTable ?? driverInspection.postgresTable;
+      result.postgresColumn = result.postgresColumn ?? driverInspection.postgresColumn;
+      result.postgresSchema = result.postgresSchema ?? driverInspection.postgresSchema;
+      result.driverError = anyErr.driverError;
+    }
+  }
+
+  return result;
+}
+
 function formatImportError(err: unknown): {
   message: string;
   code?: string;
   detail?: string;
   constraint?: string;
   table?: string;
+  column?: string;
+  hint?: string;
+  schema?: string;
+  stack?: string;
 } {
   if (!(err instanceof Error)) {
     return { message: String(err) };
@@ -284,21 +358,34 @@ function formatImportError(err: unknown): {
     detail?: string;
     constraint?: string;
     table?: string;
+    column?: string;
+    hint?: string;
+    schema?: string;
     cause?: {
       code?: string;
       detail?: string;
       constraint?: string;
       table?: string;
+      column?: string;
+      hint?: string;
+      schema?: string;
       message?: string;
     };
   };
 
+  // Use inspectDatabaseError for comprehensive error extraction
+  const inspection = inspectDatabaseError(err);
+
   return {
     message: dbErr.message,
-    code: dbErr.code ?? dbErr.cause?.code,
-    detail: dbErr.detail ?? dbErr.cause?.detail,
-    constraint: dbErr.constraint ?? dbErr.cause?.constraint,
-    table: dbErr.table ?? dbErr.cause?.table,
+    code: dbErr.code ?? dbErr.cause?.code ?? inspection.postgresCode,
+    detail: dbErr.detail ?? dbErr.cause?.detail ?? inspection.postgresDetail,
+    constraint: dbErr.constraint ?? dbErr.cause?.constraint ?? inspection.postgresConstraint,
+    table: dbErr.table ?? dbErr.cause?.table ?? inspection.postgresTable,
+    column: dbErr.column ?? dbErr.cause?.column ?? inspection.postgresColumn,
+    hint: dbErr.hint ?? dbErr.cause?.hint ?? inspection.postgresHint,
+    schema: dbErr.schema ?? dbErr.cause?.schema ?? inspection.postgresSchema,
+    stack: inspection.stack,
   };
 }
 
@@ -397,6 +484,10 @@ export class InventoryImportService {
       if (!name) {
         throw new Error('missing name');
       }
+
+      // Track context for error reporting
+      let productId: string | undefined;
+      let skuId: string | undefined;
 
       {  // block keeps old indentation intact — no semantic change
 
@@ -515,6 +606,15 @@ export class InventoryImportService {
           skuCache.set(skuKey, skuId);
         }
 
+        // DIAGNOSTIC: Verify SKU was successfully created/retrieved
+        console.info('[inventory-import] SKU resolved for inventory operation', {
+          row: r + 2,
+          skuId,
+          productId,
+          skuInCache: skuCache.has(skuKey),
+          cacheSize: skuCache.size,
+        });
+
         const invKey = inventoryIdentityKey({ skuId, locationId: req.locationId });
         let inventoryExisted = inventoryPresenceCache.has(invKey);
 
@@ -531,33 +631,144 @@ export class InventoryImportService {
           }
         }
 
-        await tx
-          .insert(schema.inventory)
-          .values({
+        // PRE-FLIGHT VALIDATION: Verify SKU and location exist before attempting inventory insert
+        console.info('[inventory-import] Pre-flight validation before inventory insert', {
+          row: r + 2,
+          skuId,
+          locationId: req.locationId,
+          qty,
+          costCents,
+          inventoryExisted,
+        });
+
+        // Verify SKU exists (should always be true given the code above, but defense in depth)
+        const skuCheck = await tx
+          .select({ id: schema.skus.id, storeId: schema.skus.storeId })
+          .from(schema.skus)
+          .where(eq(schema.skus.id, skuId))
+          .limit(1);
+
+        if (!skuCheck[0]) {
+          console.error('[inventory-import] PRE-FLIGHT FAILED: SKU does not exist', {
+            row: r + 2,
+            skuId,
+            productId,
+            skuInCache: skuCache.has(skuKey),
+            cacheKey: skuKey,
+          });
+          throw new Error(`SKU ${skuId} not found in database - this indicates a logic error in SKU creation`);
+        }
+
+        // Verify location exists
+        const locationCheck = await tx
+          .select({ id: schema.locations.id, storeId: schema.locations.storeId })
+          .from(schema.locations)
+          .where(eq(schema.locations.id, req.locationId))
+          .limit(1);
+
+        if (!locationCheck[0]) {
+          console.error('[inventory-import] PRE-FLIGHT FAILED: Location does not exist', {
+            row: r + 2,
+            locationId: req.locationId,
+            storeId,
+          });
+          throw new Error(`Location ${req.locationId} not found in database`);
+        }
+
+        // Verify SKU belongs to the same store
+        if (skuCheck[0].storeId !== storeId) {
+          console.error('[inventory-import] PRE-FLIGHT FAILED: SKU belongs to different store', {
+            row: r + 2,
+            skuId,
+            skuStoreId: skuCheck[0].storeId,
+            expectedStoreId: storeId,
+          });
+          throw new Error(`SKU ${skuId} belongs to store ${skuCheck[0].storeId}, expected ${storeId}`);
+        }
+
+        // Verify location belongs to the same store
+        if (locationCheck[0].storeId !== storeId) {
+          console.error('[inventory-import] PRE-FLIGHT FAILED: Location belongs to different store', {
+            row: r + 2,
+            locationId: req.locationId,
+            locationStoreId: locationCheck[0].storeId,
+            expectedStoreId: storeId,
+          });
+          throw new Error(`Location ${req.locationId} belongs to store ${locationCheck[0].storeId}, expected ${storeId}`);
+        }
+
+        console.info('[inventory-import] Pre-flight validation passed', {
+          row: r + 2,
+          skuId,
+          locationId: req.locationId,
+        });
+
+        // Log detailed parameters before inventory insert
+        console.info('[inventory-import] Executing inventory insert/update', {
+          row: r + 2,
+          operation: inventoryExisted ? 'UPDATE' : 'INSERT',
+          params: {
             skuId,
             locationId: req.locationId,
             qtyOnHand: qty,
             qtyReserved: 0,
             costAvgCents: costCents ?? 0,
-          })
-          .onConflictDoUpdate({
-            target: [schema.inventory.skuId, schema.inventory.locationId],
-            set: {
-              qtyOnHand: sql`${schema.inventory.qtyOnHand} + ${qty}`,
-              ...(costCents != null
-                ? {
-                    costAvgCents: sql`case
-                      when ${schema.inventory.qtyOnHand} + ${qty} = 0 then 0::int
-                      else round(
-                        (${schema.inventory.costAvgCents} * ${schema.inventory.qtyOnHand} + ${costCents} * ${qty})
-                        / (${schema.inventory.qtyOnHand} + ${qty})
-                      )::int
-                    end`,
-                  }
-                : {}),
-              updatedAt: new Date(),
-            },
+          },
+          updateLogic: costCents != null ? 'with cost averaging' : 'quantity only',
+        });
+
+        try {
+          await tx
+            .insert(schema.inventory)
+            .values({
+              skuId,
+              locationId: req.locationId,
+              qtyOnHand: qty,
+              qtyReserved: 0,
+              costAvgCents: costCents ?? 0,
+            })
+            .onConflictDoUpdate({
+              target: [schema.inventory.skuId, schema.inventory.locationId],
+              set: {
+                qtyOnHand: sql`${schema.inventory.qtyOnHand} + ${qty}`,
+                ...(costCents != null
+                  ? {
+                      costAvgCents: sql`case
+                        when ${schema.inventory.qtyOnHand} + ${qty} = 0 then 0::int
+                        else round(
+                          (${schema.inventory.costAvgCents} * ${schema.inventory.qtyOnHand} + ${costCents} * ${qty})
+                          / (${schema.inventory.qtyOnHand} + ${qty})
+                        )::int
+                      end`,
+                    }
+                  : {}),
+                updatedAt: new Date(),
+              },
+            });
+
+          console.info('[inventory-import] Inventory insert/update succeeded', {
+            row: r + 2,
+            skuId,
+            locationId: req.locationId,
           });
+        } catch (inventoryInsertError) {
+          // Enhanced error logging with full context
+          const errInspection = inspectDatabaseError(inventoryInsertError);
+          console.error('[inventory-import] Inventory insert/update FAILED', {
+            row: r + 2,
+            skuId,
+            locationId: req.locationId,
+            productId,
+            errorMessage: inventoryInsertError instanceof Error ? inventoryInsertError.message : String(inventoryInsertError),
+            postgresCode: errInspection.postgresCode,
+            postgresDetail: errInspection.postgresDetail,
+            postgresConstraint: errInspection.postgresConstraint,
+            postgresTable: errInspection.postgresTable,
+            rawError: errInspection.rawError,
+          });
+          throw inventoryInsertError;
+        }
+
 
         if (inventoryExisted) {
           result.inventoryUpdated++;
@@ -613,17 +824,64 @@ export class InventoryImportService {
       } // end block
     };
 
-    const handleRowError = (r: number, rawRow: ParsedCsvRow, err: unknown) => {
+    const handleRowError = (r: number, rawRow: ParsedCsvRow, err: unknown, context?: { skuId?: string; locationId?: string; productId?: string }) => {
       const formattedError = formatImportError(err);
-      console.error('[inventory-import] Row processing error', {
+      const inspection = inspectDatabaseError(err);
+      
+      // Comprehensive error logging with all available context
+      console.error('[inventory-import] Row processing error - FULL DETAILS', {
         row: r + 2,
-        error: formattedError.message,
-        code: formattedError.code,
-        detail: formattedError.detail,
-        constraint: formattedError.constraint,
-        table: formattedError.table,
-        data: mapRowData(rawRow),
+        storeId,
+        locationId: req.locationId,
+        timestamp: new Date().toISOString(),
+        
+        // Error details
+        errorMessage: formattedError.message,
+        errorCode: formattedError.code,
+        errorDetail: formattedError.detail,
+        errorHint: formattedError.hint,
+        errorConstraint: formattedError.constraint,
+        errorTable: formattedError.table,
+        errorColumn: formattedError.column,
+        errorSchema: formattedError.schema,
+        
+        // PostgreSQL-specific details
+        postgresCode: inspection.postgresCode,
+        postgresDetail: inspection.postgresDetail,
+        postgresHint: inspection.postgresHint,
+        postgresConstraint: inspection.postgresConstraint,
+        postgresTable: inspection.postgresTable,
+        postgresColumn: inspection.postgresColumn,
+        
+        // Context
+        context,
+        rawRowData: rawRow,
+        mappedRowData: mapRowData(rawRow),
+        
+        // Cache state for debugging
+        cacheState: {
+          productsInCache: productCache.size,
+          skusInCache: skuCache.size,
+          inventoryInCache: inventoryPresenceCache.size,
+        },
       });
+      
+      // Also log the error stack for debugging
+      if (formattedError.stack) {
+        console.error('[inventory-import] Error stack trace', {
+          row: r + 2,
+          stack: formattedError.stack,
+        });
+      }
+      
+      // Log raw error object for maximum debugging capability
+      if (inspection.rawError) {
+        console.error('[inventory-import] Raw error object', {
+          row: r + 2,
+          rawError: inspection.rawError,
+        });
+      }
+      
       result.errors.push({
         row: r + 2,
         message: [
@@ -631,6 +889,7 @@ export class InventoryImportService {
           formattedError.code ? `code=${formattedError.code}` : null,
           formattedError.constraint ? `constraint=${formattedError.constraint}` : null,
           formattedError.detail ?? null,
+          formattedError.hint ?? null,
         ]
           .filter(Boolean)
           .join(' | '),
