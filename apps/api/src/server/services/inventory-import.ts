@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { and, eq, sql } from 'drizzle-orm';
 import csvToJson from 'csvtojson';
 import { schema, type Database } from '../../db/client';
@@ -471,6 +472,61 @@ export class InventoryImportService {
     const inventoryPresenceCache = new Set<string>();
     const currentPricePresenceCache = new Set<string>();
 
+    // Pre-warm caches with bulk queries so the per-row loop hits memory
+    // instead of issuing individual SELECTs for existing records.
+    const [warmProducts, warmSkus, warmInv, warmPrices] = await Promise.all([
+      this.db
+        .select({
+          id: schema.products.id,
+          game: schema.products.game,
+          name: schema.products.name,
+          setName: schema.products.setName,
+          cardNumber: schema.products.cardNumber,
+        })
+        .from(schema.products)
+        .where(eq(schema.products.storeId, storeId)),
+      this.db
+        .select({
+          id: schema.skus.id,
+          productId: schema.skus.productId,
+          condition: schema.skus.condition,
+          printing: schema.skus.printing,
+          language: schema.skus.language,
+        })
+        .from(schema.skus)
+        .where(eq(schema.skus.storeId, storeId)),
+      this.db
+        .select({ skuId: schema.inventory.skuId })
+        .from(schema.inventory)
+        .where(eq(schema.inventory.locationId, req.locationId)),
+      this.db
+        .select({ skuId: schema.currentPrices.skuId })
+        .from(schema.currentPrices)
+        .innerJoin(schema.skus, eq(schema.currentPrices.skuId, schema.skus.id))
+        .where(eq(schema.skus.storeId, storeId)),
+    ]);
+
+    for (const p of warmProducts) {
+      productCache.set(productIdentityKey({ storeId, game: p.game, name: p.name, setName: p.setName, cardNumber: p.cardNumber }), p.id);
+    }
+    for (const s of warmSkus) {
+      skuCache.set(skuIdentityKey({ productId: s.productId, condition: s.condition, printing: s.printing, language: s.language }), s.id);
+    }
+    for (const inv of warmInv) {
+      inventoryPresenceCache.add(inventoryIdentityKey({ skuId: inv.skuId, locationId: req.locationId }));
+    }
+    for (const cp of warmPrices) {
+      currentPricePresenceCache.add(cp.skuId);
+    }
+
+    console.info('[inventory-import] Caches pre-warmed', {
+      storeId,
+      products: productCache.size,
+      skus: skuCache.size,
+      inventoryRows: inventoryPresenceCache.size,
+      currentPrices: currentPricePresenceCache.size,
+    });
+
     type TxLike = Pick<Database, 'select' | 'insert' | 'update' | 'transaction'>;
 
     // processRow MUST throw on all errors so they propagate out of the
@@ -554,26 +610,29 @@ export class InventoryImportService {
         let skuId = skuCache.get(skuKey);
 
         if (!skuId) {
+          // Generate the UUID up-front so we can use it as the PK and also
+          // set barcode/internalSku to the same value in a single INSERT,
+          // instead of inserting with 'pending' and then updating.
+          // (barcode == internalSku == id is the invariant maintained by schema design;
+          //  see schema comment on skus.barcode.)
+          const newSkuId = randomUUID();
           const insertedSku = await tx
             .insert(schema.skus)
             .values({
+              id: newSkuId,
               storeId,
               productId,
               condition,
               printing,
               language,
-              barcode: 'pending',
-              internalSku: 'pending',
+              barcode: newSkuId,
+              internalSku: newSkuId,
             })
             .onConflictDoNothing()
             .returning({ id: schema.skus.id });
 
           if (insertedSku[0]) {
             skuId = insertedSku[0].id;
-            await tx
-              .update(schema.skus)
-              .set({ barcode: skuId, internalSku: skuId })
-              .where(eq(schema.skus.id, skuId));
             result.skusCreated++;
             console.info('[inventory-import] SKU created', {
               skuId,
@@ -606,15 +665,6 @@ export class InventoryImportService {
           skuCache.set(skuKey, skuId);
         }
 
-        // DIAGNOSTIC: Verify SKU was successfully created/retrieved
-        console.info('[inventory-import] SKU resolved for inventory operation', {
-          row: r + 2,
-          skuId,
-          productId,
-          skuInCache: skuCache.has(skuKey),
-          cacheSize: skuCache.size,
-        });
-
         const invKey = inventoryIdentityKey({ skuId, locationId: req.locationId });
         let inventoryExisted = inventoryPresenceCache.has(invKey);
 
@@ -630,92 +680,6 @@ export class InventoryImportService {
             inventoryPresenceCache.add(invKey);
           }
         }
-
-        // PRE-FLIGHT VALIDATION: Verify SKU and location exist before attempting inventory insert
-        console.info('[inventory-import] Pre-flight validation before inventory insert', {
-          row: r + 2,
-          skuId,
-          locationId: req.locationId,
-          qty,
-          costCents,
-          inventoryExisted,
-        });
-
-        // Verify SKU exists (should always be true given the code above, but defense in depth)
-        const skuCheck = await tx
-          .select({ id: schema.skus.id, storeId: schema.skus.storeId })
-          .from(schema.skus)
-          .where(eq(schema.skus.id, skuId))
-          .limit(1);
-
-        if (!skuCheck[0]) {
-          console.error('[inventory-import] PRE-FLIGHT FAILED: SKU does not exist', {
-            row: r + 2,
-            skuId,
-            productId,
-            skuInCache: skuCache.has(skuKey),
-            cacheKey: skuKey,
-          });
-          throw new Error(`SKU ${skuId} not found in database - this indicates a logic error in SKU creation`);
-        }
-
-        // Verify location exists
-        const locationCheck = await tx
-          .select({ id: schema.locations.id, storeId: schema.locations.storeId })
-          .from(schema.locations)
-          .where(eq(schema.locations.id, req.locationId))
-          .limit(1);
-
-        if (!locationCheck[0]) {
-          console.error('[inventory-import] PRE-FLIGHT FAILED: Location does not exist', {
-            row: r + 2,
-            locationId: req.locationId,
-            storeId,
-          });
-          throw new Error(`Location ${req.locationId} not found in database`);
-        }
-
-        // Verify SKU belongs to the same store
-        if (skuCheck[0].storeId !== storeId) {
-          console.error('[inventory-import] PRE-FLIGHT FAILED: SKU belongs to different store', {
-            row: r + 2,
-            skuId,
-            skuStoreId: skuCheck[0].storeId,
-            expectedStoreId: storeId,
-          });
-          throw new Error(`SKU ${skuId} belongs to store ${skuCheck[0].storeId}, expected ${storeId}`);
-        }
-
-        // Verify location belongs to the same store
-        if (locationCheck[0].storeId !== storeId) {
-          console.error('[inventory-import] PRE-FLIGHT FAILED: Location belongs to different store', {
-            row: r + 2,
-            locationId: req.locationId,
-            locationStoreId: locationCheck[0].storeId,
-            expectedStoreId: storeId,
-          });
-          throw new Error(`Location ${req.locationId} belongs to store ${locationCheck[0].storeId}, expected ${storeId}`);
-        }
-
-        console.info('[inventory-import] Pre-flight validation passed', {
-          row: r + 2,
-          skuId,
-          locationId: req.locationId,
-        });
-
-        // Log detailed parameters before inventory insert
-        console.info('[inventory-import] Executing inventory insert/update', {
-          row: r + 2,
-          operation: inventoryExisted ? 'UPDATE' : 'INSERT',
-          params: {
-            skuId,
-            locationId: req.locationId,
-            qtyOnHand: qty,
-            qtyReserved: 0,
-            costAvgCents: costCents ?? 0,
-          },
-          updateLogic: costCents != null ? 'with cost averaging' : 'quantity only',
-        });
 
         try {
           await tx
@@ -745,14 +709,7 @@ export class InventoryImportService {
                 updatedAt: new Date(),
               },
             });
-
-          console.info('[inventory-import] Inventory insert/update succeeded', {
-            row: r + 2,
-            skuId,
-            locationId: req.locationId,
-          });
         } catch (inventoryInsertError) {
-          // Enhanced error logging with full context
           const errInspection = inspectDatabaseError(inventoryInsertError);
           console.error('[inventory-import] Inventory insert/update FAILED', {
             row: r + 2,
@@ -769,17 +726,11 @@ export class InventoryImportService {
           throw inventoryInsertError;
         }
 
-
         if (inventoryExisted) {
           result.inventoryUpdated++;
         } else {
           result.inventoryCreated++;
           inventoryPresenceCache.add(invKey);
-          console.info('[inventory-import] Inventory row created', {
-            skuId,
-            locationId: req.locationId,
-            qty,
-          });
         }
 
         if (costCents != null) {
@@ -902,9 +853,7 @@ export class InventoryImportService {
         .transaction(async (tx) => {
           for (let r = 0; r < rows.length; r++) {
             try {
-              await tx.transaction(async (rowTx) => {
-                await processRow(rowTx as TxLike, r, rows[r]);
-              });
+              await processRow(tx as TxLike, r, rows[r]);
             } catch (err) {
               handleRowError(r, rows[r], err);
             }
@@ -926,9 +875,7 @@ export class InventoryImportService {
         await this.db.transaction(async (tx) => {
           for (let r = batchStart; r < batchEndExclusive; r++) {
             try {
-              await tx.transaction(async (rowTx) => {
-                await processRow(rowTx as TxLike, r, rows[r]);
-              });
+              await processRow(tx as TxLike, r, rows[r]);
             } catch (err) {
               handleRowError(r, rows[r], err);
             }
