@@ -144,7 +144,7 @@ async function rawFetch<T>(path: string, init?: RequestInit, retried = false): P
   const session = getSession();
   const accessToken = normalizedAccessToken(session.accessToken);
   if (accessToken) {
-    headers['authorization'] = `Bearer ${accessToken}`;
+    headers['authorization'] = `******;
   } else {
     const dev = devHeader();
     if (dev) headers['x-tcg-dev-user'] = dev;
@@ -180,7 +180,7 @@ export const api = {
     const session = getSession();
     const accessToken = normalizedAccessToken(session.accessToken);
     if (accessToken) {
-      headers['authorization'] = `Bearer ${accessToken}`;
+      headers['authorization'] = `******;
     } else {
       const dev = devHeader();
       if (dev) headers['x-tcg-dev-user'] = dev;
@@ -226,7 +226,7 @@ export const api = {
     const session = getSession();
     const accessToken = normalizedAccessToken(session.accessToken);
     if (accessToken) {
-      headers['authorization'] = `Bearer ${accessToken}`;
+      headers['authorization'] = `******;
     } else {
       const dev = devHeader();
       if (dev) headers['x-tcg-dev-user'] = dev;
@@ -249,12 +249,33 @@ export const api = {
    * gateway limits.
    */
   postForm: async <T,>(p: string, form: FormData, options?: PostFormOptions): Promise<T> => {
+    console.info('[api] postForm called', {
+      path: p,
+      formDataKeys: Array.from(form.keys()),
+    });
+
+    // Log form fields (excluding large binary data)
+    const logFormData: Record<string, unknown> = {};
+    for (const [key, value] of form.entries()) {
+      if (value instanceof File) {
+        logFormData[key] = {
+          type: 'File',
+          name: value.name,
+          size: value.size,
+          mimeType: value.type,
+        };
+      } else {
+        logFormData[key] = value;
+      }
+    }
+    console.info('[api] postForm data', logFormData);
+
     const sendOnce = async (): Promise<{ status: number; bodyText: string }> => {
       const headers: Record<string, string> = {};
       const session = getSession();
       const accessToken = normalizedAccessToken(session.accessToken);
       if (accessToken) {
-        headers['authorization'] = `Bearer ${accessToken}`;
+        headers['authorization'] = `******;
       } else {
         const dev = devHeader();
         if (dev) headers['x-tcg-dev-user'] = dev;
@@ -285,8 +306,10 @@ export const api = {
       try {
         return await sendOnce();
       } catch (error) {
+        console.error('[api] postForm error during send', error);
         if (error instanceof FormUploadNetworkError && error.uploadedBytes === 0) {
           // Safe retry: request did not begin sending payload bytes.
+          console.info('[api] postForm retrying after network error (0 bytes sent)');
           return sendOnce();
         }
         throw error;
@@ -294,20 +317,42 @@ export const api = {
     };
 
     let res = await send();
+    console.info('[api] postForm initial response', {
+      status: res.status,
+      bodyPreview: res.bodyText.slice(0, 500),
+    });
+
     if (res.status === 401) {
+      console.info('[api] postForm received 401, attempting token refresh');
       const fresh = await refreshAccessToken();
       if (fresh) {
+        console.info('[api] postForm token refreshed, retrying request');
         res = await send();
+        console.info('[api] postForm retry response', {
+          status: res.status,
+          bodyPreview: res.bodyText.slice(0, 500),
+        });
       } else {
+        console.error('[api] postForm refresh failed, clearing session');
         clearSession();
       }
     }
 
     if (res.status < 200 || res.status >= 300) {
+      console.error('[api] postForm request failed', {
+        status: res.status,
+        body: res.bodyText,
+      });
       throw new Error(`API ${res.status}: ${res.bodyText}`);
     }
 
-    return parseJsonBody<T>(res.status, res.bodyText);
+    const parsed = parseJsonBody<T>(res.status, res.bodyText);
+    console.info('[api] postForm success', {
+      status: res.status,
+      resultKeys: parsed && typeof parsed === 'object' ? Object.keys(parsed) : 'not an object',
+    });
+
+    return parsed;
   },
 };
 
