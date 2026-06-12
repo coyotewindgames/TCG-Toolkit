@@ -92,19 +92,21 @@ export class OrdersService {
     await this.recomputeTotals(order.id);
     const totals = await this.totals(order.id);
 
+    const linePayload = {
+      id: line.id,
+      skuId: line.skuId,
+      name: scan.name,
+      quantity: line.quantity,
+      unitPriceCents: line.unitPriceCents,
+      imageUrl: scan.imageUrl,
+    };
+
     emitToOrder(order.id, SOCKET_EVENTS.cartItemAdded, {
       orderId: order.id,
-      line: {
-        id: line.id,
-        skuId: line.skuId,
-        name: scan.name,
-        quantity: line.quantity,
-        unitPriceCents: line.unitPriceCents,
-        imageUrl: scan.imageUrl,
-      },
+      line: linePayload,
       totals,
     });
-    return { line, totals };
+    return { line: linePayload, totals };
   }
 
   async removeLine(args: { storeId: string; orderId: string; lineId: string }) {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import QRCode from 'qrcode';
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
 import { useSession } from '../hooks/useSession';
@@ -25,6 +25,21 @@ type AddItemResult = {
     imageUrl?: string | null;
   };
   totals: { subtotalCents: number; taxCents: number; totalCents: number };
+};
+
+type OrderDetailResult = {
+  order: {
+    subtotalCents: number;
+    taxCents: number;
+    totalCents: number;
+  };
+  items: Array<{
+    id: string;
+    skuId: string;
+    quantity: number;
+    unitPriceCents: number;
+    productNameSnapshot: string | null;
+  }>;
 };
 
 function formatMoney(cents: number) {
@@ -76,6 +91,26 @@ export default function RegisterPage() {
         )}`
       : null;
 
+  const refreshOrder = useCallback(async () => {
+    if (!orderId) return;
+    const data = await api.get<OrderDetailResult>(`/orders/${orderId}`);
+    setTotals({
+      subtotalCents: data.order.subtotalCents,
+      taxCents: data.order.taxCents,
+      totalCents: data.order.totalCents,
+    });
+    setLines(
+      data.items.map((item) => ({
+        id: item.id,
+        skuId: item.skuId,
+        name: item.productNameSnapshot ?? 'Scanned item',
+        condition: '',
+        unitPriceCents: item.unitPriceCents,
+        qty: item.quantity,
+      })),
+    );
+  }, [orderId]);
+
   useEffect(() => {
     if (!remoteScanUrl) {
       setRemoteScanQr(null);
@@ -117,65 +152,39 @@ export default function RegisterPage() {
     s.emit('order.join', { orderId });
     const onItem = (msg: { orderId: string; line: AddItemResult['line']; totals: AddItemResult['totals'] }) => {
       if (msg.orderId !== orderId) return;
-      const line = msg.line;
-      setTotals(msg.totals);
-      setLines((prev) => {
-        const i = prev.findIndex((l) => l.skuId === line.skuId);
-        if (i >= 0) {
-          const next = prev.slice();
-          next[i] = { ...next[i]!, qty: next[i]!.qty + line.quantity };
-          return next;
-        }
-        return [
-          ...prev,
-          {
-            id: line.id,
-            skuId: line.skuId,
-            name: line.name,
-            condition: '',
-            unitPriceCents: line.unitPriceCents,
-            qty: line.quantity,
-            imageUrl: line.imageUrl ?? undefined,
-          },
-        ];
-      });
+      void refreshOrder();
+    };
+    const onRemoved = (msg: { orderId: string }) => {
+      if (msg.orderId !== orderId) return;
+      void refreshOrder();
     };
     const onCompleted = () => setStatus('paid');
     s.on('cart.itemAdded', onItem);
+    s.on('cart.itemRemoved', onRemoved);
     s.on('order.completed', onCompleted);
     return () => {
       s.off('cart.itemAdded', onItem);
+      s.off('cart.itemRemoved', onRemoved);
       s.off('order.completed', onCompleted);
     };
-  }, [orderId]);
+  }, [orderId, refreshOrder]);
+
+  // Poll order state as a fallback when socket delivery is delayed/missed.
+  useEffect(() => {
+    if (!orderId) return;
+    void refreshOrder().catch(() => undefined);
+    const id = window.setInterval(() => {
+      void refreshOrder().catch(() => undefined);
+    }, 2500);
+    return () => window.clearInterval(id);
+  }, [orderId, refreshOrder]);
 
   useBarcodeScanner(async (barcode) => {
     if (!orderId || status === 'paid') return;
     setStatus('scanning');
     try {
-      const r = await api.post<AddItemResult>(`/orders/${orderId}/items`, { barcode });
-      // optimistic: server will also emit cart.itemAdded via WS
-      setTotals(r.totals);
-      setLines((prev) => {
-        const i = prev.findIndex((l) => l.skuId === r.line.skuId);
-        if (i >= 0) {
-          const next = prev.slice();
-          next[i] = { ...next[i]!, qty: next[i]!.qty + r.line.quantity };
-          return next;
-        }
-        return [
-          ...prev,
-          {
-            id: r.line.id,
-            skuId: r.line.skuId,
-            name: r.line.name,
-            condition: '',
-            unitPriceCents: r.line.unitPriceCents,
-            qty: r.line.quantity,
-            imageUrl: r.line.imageUrl ?? undefined,
-          },
-        ];
-      });
+      await api.post<AddItemResult>(`/orders/${orderId}/items`, { barcode });
+      await refreshOrder();
       setLastError(null);
     } catch (e) {
       setLastError(String(e));
