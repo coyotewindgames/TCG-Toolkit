@@ -39,6 +39,16 @@ export interface PostFormOptions {
   onUploadProgress?: (progress: FormUploadProgress) => void;
 }
 
+class FormUploadNetworkError extends Error {
+  uploadedBytes: number;
+
+  constructor(message: string, uploadedBytes: number) {
+    super(message);
+    this.name = 'FormUploadNetworkError';
+    this.uploadedBytes = uploadedBytes;
+  }
+}
+
 async function sendFormWithXhr(args: {
   path: string;
   form: FormData;
@@ -49,6 +59,7 @@ async function sendFormWithXhr(args: {
 
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
+    let uploadedBytes = 0;
     xhr.open('POST', `${BASE}/api${path}`);
     xhr.withCredentials = true;
 
@@ -57,6 +68,7 @@ async function sendFormWithXhr(args: {
     });
 
     xhr.upload.onprogress = (event) => {
+      uploadedBytes = event.loaded;
       if (!onUploadProgress) return;
       const total = event.lengthComputable ? event.total : null;
       const percent = total && total > 0 ? Math.min(100, Math.round((event.loaded / total) * 100)) : null;
@@ -70,7 +82,13 @@ async function sendFormWithXhr(args: {
       });
     };
 
-    xhr.onerror = () => reject(new Error('Network error while uploading form data.'));
+    xhr.onerror = () =>
+      reject(
+        new FormUploadNetworkError(
+          'Network error while uploading form data.',
+          uploadedBytes,
+        ),
+      );
     xhr.onabort = () => reject(new Error('Form upload was aborted.'));
 
     xhr.send(form);
@@ -231,7 +249,7 @@ export const api = {
    * gateway limits.
    */
   postForm: async <T,>(p: string, form: FormData, options?: PostFormOptions): Promise<T> => {
-    const send = async (): Promise<{ status: number; bodyText: string }> => {
+    const sendOnce = async (): Promise<{ status: number; bodyText: string }> => {
       const headers: Record<string, string> = {};
       const session = getSession();
       const accessToken = normalizedAccessToken(session.accessToken);
@@ -261,6 +279,18 @@ export const api = {
         status: res.status,
         bodyText: await res.text(),
       };
+    };
+
+    const send = async (): Promise<{ status: number; bodyText: string }> => {
+      try {
+        return await sendOnce();
+      } catch (error) {
+        if (error instanceof FormUploadNetworkError && error.uploadedBytes === 0) {
+          // Safe retry: request did not begin sending payload bytes.
+          return sendOnce();
+        }
+        throw error;
+      }
     };
 
     let res = await send();
