@@ -93,6 +93,11 @@ interface ImportResult {
   dryRun: boolean;
 }
 
+type ImportProgressState =
+  | { phase: 'idle'; loaded: number; total: number | null; percent: number }
+  | { phase: 'uploading'; loaded: number; total: number | null; percent: number }
+  | { phase: 'processing'; loaded: number; total: number | null; percent: number };
+
 export default function InventoryPage() {
   const [q, setQ] = useState('');
   const [toolsOpen, setToolsOpen] = useState(false);
@@ -499,6 +504,12 @@ function CsvImporter() {
   >('Normal');
   const [result, setResult] = useState<ImportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [importProgress, setImportProgress] = useState<ImportProgressState>({
+    phase: 'idle',
+    loaded: 0,
+    total: null,
+    percent: 0,
+  });
 
   const locationId = useSession().locationId;
 
@@ -506,13 +517,32 @@ function CsvImporter() {
     mutationFn: (dryRun: boolean) => {
       if (!file) throw new Error('Choose a CSV/XLSX file first.');
       if (!locationId) throw new Error('No location selected.');
+
+      setImportProgress({
+        phase: 'uploading',
+        loaded: 0,
+        total: file.size,
+        percent: 0,
+      });
+
       const form = new FormData();
       form.append('file', file, file.name);
       form.append('locationId', locationId);
       form.append('defaultCondition', defaultCondition);
       form.append('defaultPrinting', defaultPrinting);
       form.append('dryRun', String(dryRun));
-      return api.postForm<ImportResult>('/inventory/import/file', form);
+
+      return api.postForm<ImportResult>('/inventory/import/file', form, {
+        onUploadProgress: (progress) => {
+          const percent = progress.percent ?? 0;
+          setImportProgress({
+            phase: percent >= 100 ? 'processing' : 'uploading',
+            loaded: progress.loaded,
+            total: progress.total,
+            percent,
+          });
+        },
+      });
     },
     onSuccess: (data) => {
       setResult(data);
@@ -527,6 +557,14 @@ function CsvImporter() {
     onError: (e: unknown) => {
       setError(String(e));
       setResult(null);
+    },
+    onSettled: () => {
+      setImportProgress({
+        phase: 'idle',
+        loaded: 0,
+        total: null,
+        percent: 0,
+      });
     },
   });
 
@@ -614,6 +652,29 @@ function CsvImporter() {
           {submit.isPending && submit.variables === false ? 'Importing…' : 'Import'}
         </button>
       </div>
+
+      {submit.isPending && (
+        <div className="space-y-1 rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2">
+          <p className="text-xs text-slate-300">
+            {importProgress.phase === 'uploading'
+              ? `Uploading file... ${importProgress.percent}%`
+              : 'Upload complete. Processing import...'}
+          </p>
+
+          {importProgress.phase === 'uploading' ? (
+            <progress className="w-full" value={importProgress.percent} max={100} />
+          ) : (
+            <progress className="w-full" />
+          )}
+
+          {importProgress.phase === 'uploading' && importProgress.total ? (
+            <p className="text-[11px] text-slate-400">
+              {(importProgress.loaded / (1024 * 1024)).toFixed(2)} MB /{' '}
+              {(importProgress.total / (1024 * 1024)).toFixed(2)} MB
+            </p>
+          ) : null}
+        </div>
+      )}
 
       {!locationId && (
         <p className="text-xs text-rose-300 mt-2">

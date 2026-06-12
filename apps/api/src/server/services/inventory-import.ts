@@ -55,8 +55,9 @@ export function parseCsv(text: string): string[][] {
 // ---------- header normalization ----------
 
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+const IMPORT_BATCH_SIZE = 250;
 
-// All accepted header synonyms → canonical key
+// All accepted header synonyms -> canonical key
 const HEADER_MAP: Record<string, string> = {
   // name
   name: 'name',
@@ -132,7 +133,6 @@ function indexHeaders(headers: string[]): Record<string, number> {
   return idx;
 }
 
-
 type Game = (typeof GAMES)[number];
 const GAMES = [
   'mtg',
@@ -166,8 +166,7 @@ function toCondition(v: string | undefined, fallback: Condition): Condition {
   if (!n) return fallback;
   if (n.startsWith('nm') || n.includes('nearmint') || n === 'm' || n === 'mint') return 'NM';
   if (n.startsWith('lp') || n.includes('lightlyplayed') || n.includes('excellent')) return 'LP';
-  if (n.startsWith('mp') || n.includes('moderatelyplayed') || n.includes('played'))
-    return 'MP';
+  if (n.startsWith('mp') || n.includes('moderatelyplayed') || n.includes('played')) return 'MP';
   if (n.startsWith('hp') || n.includes('heavilyplayed') || n.includes('poor')) return 'HP';
   if (n.startsWith('dmg') || n.includes('damaged')) return 'DMG';
   throw new Error(`unrecognized condition "${v}"`);
@@ -216,6 +215,33 @@ function toCents(v: string | undefined): number | null {
   return Math.round(f * 100);
 }
 
+function mapRowData(headers: string[], cells: string[]): Record<string, string> {
+  return Object.fromEntries(headers.map((h, i) => [h, cells[i] ?? '']));
+}
+
+function productIdentityKey(args: {
+  storeId: string;
+  game: Game;
+  name: string;
+  setName: string | null;
+  cardNumber: string | null;
+}): string {
+  return [args.storeId, args.game, args.name, args.setName ?? '', args.cardNumber ?? ''].join('|');
+}
+
+function skuIdentityKey(args: {
+  productId: string;
+  condition: Condition;
+  printing: Printing;
+  language: Language;
+}): string {
+  return [args.productId, args.condition, args.printing, args.language].join('|');
+}
+
+function inventoryIdentityKey(args: { skuId: string; locationId: string }): string {
+  return `${args.skuId}|${args.locationId}`;
+}
+
 // ---------- service ----------
 
 export interface ImportRequest {
@@ -244,6 +270,8 @@ export class InventoryImportService {
 
   async import(args: { storeId: string; req: ImportRequest }): Promise<ImportResult> {
     const { storeId, req } = args;
+    const startedAtMs = Date.now();
+
     const result: ImportResult = {
       totalRows: 0,
       productsCreated: 0,
@@ -261,12 +289,7 @@ export class InventoryImportService {
     const [loc] = await this.db
       .select({ id: schema.locations.id })
       .from(schema.locations)
-      .where(
-        and(
-          eq(schema.locations.id, req.locationId),
-          eq(schema.locations.storeId, storeId),
-        ),
-      )
+      .where(and(eq(schema.locations.id, req.locationId), eq(schema.locations.storeId, storeId)))
       .limit(1);
     if (!loc) throw BadRequest('locationId not found in this store');
 
@@ -276,43 +299,46 @@ export class InventoryImportService {
     const headers = rows[0];
     const idx = indexHeaders(headers);
     if (idx.name === undefined) {
-      throw BadRequest(
-        'CSV must include a Name column (accepted: Name, Card Name, Product Name, Title)',
-      );
+      throw BadRequest('CSV must include a Name column (accepted: Name, Card Name, Product Name, Title)');
     }
 
     const defaultCond: Condition = req.defaultCondition ?? 'NM';
     const defaultPrint: Printing = req.defaultPrinting ?? 'Normal';
 
-    // The whole import runs in one transaction so a parsing error mid-file
-    // doesn't leave a half-imported store.
-    await this.db.transaction(async (tx) => {
-      for (let r = 1; r < rows.length; r++) {
-        const cells = rows[r];
-        const get = (k: string) => (idx[k] !== undefined ? cells[idx[k]]?.trim() : undefined);
-        result.totalRows++;
+    const productCache = new Map<string, string>();
+    const skuCache = new Map<string, string>();
+    const inventoryPresenceCache = new Set<string>();
+    const currentPricePresenceCache = new Set<string>();
 
-        try {
-          const name = get('name');
-          if (!name) {
-            result.errors.push({ row: r + 1, message: 'missing name' });
-            continue;
-          }
+    type TxLike = Pick<Database, 'select' | 'insert' | 'update'>;
 
-          const game = toGame(get('game'));
-          const setName = get('set') || null;
-          const setCode = get('setCode') || null;
-          const cardNumber = get('cardNumber') || null;
-          const rarity = get('rarity') || null;
-          const condition = toCondition(get('condition'), defaultCond);
-          const printing = toPrinting(get('printing'), defaultPrint);
-          const language = toLanguage(get('language'));
-          const qty = toQty(get('qty'));
-          const costCents = toCents(get('costCents'));
-          const marketCents = toCents(get('marketCents'));
+    const processRow = async (tx: TxLike, r: number, cells: string[]) => {
+      const get = (k: string) => (idx[k] !== undefined ? cells[idx[k]]?.trim() : undefined);
+      result.totalRows++;
 
-          // ---- find or create product ----
-          // Match on (storeId, game, name, setName, cardNumber). NULLs treated as equal.
+      try {
+        const name = get('name');
+        if (!name) {
+          result.errors.push({ row: r + 1, message: 'missing name', data: mapRowData(headers, cells) });
+          return;
+        }
+
+        const game = toGame(get('game'));
+        const setName = get('set') || null;
+        const setCode = get('setCode') || null;
+        const cardNumber = get('cardNumber') || null;
+        const rarity = get('rarity') || null;
+        const condition = toCondition(get('condition'), defaultCond);
+        const printing = toPrinting(get('printing'), defaultPrint);
+        const language = toLanguage(get('language'));
+        const qty = toQty(get('qty'));
+        const costCents = toCents(get('costCents'));
+        const marketCents = toCents(get('marketCents'));
+
+        const productKey = productIdentityKey({ storeId, game, name, setName, cardNumber });
+        let productId = productCache.get(productKey);
+
+        if (!productId) {
           const existingProducts = await tx
             .select({ id: schema.products.id })
             .from(schema.products)
@@ -321,17 +347,12 @@ export class InventoryImportService {
                 eq(schema.products.storeId, storeId),
                 eq(schema.products.name, name),
                 eq(schema.products.game, game),
-                setName
-                  ? eq(schema.products.setName, setName)
-                  : sql`${schema.products.setName} is null`,
-                cardNumber
-                  ? eq(schema.products.cardNumber, cardNumber)
-                  : sql`${schema.products.cardNumber} is null`,
+                sql`coalesce(${schema.products.setName}, '') = ${setName ?? ''}`,
+                sql`coalesce(${schema.products.cardNumber}, '') = ${cardNumber ?? ''}`,
               ),
             )
             .limit(1);
 
-          let productId: string;
           if (existingProducts[0]) {
             productId = existingProducts[0].id;
           } else {
@@ -351,141 +372,205 @@ export class InventoryImportService {
             result.productsCreated++;
           }
 
-          // ---- find or create sku ----
-          const existingSkus = await tx
-            .select({ id: schema.skus.id })
-            .from(schema.skus)
-            .where(
-              and(
-                eq(schema.skus.productId, productId),
-                eq(schema.skus.condition, condition),
-                eq(schema.skus.printing, printing),
-                eq(schema.skus.language, language),
-              ),
-            )
-            .limit(1);
+          productCache.set(productKey, productId);
+        }
 
-          let skuId: string;
-          if (existingSkus[0]) {
-            skuId = existingSkus[0].id;
-          } else {
-            // sku.barcode == sku.id; insert with a placeholder, then UPDATE to match.
-            const [s] = await tx
-              .insert(schema.skus)
-              .values({
-                storeId,
-                productId,
-                condition,
-                printing,
-                language,
-                barcode: 'pending',
-                internalSku: 'pending',
-              })
-              .returning({ id: schema.skus.id });
-            skuId = s.id;
+        const skuKey = skuIdentityKey({ productId, condition, printing, language });
+        let skuId = skuCache.get(skuKey);
+
+        if (!skuId) {
+          const insertedSku = await tx
+            .insert(schema.skus)
+            .values({
+              storeId,
+              productId,
+              condition,
+              printing,
+              language,
+              barcode: 'pending',
+              internalSku: 'pending',
+            })
+            .onConflictDoNothing()
+            .returning({ id: schema.skus.id });
+
+          if (insertedSku[0]) {
+            skuId = insertedSku[0].id;
             await tx
               .update(schema.skus)
               .set({ barcode: skuId, internalSku: skuId })
               .where(eq(schema.skus.id, skuId));
             result.skusCreated++;
-          }
-
-          // ---- inventory upsert (additive on qty) ----
-          const existingInv = await tx
-            .select({ qty: schema.inventory.qtyOnHand })
-            .from(schema.inventory)
-            .where(
-              and(
-                eq(schema.inventory.skuId, skuId),
-                eq(schema.inventory.locationId, req.locationId),
-              ),
-            )
-            .limit(1);
-
-          if (existingInv[0]) {
-            await tx
-              .update(schema.inventory)
-              .set({
-                qtyOnHand: sql`${schema.inventory.qtyOnHand} + ${qty}`,
-                ...(costCents != null
-                  ? {
-                      costAvgCents: sql`case
-                        when ${schema.inventory.qtyOnHand} + ${qty} = 0 then 0
-                        else round(
-                          (${schema.inventory.costAvgCents} * ${schema.inventory.qtyOnHand} + ${costCents} * ${qty})
-                          / (${schema.inventory.qtyOnHand} + ${qty})
-                        )::int
-                      end`,
-                    }
-                  : {}),
-                updatedAt: new Date(),
-              })
+          } else {
+            const existingSkus = await tx
+              .select({ id: schema.skus.id })
+              .from(schema.skus)
               .where(
                 and(
-                  eq(schema.inventory.skuId, skuId),
-                  eq(schema.inventory.locationId, req.locationId),
+                  eq(schema.skus.productId, productId),
+                  eq(schema.skus.condition, condition),
+                  eq(schema.skus.printing, printing),
+                  eq(schema.skus.language, language),
                 ),
-              );
-            result.inventoryUpdated++;
-          } else {
-            await tx.insert(schema.inventory).values({
-              skuId,
-              locationId: req.locationId,
-              qtyOnHand: qty,
-              qtyReserved: 0,
-              costAvgCents: costCents ?? 0,
-            });
-            result.inventoryCreated++;
+              )
+              .limit(1);
+
+            if (!existingSkus[0]) {
+              throw new Error('could not resolve SKU identity after conflict');
+            }
+
+            skuId = existingSkus[0].id;
           }
 
-          if (costCents != null) {
-            result.costsApplied++;
-          }
+          skuCache.set(skuKey, skuId);
+        }
 
-          // ---- write current_prices from the import when present ----
-          if (marketCents != null) {
+        const invKey = inventoryIdentityKey({ skuId, locationId: req.locationId });
+        let inventoryExisted = inventoryPresenceCache.has(invKey);
+
+        if (!inventoryExisted) {
+          const existingInv = await tx
+            .select({ skuId: schema.inventory.skuId })
+            .from(schema.inventory)
+            .where(and(eq(schema.inventory.skuId, skuId), eq(schema.inventory.locationId, req.locationId)))
+            .limit(1);
+
+          inventoryExisted = !!existingInv[0];
+          if (inventoryExisted) {
+            inventoryPresenceCache.add(invKey);
+          }
+        }
+
+        await tx
+          .insert(schema.inventory)
+          .values({
+            skuId,
+            locationId: req.locationId,
+            qtyOnHand: qty,
+            qtyReserved: 0,
+            costAvgCents: costCents ?? 0,
+          })
+          .onConflictDoUpdate({
+            target: [schema.inventory.skuId, schema.inventory.locationId],
+            set: {
+              qtyOnHand: sql`${schema.inventory.qtyOnHand} + ${qty}`,
+              ...(costCents != null
+                ? {
+                    costAvgCents: sql`case
+                      when ${schema.inventory.qtyOnHand} + ${qty} = 0 then 0
+                      else round(
+                        (${schema.inventory.costAvgCents} * ${schema.inventory.qtyOnHand} + ${costCents} * ${qty})
+                        / (${schema.inventory.qtyOnHand} + ${qty})
+                      )::int
+                    end`,
+                  }
+                : {}),
+              updatedAt: new Date(),
+            },
+          });
+
+        if (inventoryExisted) {
+          result.inventoryUpdated++;
+        } else {
+          result.inventoryCreated++;
+          inventoryPresenceCache.add(invKey);
+        }
+
+        if (costCents != null) {
+          result.costsApplied++;
+        }
+
+        if (marketCents != null) {
+          if (!currentPricePresenceCache.has(skuId)) {
             const existingPrice = await tx
               .select({ skuId: schema.currentPrices.skuId })
               .from(schema.currentPrices)
               .where(eq(schema.currentPrices.skuId, skuId))
               .limit(1);
+
             if (!existingPrice[0]) {
-              await tx.insert(schema.currentPrices).values({
-                skuId,
+              result.pricesSeeded++;
+            }
+
+            currentPricePresenceCache.add(skuId);
+          }
+
+          await tx
+            .insert(schema.currentPrices)
+            .values({
+              skuId,
+              sellPriceCents: marketCents,
+              buyPriceCents: Math.round(marketCents * 0.5),
+              marketPriceCents: marketCents,
+            })
+            .onConflictDoUpdate({
+              target: schema.currentPrices.skuId,
+              set: {
                 sellPriceCents: marketCents,
                 buyPriceCents: Math.round(marketCents * 0.5),
                 marketPriceCents: marketCents,
-              });
-              result.pricesSeeded++;
-            } else {
-              await tx
-                .update(schema.currentPrices)
-                .set({
-                  sellPriceCents: marketCents,
-                  buyPriceCents: Math.round(marketCents * 0.5),
-                  marketPriceCents: marketCents,
-                })
-                .where(eq(schema.currentPrices.skuId, skuId));
-            }
-            result.marketPricesApplied++;
-          }
-        } catch (err) {
-          result.errors.push({
-            row: r + 1,
-            message: err instanceof Error ? err.message : String(err),
-            data: Object.fromEntries(headers.map((h, i) => [h, cells[i] ?? ''])),
-          });
-        }
-      }
+                updatedAt: new Date(),
+              },
+            });
 
-      if (req.dryRun) {
-        // Roll the whole transaction back so the caller can preview without
-        // committing. Drizzle exposes this via tx.rollback().
-        throw new RollbackForDryRun();
+          result.marketPricesApplied++;
+        }
+      } catch (err) {
+        result.errors.push({
+          row: r + 1,
+          message: err instanceof Error ? err.message : String(err),
+          data: mapRowData(headers, cells),
+        });
       }
-    }).catch((err) => {
-      if (err instanceof RollbackForDryRun) return;
-      throw err;
+    };
+
+    if (req.dryRun) {
+      await this.db
+        .transaction(async (tx) => {
+          for (let r = 1; r < rows.length; r++) {
+            await processRow(tx, r, rows[r]);
+          }
+
+          // Roll the transaction back so dry runs are read-only while still
+          // exercising the same write path and counters.
+          throw new RollbackForDryRun();
+        })
+        .catch((err) => {
+          if (err instanceof RollbackForDryRun) return;
+          throw err;
+        });
+    } else {
+      for (let batchStart = 1; batchStart < rows.length; batchStart += IMPORT_BATCH_SIZE) {
+        const batchEndExclusive = Math.min(rows.length, batchStart + IMPORT_BATCH_SIZE);
+        const batchStartedAtMs = Date.now();
+
+        await this.db.transaction(async (tx) => {
+          for (let r = batchStart; r < batchEndExclusive; r++) {
+            await processRow(tx, r, rows[r]);
+          }
+        });
+
+        console.info('[inventory-import] batch committed', {
+          storeId,
+          locationId: req.locationId,
+          startRow: batchStart + 1,
+          endRow: batchEndExclusive,
+          rowsProcessed: batchEndExclusive - batchStart,
+          elapsedMs: Date.now() - batchStartedAtMs,
+        });
+      }
+    }
+
+    console.info('[inventory-import] finished', {
+      storeId,
+      locationId: req.locationId,
+      dryRun: !!req.dryRun,
+      rows: result.totalRows,
+      productsCreated: result.productsCreated,
+      skusCreated: result.skusCreated,
+      inventoryCreated: result.inventoryCreated,
+      inventoryUpdated: result.inventoryUpdated,
+      errors: result.errors.length,
+      elapsedMs: Date.now() - startedAtMs,
     });
 
     return result;

@@ -177,6 +177,13 @@ export const products = pgTable(
     byStore: index('products_store_idx').on(t.storeId),
     byTcgapi: index('products_tcgapi_idx').on(t.tcgapiProductId),
     nameIdx: index('products_name_idx').on(t.name),
+    importIdentityIdx: index('products_import_identity_idx').on(
+      t.storeId,
+      t.game,
+      t.name,
+      t.setName,
+      t.cardNumber,
+    ),
   }),
 );
 

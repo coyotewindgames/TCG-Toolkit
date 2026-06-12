@@ -38,6 +38,13 @@
       "when": 1780444800000,
       "tag": "0004_search_and_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1781136000000,
+      "tag": "0005_import_identity_idx",
+      "breakpoints": true
     }
   ]
 }

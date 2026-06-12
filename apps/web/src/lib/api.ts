@@ -24,6 +24,65 @@ import {
 
 const BASE = import.meta.env.VITE_API_URL ?? '';
 
+function normalizedAccessToken(raw: string | null | undefined): string | null {
+  const token = raw?.trim();
+  return token ? token : null;
+}
+
+export interface FormUploadProgress {
+  loaded: number;
+  total: number | null;
+  percent: number | null;
+}
+
+export interface PostFormOptions {
+  onUploadProgress?: (progress: FormUploadProgress) => void;
+}
+
+async function sendFormWithXhr(args: {
+  path: string;
+  form: FormData;
+  headers: Record<string, string>;
+  onUploadProgress?: (progress: FormUploadProgress) => void;
+}): Promise<{ status: number; bodyText: string }> {
+  const { path, form, headers, onUploadProgress } = args;
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${BASE}/api${path}`);
+    xhr.withCredentials = true;
+
+    Object.entries(headers).forEach(([key, value]) => {
+      xhr.setRequestHeader(key, value);
+    });
+
+    xhr.upload.onprogress = (event) => {
+      if (!onUploadProgress) return;
+      const total = event.lengthComputable ? event.total : null;
+      const percent = total && total > 0 ? Math.min(100, Math.round((event.loaded / total) * 100)) : null;
+      onUploadProgress({ loaded: event.loaded, total, percent });
+    };
+
+    xhr.onload = () => {
+      resolve({
+        status: xhr.status,
+        bodyText: xhr.responseText ?? '',
+      });
+    };
+
+    xhr.onerror = () => reject(new Error('Network error while uploading form data.'));
+    xhr.onabort = () => reject(new Error('Form upload was aborted.'));
+
+    xhr.send(form);
+  });
+}
+
+function parseJsonBody<T>(status: number, bodyText: string): T {
+  if (status === 204) return undefined as T;
+  if (!bodyText.trim()) return undefined as T;
+  return JSON.parse(bodyText) as T;
+}
+
 function devHeader(): string | null {
   if (!import.meta.env.DEV) return null;
   const session = getSession();
@@ -65,8 +124,9 @@ async function rawFetch<T>(path: string, init?: RequestInit, retried = false): P
     'content-type': 'application/json',
   };
   const session = getSession();
-  if (session.accessToken) {
-    headers['authorization'] = `Bearer ${session.accessToken}`;
+  const accessToken = normalizedAccessToken(session.accessToken);
+  if (accessToken) {
+    headers['authorization'] = `Bearer ${accessToken}`;
   } else {
     const dev = devHeader();
     if (dev) headers['x-tcg-dev-user'] = dev;
@@ -79,7 +139,7 @@ async function rawFetch<T>(path: string, init?: RequestInit, retried = false): P
     headers,
   });
 
-  if (res.status === 401 && !retried && session.accessToken) {
+  if (res.status === 401 && !retried) {
     const fresh = await refreshAccessToken();
     if (fresh) return rawFetch<T>(path, init, true);
     clearSession();
@@ -100,8 +160,9 @@ export const api = {
   getBlob: async (p: string): Promise<Blob> => {
     const headers: Record<string, string> = {};
     const session = getSession();
-    if (session.accessToken) {
-      headers['authorization'] = `Bearer ${session.accessToken}`;
+    const accessToken = normalizedAccessToken(session.accessToken);
+    if (accessToken) {
+      headers['authorization'] = `Bearer ${accessToken}`;
     } else {
       const dev = devHeader();
       if (dev) headers['x-tcg-dev-user'] = dev;
@@ -115,7 +176,7 @@ export const api = {
       });
 
     let res = await send();
-    if (res.status === 401 && session.accessToken) {
+    if (res.status === 401) {
       const fresh = await refreshAccessToken();
       if (fresh) {
         res = await send();
@@ -145,8 +206,9 @@ export const api = {
   postBlob: async (p: string, body: unknown): Promise<Blob> => {
     const headers: Record<string, string> = { 'content-type': 'application/json' };
     const session = getSession();
-    if (session.accessToken) {
-      headers['authorization'] = `Bearer ${session.accessToken}`;
+    const accessToken = normalizedAccessToken(session.accessToken);
+    if (accessToken) {
+      headers['authorization'] = `Bearer ${accessToken}`;
     } else {
       const dev = devHeader();
       if (dev) headers['x-tcg-dev-user'] = dev;
@@ -168,43 +230,54 @@ export const api = {
    * requests. Used for large file imports where JSON payloads can exceed
    * gateway limits.
    */
-  postForm: async <T,>(p: string, form: FormData): Promise<T> => {
-    const send = async (): Promise<Response> => {
+  postForm: async <T,>(p: string, form: FormData, options?: PostFormOptions): Promise<T> => {
+    const send = async (): Promise<{ status: number; bodyText: string }> => {
       const headers: Record<string, string> = {};
       const session = getSession();
-      if (session.accessToken) {
-        headers['authorization'] = `Bearer ${session.accessToken}`;
+      const accessToken = normalizedAccessToken(session.accessToken);
+      if (accessToken) {
+        headers['authorization'] = `Bearer ${accessToken}`;
       } else {
         const dev = devHeader();
         if (dev) headers['x-tcg-dev-user'] = dev;
       }
-      return fetch(`${BASE}/api${p}`, {
+
+      if (options?.onUploadProgress) {
+        return sendFormWithXhr({
+          path: p,
+          form,
+          headers,
+          onUploadProgress: options.onUploadProgress,
+        });
+      }
+
+      const res = await fetch(`${BASE}/api${p}`, {
         method: 'POST',
         credentials: 'include',
         headers,
         body: form,
       });
+      return {
+        status: res.status,
+        bodyText: await res.text(),
+      };
     };
 
     let res = await send();
     if (res.status === 401) {
-      const session = getSession();
-      if (session.accessToken) {
-        const fresh = await refreshAccessToken();
-        if (fresh) {
-          res = await send();
-        } else {
-          clearSession();
-        }
+      const fresh = await refreshAccessToken();
+      if (fresh) {
+        res = await send();
+      } else {
+        clearSession();
       }
     }
 
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`API ${res.status}: ${text}`);
+    if (res.status < 200 || res.status >= 300) {
+      throw new Error(`API ${res.status}: ${res.bodyText}`);
     }
-    if (res.status === 204) return undefined as T;
-    return (await res.json()) as T;
+
+    return parseJsonBody<T>(res.status, res.bodyText);
   },
 };
 

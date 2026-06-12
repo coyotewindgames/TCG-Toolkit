@@ -13,14 +13,16 @@ import { CatalogEnrichmentService } from '../services/catalog-enrichment';
 
 const ImportBody = z.object({
   csv: z.string().min(1).max(50_000_000), // ~50 MB cap on the CSV string
-  locationId: z.string().uuid(),
+  locationId: z.string().uuid().optional(),
   defaultCondition: z.enum(['NM', 'LP', 'MP', 'HP', 'DMG']).optional(),
   defaultPrinting: z.enum(['Normal', 'Foil', 'Reverse', 'Holo', 'FirstEdition']).optional(),
   dryRun: z.boolean().optional(),
 });
 
 const ImportFileBody = z.object({
-  locationId: z.string().uuid(),
+  locationId: z.string().uuid().optional(),
+  location_id: z.string().uuid().optional(),
+  locationID: z.string().uuid().optional(),
   defaultCondition: z.enum(['NM', 'LP', 'MP', 'HP', 'DMG']).optional(),
   defaultPrinting: z.enum(['Normal', 'Foil', 'Reverse', 'Holo', 'FirstEdition']).optional(),
   dryRun: z.boolean().optional(),
@@ -91,6 +93,35 @@ function parseImportUpload(file: Express.Multer.File): string {
   return file.buffer.toString('utf8');
 }
 
+async function resolveImportLocationId(args: {
+  db: Container['db'];
+  storeId: string;
+  requestedLocationId?: string;
+}): Promise<string> {
+  const { db, storeId, requestedLocationId } = args;
+
+  if (requestedLocationId) {
+    return requestedLocationId;
+  }
+
+  const locations = await db
+    .select({ id: schema.locations.id })
+    .from(schema.locations)
+    .where(eq(schema.locations.storeId, storeId));
+
+  if (locations.length === 1) {
+    return locations[0].id;
+  }
+
+  if (locations.length === 0) {
+    throw BadRequest('No locations exist for this store. Create a location first.');
+  }
+
+  throw BadRequest(
+    'locationId is required when the store has multiple locations. Include form field locationId.',
+  );
+}
+
 export function inventoryRouter(c: Container): Router {
   const r = Router();
   r.use(requireAuth);
@@ -120,7 +151,18 @@ export function inventoryRouter(c: Container): Router {
     requireRole('owner', 'manager'),
     asyncHandler(async (req, res) => {
       const body = ImportBody.parse(req.body ?? {});
-      const result = await importer.import({ storeId: req.user!.storeId, req: body });
+      const locationId = await resolveImportLocationId({
+        db: c.db,
+        storeId: req.user!.storeId,
+        requestedLocationId: body.locationId,
+      });
+      const result = await importer.import({
+        storeId: req.user!.storeId,
+        req: {
+          ...body,
+          locationId,
+        },
+      });
       queueImageEnrichment(req.user!.storeId, result);
       res.json(result);
     }),
@@ -131,9 +173,15 @@ export function inventoryRouter(c: Container): Router {
     requireRole('owner', 'manager'),
     upload.single('file'),
     asyncHandler(async (req, res) => {
-      if (!req.file?.buffer) throw BadRequest('CSV/XLSX file is required');
+      if (!req.file?.buffer) {
+        throw BadRequest(
+          'CSV/XLSX file is required. Send multipart/form-data with a file field named "file".',
+        );
+      }
       const body = ImportFileBody.parse({
         locationId: req.body?.locationId,
+        location_id: req.body?.location_id,
+        locationID: req.body?.locationID,
         defaultCondition: req.body?.defaultCondition || undefined,
         defaultPrinting: req.body?.defaultPrinting || undefined,
         dryRun:
@@ -144,12 +192,18 @@ export function inventoryRouter(c: Container): Router {
               : undefined,
       });
 
+      const resolvedLocationId = await resolveImportLocationId({
+        db: c.db,
+        storeId: req.user!.storeId,
+        requestedLocationId: body.locationId ?? body.location_id ?? body.locationID,
+      });
+
       const csv = parseImportUpload(req.file);
       const result = await importer.import({
         storeId: req.user!.storeId,
         req: {
           csv,
-          locationId: body.locationId,
+          locationId: resolvedLocationId,
           defaultCondition: body.defaultCondition,
           defaultPrinting: body.defaultPrinting,
           dryRun: body.dryRun,
