@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, or, sql } from 'drizzle-orm';
 import csvToJson from 'csvtojson';
 import { schema, type Database } from '../../db/client';
 import { BadRequest } from '../../common/http-errors';
@@ -41,7 +41,7 @@ export async function parseCsv(text: string): Promise<ParsedCsvRow[]> {
 // ---------- header normalization ----------
 
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
-const IMPORT_BATCH_SIZE = 250;
+const IMPORT_BATCH_SIZE = 1000;
 
 // All accepted header synonyms -> canonical key
 const HEADER_MAP: Record<string, string> = {
@@ -529,252 +529,339 @@ export class InventoryImportService {
       currentPrices: currentPricePresenceCache.size,
     });
 
-    type TxLike = Pick<Database, 'select' | 'insert' | 'update' | 'transaction'>;
+    type TxLike = Pick<Database, 'select' | 'insert'>;
 
-    // processRow MUST throw on all errors so they propagate out of the
-    // savepoint boundary — callers handle errors and record them externally.
-    const processRow = async (tx: TxLike, r: number, rawRow: ParsedCsvRow) => {
+    type NormalizedImportRow = {
+      rowIndex: number;
+      rawRow: ParsedCsvRow;
+      game: Game;
+      name: string;
+      setName: string | null;
+      setCode: string | null;
+      cardNumber: string | null;
+      rarity: string | null;
+      condition: Condition;
+      printing: Printing;
+      language: Language;
+      qty: number;
+      costCents: number | null;
+      marketCents: number | null;
+      productKey: string;
+    };
+
+    type ProductCandidate = {
+      productKey: string;
+      game: Game;
+      name: string;
+      setName: string | null;
+      setCode: string | null;
+      cardNumber: string | null;
+      rarity: string | null;
+    };
+
+    type SkuCandidate = {
+      skuKey: string;
+      id: string;
+      productId: string;
+      condition: Condition;
+      printing: Printing;
+      language: Language;
+    };
+
+    type InventoryWithCostPayload = {
+      skuId: string;
+      locationId: string;
+      qty: number;
+      weightedCostCents: number;
+    };
+
+    type InventoryWithoutCostPayload = {
+      skuId: string;
+      locationId: string;
+      qty: number;
+    };
+
+    type CurrentPricePayload = {
+      skuId: string;
+      marketCents: number;
+    };
+
+    const normalizeRowForImport = (r: number, rawRow: ParsedCsvRow): NormalizedImportRow => {
       const row = normalizeParsedRow(rawRow);
       const get = (k: string) => row[k]?.trim();
-      result.totalRows++;
 
       const name = get('name');
       if (!name) {
         throw new Error('missing name');
       }
 
-      // Track context for error reporting
-      let productId: string | undefined;
-      let skuId: string | undefined;
+      const game = toGame(get('game'));
+      const setName = get('set') || null;
+      const setCode = get('setCode') || null;
+      const cardNumber = get('cardNumber') || null;
+      const rarity = get('rarity') || null;
+      const condition = toCondition(get('condition'), defaultCond);
+      const printing = toPrinting(get('printing'), defaultPrint);
+      const language = toLanguage(get('language'));
+      const qty = toQty(get('qty'));
+      const costCents = toCents(get('costCents'));
+      const marketCents = toCents(get('marketCents'));
 
-      {  // block keeps old indentation intact — no semantic change
+      return {
+        rowIndex: r,
+        rawRow,
+        game,
+        name,
+        setName,
+        setCode,
+        cardNumber,
+        rarity,
+        condition,
+        printing,
+        language,
+        qty,
+        costCents,
+        marketCents,
+        productKey: productIdentityKey({ storeId, game, name, setName, cardNumber }),
+      };
+    };
 
-        const game = toGame(get('game'));
-        const setName = get('set') || null;
-        const setCode = get('setCode') || null;
-        const cardNumber = get('cardNumber') || null;
-        const rarity = get('rarity') || null;
-        const condition = toCondition(get('condition'), defaultCond);
-        const printing = toPrinting(get('printing'), defaultPrint);
-        const language = toLanguage(get('language'));
-        const qty = toQty(get('qty'));
-        const costCents = toCents(get('costCents'));
-        const marketCents = toCents(get('marketCents'));
+    const bulkInsertProducts = async (tx: TxLike, candidates: ProductCandidate[]): Promise<void> => {
+      if (!candidates.length) return;
 
-        const productKey = productIdentityKey({ storeId, game, name, setName, cardNumber });
-        let productId = productCache.get(productKey);
+      const insertedProducts = await tx
+        .insert(schema.products)
+        .values(
+          candidates.map((candidate) => ({
+            storeId,
+            game: candidate.game,
+            name: candidate.name,
+            setName: candidate.setName,
+            setId: candidate.setCode,
+            cardNumber: candidate.cardNumber,
+            rarity: candidate.rarity,
+          })),
+        )
+        .onConflictDoNothing()
+        .returning({
+          id: schema.products.id,
+          game: schema.products.game,
+          name: schema.products.name,
+          setName: schema.products.setName,
+          cardNumber: schema.products.cardNumber,
+        });
 
-        if (!productId) {
-          const existingProducts = await tx
-            .select({ id: schema.products.id })
-            .from(schema.products)
-            .where(
-              and(
-                eq(schema.products.storeId, storeId),
-                eq(schema.products.name, name),
-                eq(schema.products.game, game),
-                sql`coalesce(${schema.products.setName}, '') = ${setName ?? ''}`,
-                sql`coalesce(${schema.products.cardNumber}, '') = ${cardNumber ?? ''}`,
-              ),
-            )
-            .limit(1);
-
-          if (existingProducts[0]) {
-            productId = existingProducts[0].id;
-          } else {
-            const [p] = await tx
-              .insert(schema.products)
-              .values({
-                storeId,
-                game,
-                name,
-                setName,
-                setId: setCode,
-                cardNumber,
-                rarity,
-              })
-              .returning({ id: schema.products.id });
-            productId = p.id;
-            result.productsCreated++;
-            console.info('[inventory-import] Product created', {
-              productId,
-              name,
-              game,
-              setName,
-              cardNumber,
-            });
-          }
-
-          productCache.set(productKey, productId);
+      for (const product of insertedProducts) {
+        const productKey = productIdentityKey({
+          storeId,
+          game: product.game,
+          name: product.name,
+          setName: product.setName,
+          cardNumber: product.cardNumber,
+        });
+        if (!productCache.has(productKey)) {
+          productCache.set(productKey, product.id);
+          result.productsCreated++;
         }
+      }
 
-        const skuKey = skuIdentityKey({ productId, condition, printing, language });
-        let skuId = skuCache.get(skuKey);
+      const unresolvedCandidates = candidates.filter((candidate) => !productCache.has(candidate.productKey));
+      if (!unresolvedCandidates.length) return;
 
-        if (!skuId) {
-          // Generate the UUID up-front so we can use it as the PK and also
-          // set barcode/internalSku to the same value in a single INSERT,
-          // instead of inserting with 'pending' and then updating.
-          // (barcode == internalSku == id is the invariant maintained by schema design;
-          //  see schema comment on skus.barcode.)
-          const newSkuId = randomUUID();
-          const insertedSku = await tx
-            .insert(schema.skus)
-            .values({
-              id: newSkuId,
-              storeId,
-              productId,
-              condition,
-              printing,
-              language,
-              barcode: newSkuId,
-              internalSku: newSkuId,
-            })
-            .onConflictDoNothing()
-            .returning({ id: schema.skus.id });
+      const predicates = unresolvedCandidates.map((candidate) =>
+        and(
+          eq(schema.products.storeId, storeId),
+          eq(schema.products.game, candidate.game),
+          eq(schema.products.name, candidate.name),
+          sql`coalesce(${schema.products.setName}, '') = ${candidate.setName ?? ''}`,
+          sql`coalesce(${schema.products.cardNumber}, '') = ${candidate.cardNumber ?? ''}`,
+        ),
+      );
 
-          if (insertedSku[0]) {
-            skuId = insertedSku[0].id;
-            result.skusCreated++;
-            console.info('[inventory-import] SKU created', {
-              skuId,
-              productId,
-              condition,
-              printing,
-              language,
-            });
-          } else {
-            const existingSkus = await tx
-              .select({ id: schema.skus.id })
-              .from(schema.skus)
-              .where(
-                and(
-                  eq(schema.skus.productId, productId),
-                  eq(schema.skus.condition, condition),
-                  eq(schema.skus.printing, printing),
-                  eq(schema.skus.language, language),
-                ),
-              )
-              .limit(1);
+      const resolvedProducts = await tx
+        .select({
+          id: schema.products.id,
+          game: schema.products.game,
+          name: schema.products.name,
+          setName: schema.products.setName,
+          cardNumber: schema.products.cardNumber,
+        })
+        .from(schema.products)
+        .where(predicates.length === 1 ? predicates[0] : or(...predicates));
 
-            if (!existingSkus[0]) {
-              throw new Error('could not resolve SKU identity after conflict');
-            }
-
-            skuId = existingSkus[0].id;
-          }
-
-          skuCache.set(skuKey, skuId);
+      for (const product of resolvedProducts) {
+        const productKey = productIdentityKey({
+          storeId,
+          game: product.game,
+          name: product.name,
+          setName: product.setName,
+          cardNumber: product.cardNumber,
+        });
+        if (!productCache.has(productKey)) {
+          productCache.set(productKey, product.id);
         }
+      }
 
-        const invKey = inventoryIdentityKey({ skuId, locationId: req.locationId });
-        let inventoryExisted = inventoryPresenceCache.has(invKey);
+      const remaining = unresolvedCandidates.filter((candidate) => !productCache.has(candidate.productKey));
+      if (remaining.length) {
+        throw new Error('could not resolve product identity after bulk insert');
+      }
+    };
 
-        if (!inventoryExisted) {
-          const existingInv = await tx
-            .select({ skuId: schema.inventory.skuId })
-            .from(schema.inventory)
-            .where(and(eq(schema.inventory.skuId, skuId), eq(schema.inventory.locationId, req.locationId)))
-            .limit(1);
+    const bulkInsertSkus = async (tx: TxLike, candidates: SkuCandidate[]): Promise<void> => {
+      if (!candidates.length) return;
 
-          inventoryExisted = !!existingInv[0];
-          if (inventoryExisted) {
-            inventoryPresenceCache.add(invKey);
-          }
+      const insertedSkus = await tx
+        .insert(schema.skus)
+        .values(
+          candidates.map((candidate) => ({
+            id: candidate.id,
+            storeId,
+            productId: candidate.productId,
+            condition: candidate.condition,
+            printing: candidate.printing,
+            language: candidate.language,
+            barcode: candidate.id,
+            internalSku: candidate.id,
+          })),
+        )
+        .onConflictDoNothing()
+        .returning({
+          id: schema.skus.id,
+          productId: schema.skus.productId,
+          condition: schema.skus.condition,
+          printing: schema.skus.printing,
+          language: schema.skus.language,
+        });
+
+      for (const sku of insertedSkus) {
+        const skuKey = skuIdentityKey({
+          productId: sku.productId,
+          condition: sku.condition,
+          printing: sku.printing,
+          language: sku.language,
+        });
+        if (!skuCache.has(skuKey)) {
+          skuCache.set(skuKey, sku.id);
+          result.skusCreated++;
         }
+      }
 
-        try {
-          await tx
-            .insert(schema.inventory)
-            .values({
-              skuId,
-              locationId: req.locationId,
-              qtyOnHand: qty,
-              qtyReserved: 0,
-              costAvgCents: costCents ?? 0,
-            })
-            .onConflictDoUpdate({
-              target: [schema.inventory.skuId, schema.inventory.locationId],
-              set: {
-                qtyOnHand: sql`${schema.inventory.qtyOnHand} + ${qty}::integer`,
-                ...(costCents != null
-                  ? {
-                      costAvgCents: sql`case
-                        when ${schema.inventory.qtyOnHand} + ${qty}::integer = 0 then 0::int
-                        else round(
-                          (${schema.inventory.costAvgCents} * ${schema.inventory.qtyOnHand} + ${costCents}::integer * ${qty}::integer)
-                          / (${schema.inventory.qtyOnHand} + ${qty}::integer)
-                        )::int
-                      end`,
-                    }
-                  : {}),
-                updatedAt: new Date(),
-              },
-            });
-        } catch (inventoryInsertError) {
-          const errInspection = inspectDatabaseError(inventoryInsertError);
-          console.error('[inventory-import] Inventory insert/update FAILED', {
-            row: r + 2,
-            skuId,
-            locationId: req.locationId,
-            productId,
-            errorMessage: inventoryInsertError instanceof Error ? inventoryInsertError.message : String(inventoryInsertError),
-            postgresCode: errInspection.postgresCode,
-            postgresDetail: errInspection.postgresDetail,
-            postgresConstraint: errInspection.postgresConstraint,
-            postgresTable: errInspection.postgresTable,
-            rawError: errInspection.rawError,
-          });
-          throw inventoryInsertError;
+      const unresolvedCandidates = candidates.filter((candidate) => !skuCache.has(candidate.skuKey));
+      if (!unresolvedCandidates.length) return;
+
+      const predicates = unresolvedCandidates.map((candidate) =>
+        and(
+          eq(schema.skus.productId, candidate.productId),
+          eq(schema.skus.condition, candidate.condition),
+          eq(schema.skus.printing, candidate.printing),
+          eq(schema.skus.language, candidate.language),
+        ),
+      );
+
+      const resolvedSkus = await tx
+        .select({
+          id: schema.skus.id,
+          productId: schema.skus.productId,
+          condition: schema.skus.condition,
+          printing: schema.skus.printing,
+          language: schema.skus.language,
+        })
+        .from(schema.skus)
+        .where(predicates.length === 1 ? predicates[0] : or(...predicates));
+
+      for (const sku of resolvedSkus) {
+        const skuKey = skuIdentityKey({
+          productId: sku.productId,
+          condition: sku.condition,
+          printing: sku.printing,
+          language: sku.language,
+        });
+        if (!skuCache.has(skuKey)) {
+          skuCache.set(skuKey, sku.id);
         }
+      }
 
-        if (inventoryExisted) {
-          result.inventoryUpdated++;
-        } else {
-          result.inventoryCreated++;
-          inventoryPresenceCache.add(invKey);
-        }
+      const remaining = unresolvedCandidates.filter((candidate) => !skuCache.has(candidate.skuKey));
+      if (remaining.length) {
+        throw new Error('could not resolve SKU identity after bulk insert');
+      }
+    };
 
-        if (costCents != null) {
-          result.costsApplied++;
-        }
+    const bulkUpsertInventoryWithCost = async (tx: TxLike, rowsWithCost: InventoryWithCostPayload[]): Promise<void> => {
+      if (!rowsWithCost.length) return;
 
-        if (marketCents != null) {
-          if (!currentPricePresenceCache.has(skuId)) {
-            const existingPrice = await tx
-              .select({ skuId: schema.currentPrices.skuId })
-              .from(schema.currentPrices)
-              .where(eq(schema.currentPrices.skuId, skuId))
-              .limit(1);
+      await tx
+        .insert(schema.inventory)
+        .values(
+          rowsWithCost.map((row) => ({
+            skuId: row.skuId,
+            locationId: row.locationId,
+            qtyOnHand: row.qty,
+            qtyReserved: 0,
+            costAvgCents: row.weightedCostCents,
+          })),
+        )
+        .onConflictDoUpdate({
+          target: [schema.inventory.skuId, schema.inventory.locationId],
+          set: {
+            qtyOnHand: sql`${schema.inventory.qtyOnHand} + excluded.qty_on_hand`,
+            costAvgCents: sql`case
+              when ${schema.inventory.qtyOnHand} + excluded.qty_on_hand = 0 then 0::int
+              else round(
+                (${schema.inventory.costAvgCents} * ${schema.inventory.qtyOnHand} + excluded.cost_avg_cents * excluded.qty_on_hand)
+                / (${schema.inventory.qtyOnHand} + excluded.qty_on_hand)
+              )::int
+            end`,
+            updatedAt: new Date(),
+          },
+        });
+    };
 
-            if (!existingPrice[0]) {
-              result.pricesSeeded++;
-            }
+    const bulkUpsertInventoryWithoutCost = async (tx: TxLike, rowsWithoutCost: InventoryWithoutCostPayload[]): Promise<void> => {
+      if (!rowsWithoutCost.length) return;
 
-            currentPricePresenceCache.add(skuId);
-          }
+      await tx
+        .insert(schema.inventory)
+        .values(
+          rowsWithoutCost.map((row) => ({
+            skuId: row.skuId,
+            locationId: row.locationId,
+            qtyOnHand: row.qty,
+            qtyReserved: 0,
+          })),
+        )
+        .onConflictDoUpdate({
+          target: [schema.inventory.skuId, schema.inventory.locationId],
+          set: {
+            qtyOnHand: sql`${schema.inventory.qtyOnHand} + excluded.qty_on_hand`,
+            updatedAt: new Date(),
+          },
+        });
+    };
 
-          await tx
-            .insert(schema.currentPrices)
-            .values({
-              skuId,
-              sellPriceCents: marketCents,
-              buyPriceCents: Math.round(marketCents * 0.5),
-              marketPriceCents: marketCents,
-            })
-            .onConflictDoUpdate({
-              target: schema.currentPrices.skuId,
-              set: {
-                sellPriceCents: marketCents,
-                buyPriceCents: Math.round(marketCents * 0.5),
-                marketPriceCents: marketCents,
-                updatedAt: new Date(),
-              },
-            });
+    const bulkUpsertCurrentPrices = async (tx: TxLike, priceRows: CurrentPricePayload[]): Promise<void> => {
+      if (!priceRows.length) return;
 
-          result.marketPricesApplied++;
-        }
-      } // end block
+      await tx
+        .insert(schema.currentPrices)
+        .values(
+          priceRows.map((priceRow) => ({
+            skuId: priceRow.skuId,
+            sellPriceCents: priceRow.marketCents,
+            buyPriceCents: Math.round(priceRow.marketCents * 0.5),
+            marketPriceCents: priceRow.marketCents,
+          })),
+        )
+        .onConflictDoUpdate({
+          target: schema.currentPrices.skuId,
+          set: {
+            sellPriceCents: sql`excluded.sell_price_cents`,
+            buyPriceCents: sql`excluded.buy_price_cents`,
+            marketPriceCents: sql`excluded.market_price_cents`,
+            updatedAt: new Date(),
+          },
+        });
     };
 
     const handleRowError = (r: number, rawRow: ParsedCsvRow, err: unknown, context?: { skuId?: string; locationId?: string; productId?: string }) => {
@@ -850,16 +937,173 @@ export class InventoryImportService {
       });
     };
 
+    const processBatch = async (tx: TxLike, batchStart: number, batchEndExclusive: number) => {
+      const normalizedRows: NormalizedImportRow[] = [];
+      const productCandidatesByKey = new Map<string, ProductCandidate>();
+
+      // Pass 1: CPU-only normalization + validation.
+      for (let r = batchStart; r < batchEndExclusive; r++) {
+        result.totalRows++;
+        try {
+          const normalizedRow = normalizeRowForImport(r, rows[r]);
+          normalizedRows.push(normalizedRow);
+
+          if (!productCache.has(normalizedRow.productKey) && !productCandidatesByKey.has(normalizedRow.productKey)) {
+            productCandidatesByKey.set(normalizedRow.productKey, {
+              productKey: normalizedRow.productKey,
+              game: normalizedRow.game,
+              name: normalizedRow.name,
+              setName: normalizedRow.setName,
+              setCode: normalizedRow.setCode,
+              cardNumber: normalizedRow.cardNumber,
+              rarity: normalizedRow.rarity,
+            });
+          }
+        } catch (err) {
+          handleRowError(r, rows[r], err);
+        }
+      }
+
+      if (!normalizedRows.length) {
+        return {
+          validRows: 0,
+          productsToInsert: 0,
+          skusToInsert: 0,
+          inventoryWithCostRows: 0,
+          inventoryWithoutCostRows: 0,
+          priceRows: 0,
+        };
+      }
+
+      await bulkInsertProducts(tx, [...productCandidatesByKey.values()]);
+
+      const rowsWithProducts: Array<NormalizedImportRow & { productId: string; skuKey: string }> = [];
+      const skuCandidatesByKey = new Map<string, SkuCandidate>();
+
+      for (const row of normalizedRows) {
+        const productId = productCache.get(row.productKey);
+        if (!productId) {
+          handleRowError(row.rowIndex, row.rawRow, new Error('could not resolve product identity after bulk insert'));
+          continue;
+        }
+
+        const skuKey = skuIdentityKey({
+          productId,
+          condition: row.condition,
+          printing: row.printing,
+          language: row.language,
+        });
+
+        rowsWithProducts.push({
+          ...row,
+          productId,
+          skuKey,
+        });
+
+        if (!skuCache.has(skuKey) && !skuCandidatesByKey.has(skuKey)) {
+          const newSkuId = randomUUID();
+          skuCandidatesByKey.set(skuKey, {
+            skuKey,
+            id: newSkuId,
+            productId,
+            condition: row.condition,
+            printing: row.printing,
+            language: row.language,
+          });
+        }
+      }
+
+      await bulkInsertSkus(tx, [...skuCandidatesByKey.values()]);
+
+      const inventoryWithCostByKey = new Map<string, { skuId: string; locationId: string; qty: number; costNumerator: number }>();
+      const inventoryWithoutCostByKey = new Map<string, { skuId: string; locationId: string; qty: number }>();
+      const currentPricesBySkuId = new Map<string, CurrentPricePayload>();
+
+      // Pass 2: resolve sku IDs, classify upsert payloads, and update counters.
+      for (const row of rowsWithProducts) {
+        const skuId = skuCache.get(row.skuKey);
+        if (!skuId) {
+          handleRowError(row.rowIndex, row.rawRow, new Error('could not resolve SKU identity after bulk insert'));
+          continue;
+        }
+
+        const invKey = inventoryIdentityKey({ skuId, locationId: req.locationId });
+        if (inventoryPresenceCache.has(invKey)) {
+          result.inventoryUpdated++;
+        } else {
+          result.inventoryCreated++;
+          inventoryPresenceCache.add(invKey);
+        }
+
+        if (row.costCents != null) {
+          result.costsApplied++;
+
+          const existing = inventoryWithCostByKey.get(invKey);
+          if (existing) {
+            existing.qty += row.qty;
+            existing.costNumerator += row.costCents * row.qty;
+          } else {
+            inventoryWithCostByKey.set(invKey, {
+              skuId,
+              locationId: req.locationId,
+              qty: row.qty,
+              costNumerator: row.costCents * row.qty,
+            });
+          }
+        } else {
+          const existing = inventoryWithoutCostByKey.get(invKey);
+          if (existing) {
+            existing.qty += row.qty;
+          } else {
+            inventoryWithoutCostByKey.set(invKey, {
+              skuId,
+              locationId: req.locationId,
+              qty: row.qty,
+            });
+          }
+        }
+
+        if (row.marketCents != null) {
+          if (!currentPricePresenceCache.has(skuId)) {
+            result.pricesSeeded++;
+            currentPricePresenceCache.add(skuId);
+          }
+          result.marketPricesApplied++;
+          currentPricesBySkuId.set(skuId, {
+            skuId,
+            marketCents: row.marketCents,
+          });
+        }
+      }
+
+      const inventoryWithCostRows: InventoryWithCostPayload[] = [...inventoryWithCostByKey.values()].map((row) => ({
+        skuId: row.skuId,
+        locationId: row.locationId,
+        qty: row.qty,
+        weightedCostCents: Math.round(row.costNumerator / row.qty),
+      }));
+      const inventoryWithoutCostRows = [...inventoryWithoutCostByKey.values()];
+      const priceRows = [...currentPricesBySkuId.values()];
+
+      // Keep exact existing semantics for missing cost by running separate upserts.
+      await bulkUpsertInventoryWithCost(tx, inventoryWithCostRows);
+      await bulkUpsertInventoryWithoutCost(tx, inventoryWithoutCostRows);
+      await bulkUpsertCurrentPrices(tx, priceRows);
+
+      return {
+        validRows: normalizedRows.length,
+        productsToInsert: productCandidatesByKey.size,
+        skusToInsert: skuCandidatesByKey.size,
+        inventoryWithCostRows: inventoryWithCostRows.length,
+        inventoryWithoutCostRows: inventoryWithoutCostRows.length,
+        priceRows: priceRows.length,
+      };
+    };
+
     if (req.dryRun) {
       await this.db
         .transaction(async (tx) => {
-          for (let r = 0; r < rows.length; r++) {
-            try {
-              await processRow(tx as TxLike, r, rows[r]);
-            } catch (err) {
-              handleRowError(r, rows[r], err);
-            }
-          }
+          await processBatch(tx as TxLike, 0, rows.length);
 
           // Roll the transaction back so dry runs are read-only while still
           // exercising the same write path and counters.
@@ -874,15 +1118,9 @@ export class InventoryImportService {
         const batchEndExclusive = Math.min(rows.length, batchStart + IMPORT_BATCH_SIZE);
         const batchStartedAtMs = Date.now();
 
-        await this.db.transaction(async (tx) => {
-          for (let r = batchStart; r < batchEndExclusive; r++) {
-            try {
-              await processRow(tx as TxLike, r, rows[r]);
-            } catch (err) {
-              handleRowError(r, rows[r], err);
-            }
-          }
-        });
+        const batchMetrics = await this.db.transaction(async (tx) =>
+          processBatch(tx as TxLike, batchStart, batchEndExclusive),
+        );
 
         console.info('[inventory-import] batch committed', {
           storeId,
@@ -890,6 +1128,12 @@ export class InventoryImportService {
           startRow: batchStart + 2,
           endRow: batchEndExclusive + 1,
           rowsProcessed: batchEndExclusive - batchStart,
+          validRows: batchMetrics.validRows,
+          productsToInsert: batchMetrics.productsToInsert,
+          skusToInsert: batchMetrics.skusToInsert,
+          inventoryWithCostRows: batchMetrics.inventoryWithCostRows,
+          inventoryWithoutCostRows: batchMetrics.inventoryWithoutCostRows,
+          priceRows: batchMetrics.priceRows,
           elapsedMs: Date.now() - batchStartedAtMs,
         });
       }

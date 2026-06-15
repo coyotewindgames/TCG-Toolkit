@@ -33,15 +33,35 @@ class FakeDb {
 class FakeSelectBuilder {
   private table: unknown;
   private whereCalled = false;
+  private joinedTable: unknown;
 
   from(table: unknown) {
     this.table = table;
     return this;
   }
 
+  innerJoin(table: unknown) {
+    this.joinedTable = table;
+    return this;
+  }
+
   where() {
     this.whereCalled = true;
     return this;
+  }
+
+  then<TResult1 = unknown, TResult2 = never>(
+    onfulfilled?: ((value: unknown[]) => TResult1 | PromiseLike<TResult1>) | null,
+    onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | null,
+  ): Promise<TResult1 | TResult2> {
+    return Promise.resolve(this.resolveRows()).then(onfulfilled, onrejected);
+  }
+
+  private resolveRows(): unknown[] {
+    if (this.table === schema.currentPrices && this.joinedTable === schema.skus) {
+      return [];
+    }
+    return [];
   }
 
   limit() {
@@ -59,7 +79,7 @@ class FakeSelectBuilder {
 }
 
 class FakeInsertBuilder {
-  private valuesData: Record<string, unknown> | undefined;
+  private valuesData: Record<string, unknown> | Array<Record<string, unknown>> | undefined;
   private ignoreConflict = false;
 
   constructor(
@@ -67,7 +87,7 @@ class FakeInsertBuilder {
     private readonly table: unknown,
   ) {}
 
-  values(values: Record<string, unknown>) {
+  values(values: Record<string, unknown> | Array<Record<string, unknown>>) {
     this.valuesData = values;
     return this;
   }
@@ -79,11 +99,19 @@ class FakeInsertBuilder {
 
   onConflictDoUpdate() {
     if (this.table === schema.inventory && this.valuesData) {
-      this.state.inventoryValues.push(this.valuesData);
+      if (Array.isArray(this.valuesData)) {
+        this.state.inventoryValues.push(...this.valuesData);
+      } else {
+        this.state.inventoryValues.push(this.valuesData);
+      }
     }
 
     if (this.table === schema.currentPrices && this.valuesData) {
-      this.state.currentPriceValues.push(this.valuesData);
+      if (Array.isArray(this.valuesData)) {
+        this.state.currentPriceValues.push(...this.valuesData);
+      } else {
+        this.state.currentPriceValues.push(this.valuesData);
+      }
     }
 
     return Promise.resolve([]);
@@ -91,11 +119,39 @@ class FakeInsertBuilder {
 
   returning() {
     if (this.table === schema.products) {
-      return Promise.resolve([{ id: 'product-1' }]);
+      const values = Array.isArray(this.valuesData)
+        ? this.valuesData
+        : this.valuesData
+          ? [this.valuesData]
+          : [];
+
+      return Promise.resolve(
+        values.map((value, index) => ({
+          id: `product-${index + 1}`,
+          game: value.game,
+          name: value.name,
+          setName: value.setName ?? null,
+          cardNumber: value.cardNumber ?? null,
+        })),
+      );
     }
 
     if (this.table === schema.skus && this.ignoreConflict) {
-      return Promise.resolve([{ id: 'sku-1' }]);
+      const values = Array.isArray(this.valuesData)
+        ? this.valuesData
+        : this.valuesData
+          ? [this.valuesData]
+          : [];
+
+      return Promise.resolve(
+        values.map((value, index) => ({
+          id: (value.id as string) ?? `sku-${index + 1}`,
+          productId: value.productId,
+          condition: value.condition,
+          printing: value.printing,
+          language: value.language,
+        })),
+      );
     }
 
     return Promise.resolve([]);
