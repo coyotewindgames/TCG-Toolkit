@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSession } from '../hooks/useSession';
@@ -138,11 +138,11 @@ function StepShopBasics({ onNext }: { onNext: () => void }) {
   const primaryLocation = locationsQuery.data?.locations[0];
 
   // Populate form with existing location name once loaded
-  useState(() => {
+  useEffect(() => {
     if (primaryLocation?.name && primaryLocation.name !== 'Main') {
       setLocationName(primaryLocation.name);
     }
-  });
+  }, [primaryLocation]);
 
   async function save() {
     if (!primaryLocation) { onNext(); return; }
