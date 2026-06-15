@@ -115,6 +115,8 @@ export const SignupRequest = z.object({
   ownerPassword: z.string().min(8).max(128),
   ownerName: z.string().min(1).max(120),
   timezone: z.string().min(1).max(64).optional(),
+  /** Name of the first location (defaults to "Main" if omitted). */
+  locationName: z.string().min(1).max(120).optional(),
 });
 export type SignupRequest = z.infer<typeof SignupRequest>;
 

@@ -9,6 +9,10 @@ import { TcgapiClient } from '../../integrations/tcgapi/client';
 import { requireAuth, requireRole } from '../auth/middleware';
 import { verifyPassword } from '../auth/service';
 import type { Container } from '../container';
+import {
+  getOnboardingStatus,
+  completeOnboarding,
+} from '../services/onboarding-service';
 
 /**
  * Step-up validation: every credential mutation re-prompts the caller for
@@ -18,6 +22,12 @@ import type { Container } from '../container';
 const StepUp = z.object({ password: z.string().min(1) });
 
 const TcgapiUpsert = StepUp.extend({
+  baseUrl: z.string().url().default('https://api.tcgapi.dev/v1'),
+  apiKey: z.string().min(8).optional(),
+});
+
+// Onboarding variant — same fields but no password step-up required.
+const TcgapiOnboardingUpsert = z.object({
   baseUrl: z.string().url().default('https://api.tcgapi.dev/v1'),
   apiKey: z.string().min(8).optional(),
 });
@@ -35,6 +45,39 @@ export function settingsRouter(c: Container): Router {
   // Only owners may view or change integration credentials. Managers/clerks
   // still hit the rest of the API normally.
   r.use(requireRole('owner'));
+
+  // ---- Store info ---------------------------------------------------------
+
+  r.get(
+    '/store',
+    asyncHandler(async (req, res) => {
+      const [row] = await c.db
+        .select({ name: schema.stores.name, timezone: schema.stores.timezone })
+        .from(schema.stores)
+        .where(eq(schema.stores.id, req.user!.storeId))
+        .limit(1);
+      if (!row) throw NotFound('store not found');
+      res.json(row);
+    }),
+  );
+
+  // ---- Onboarding status --------------------------------------------------
+
+  r.get(
+    '/onboarding-status',
+    asyncHandler(async (req, res) => {
+      const status = await getOnboardingStatus(c.db, req.user!.storeId);
+      res.json(status);
+    }),
+  );
+
+  r.post(
+    '/onboarding-complete',
+    asyncHandler(async (req, res) => {
+      await completeOnboarding(c.db, req.user!.storeId);
+      res.json({ ok: true });
+    }),
+  );
 
   // ---- Read ---------------------------------------------------------------
 
@@ -86,6 +129,42 @@ export function settingsRouter(c: Container): Router {
       } catch (err) {
         res.status(400).json({ ok: false, error: (err as Error).message });
       }
+    }),
+  );
+
+  /**
+   * Onboarding-only variant of the TCGapi upsert.
+   * No password step-up required — the user just authenticated moments ago
+   * during signup. Only accepted while `onboarding_completed_at IS NULL` to
+   * prevent reuse as a permanent step-up bypass.
+   */
+  r.put(
+    '/integrations/tcgapi/onboarding',
+    asyncHandler(async (req, res) => {
+      const body = TcgapiOnboardingUpsert.parse(req.body ?? {});
+
+      const [storeRow] = await c.db
+        .select({ onboardingCompletedAt: schema.stores.onboardingCompletedAt })
+        .from(schema.stores)
+        .where(eq(schema.stores.id, req.user!.storeId))
+        .limit(1);
+      if (storeRow?.onboardingCompletedAt) {
+        throw Forbidden('onboarding already completed; use the regular settings endpoint');
+      }
+
+      const existing = await c.configs.getTcgapiStatus(req.user!.storeId);
+      if (!existing.configured && !body.apiKey) {
+        throw BadRequest('apiKey is required when configuring TCGapi.dev for the first time');
+      }
+
+      await c.configs.upsertTcgapi({
+        storeId: req.user!.storeId,
+        baseUrl: body.baseUrl,
+        apiKey: body.apiKey,
+        actorId: req.user!.id,
+        actorIp: req.ip,
+      });
+      res.json({ ok: true });
     }),
   );
 

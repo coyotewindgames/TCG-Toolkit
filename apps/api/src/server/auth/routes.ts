@@ -1,11 +1,12 @@
 import { Router } from 'express';
 import passport from 'passport';
 import rateLimit from 'express-rate-limit';
+import { eq } from 'drizzle-orm';
 import { ForgotPasswordRequest, LoginRequest, ResetPasswordRequest, SignupRequest } from '@tcg/shared';
 import { asyncHandler } from '../../common/async-handler';
 import { Unauthorized } from '../../common/http-errors';
 import { loadEnv, isProd } from '../../config/env';
-import { getDb } from '../../db/client';
+import { getDb, schema } from '../../db/client';
 import { validateBody } from '../middleware/validate';
 import { requireAuth } from './middleware';
 import {
@@ -90,6 +91,7 @@ router.post(
       ownerPassword: body.ownerPassword,
       ownerName: body.ownerName,
       timezone: body.timezone,
+      locationName: body.locationName,
     });
     const { token, expiresIn } = signAccessToken(created.owner);
     const refresh = await issueRefreshToken({
@@ -177,5 +179,32 @@ router.post(
 router.get('/me', requireAuth, (req, res) => {
   res.json({ user: req.user });
 });
+
+/**
+ * Email availability check for the signup form.
+ * Returns { available: boolean } — does NOT confirm whether the email
+ * exists (anti-enumeration: the check is best-effort UX only).
+ * Tight rate limit: 20 checks per IP per 15 minutes.
+ */
+const checkEmailLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+router.get(
+  '/check-email',
+  checkEmailLimiter,
+  asyncHandler(async (req, res) => {
+    const email = String(req.query.email ?? '').trim().toLowerCase();
+    if (!email) return res.status(400).json({ error: 'email query param required' });
+    const rows = await getDb()
+      .select({ id: schema.users.id })
+      .from(schema.users)
+      .where(eq(schema.users.email, email))
+      .limit(1);
+    res.json({ available: rows.length === 0 });
+  }),
+);
 
 export const authRouter = router;

@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { eq, gt, and } from 'drizzle-orm';
 import { schema, type Database } from '../../db/client';
 import { hashPassword } from '../auth/service';
 import { BadRequest, Conflict } from '../../common/http-errors';
@@ -19,6 +19,14 @@ export interface CreatedStore {
   store: { id: string; name: string };
   location: { id: string; name: string };
   owner: AuthenticatedUser;
+}
+
+export interface OnboardingStatus {
+  storeCreated: true;
+  tcgapiConfigured: boolean;
+  inventoryImported: boolean;
+  posConfigured: boolean;
+  completedAt: Date | null;
 }
 
 /**
@@ -109,4 +117,63 @@ export async function createStoreWithOwner(
       },
     };
   });
+}
+
+/**
+ * Returns the current onboarding progress for a store.
+ * Used by both the wizard and the sidebar checklist.
+ */
+export async function getOnboardingStatus(
+  db: Database,
+  storeId: string,
+): Promise<OnboardingStatus> {
+  const [storeRow] = await db
+    .select({ onboardingCompletedAt: schema.stores.onboardingCompletedAt })
+    .from(schema.stores)
+    .where(eq(schema.stores.id, storeId))
+    .limit(1);
+
+  const [tcgapiRow] = await db
+    .select({ id: schema.tcgapiConfigs.storeId })
+    .from(schema.tcgapiConfigs)
+    .where(eq(schema.tcgapiConfigs.storeId, storeId))
+    .limit(1);
+
+  const [posRow] = await db
+    .select({ id: schema.posConfigs.storeId })
+    .from(schema.posConfigs)
+    .where(eq(schema.posConfigs.storeId, storeId))
+    .limit(1);
+
+  // Inventory is imported if any location under this store has qty_on_hand > 0.
+  const [invRow] = await db
+    .select({ skuId: schema.inventory.skuId })
+    .from(schema.inventory)
+    .innerJoin(schema.locations, eq(schema.inventory.locationId, schema.locations.id))
+    .where(
+      and(
+        eq(schema.locations.storeId, storeId),
+        gt(schema.inventory.qtyOnHand, 0),
+      ),
+    )
+    .limit(1);
+
+  return {
+    storeCreated: true,
+    tcgapiConfigured: !!tcgapiRow,
+    inventoryImported: !!invRow,
+    posConfigured: !!posRow,
+    completedAt: storeRow?.onboardingCompletedAt ?? null,
+  };
+}
+
+/**
+ * Marks the onboarding wizard as complete for the given store.
+ * Idempotent — safe to call even if already marked complete.
+ */
+export async function completeOnboarding(db: Database, storeId: string): Promise<void> {
+  await db
+    .update(schema.stores)
+    .set({ onboardingCompletedAt: new Date() })
+    .where(eq(schema.stores.id, storeId));
 }

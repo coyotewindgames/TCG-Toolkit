@@ -1,7 +1,8 @@
 import { useEffect, useState, type JSX } from 'react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { useSession } from '../hooks/useSession';
-import { logout } from '../lib/api';
+import { logout, getOnboardingStatus } from '../lib/api';
 
 interface NavItem {
   to: string;
@@ -51,6 +52,7 @@ const NAV: NavItem[] = [
 ];
 
 const STORAGE_KEY = 'tcg.sidebar.collapsed';
+const CHECKLIST_DISMISSED_KEY = 'tcg.setup-checklist.dismissed';
 
 export default function AppLayout() {
   const session = useSession();
@@ -60,6 +62,27 @@ export default function AppLayout() {
     return window.localStorage.getItem(STORAGE_KEY) === '1';
   });
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [checklistDismissed, setChecklistDismissed] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return window.localStorage.getItem(CHECKLIST_DISMISSED_KEY) === '1';
+  });
+
+  const isOwner = session.user?.role === 'owner';
+  const onboardingStatus = useQuery({
+    queryKey: ['onboarding-status'],
+    queryFn: getOnboardingStatus,
+    enabled: isOwner && !checklistDismissed,
+    staleTime: 60_000,
+  });
+  const showChecklist =
+    isOwner &&
+    !checklistDismissed &&
+    onboardingStatus.data?.completedAt == null;
+
+  function dismissChecklist() {
+    window.localStorage.setItem(CHECKLIST_DISMISSED_KEY, '1');
+    setChecklistDismissed(true);
+  }
 
   useEffect(() => {
     window.localStorage.setItem(STORAGE_KEY, collapsed ? '1' : '0');
@@ -104,7 +127,7 @@ export default function AppLayout() {
           </Link>
         </div>
 
-        <nav className="flex-1 p-2 space-y-1">
+        <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
           {NAV.map((item) => (
             <NavLink
               key={item.to}
@@ -123,6 +146,44 @@ export default function AppLayout() {
               <span className={collapsed ? 'md:hidden' : ''}>{item.label}</span>
             </NavLink>
           ))}
+
+          {/* Getting Started checklist — owners only, until onboarding is done */}
+          {showChecklist && !collapsed && (
+            <div className="mt-4 mx-1 rounded-xl border border-slate-700 bg-slate-800/60 p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-slate-300 uppercase tracking-wide">
+                  Getting started
+                </span>
+                <button
+                  type="button"
+                  onClick={dismissChecklist}
+                  className="text-slate-500 hover:text-slate-300 text-xs leading-none"
+                  title="Dismiss"
+                >
+                  ✕
+                </button>
+              </div>
+              <ul className="space-y-1.5 text-xs">
+                <ChecklistItem done label="Shop created" />
+                <ChecklistItem
+                  done={onboardingStatus.data?.tcgapiConfigured ?? false}
+                  label="Connect TCGapi.dev"
+                  to="/settings/integrations"
+                />
+                <ChecklistItem
+                  done={onboardingStatus.data?.inventoryImported ?? false}
+                  label="Import inventory"
+                  to="/inventory"
+                />
+                <ChecklistItem
+                  done={onboardingStatus.data?.posConfigured ?? false}
+                  label="Connect Clover"
+                  to="/settings/integrations"
+                  optional
+                />
+              </ul>
+            </div>
+          )}
         </nav>
 
         {session.user && (
@@ -200,4 +261,30 @@ export default function AppLayout() {
       </div>
     </div>
   );
+}
+
+function ChecklistItem({
+  done,
+  label,
+  to,
+  optional,
+}: {
+  done: boolean;
+  label: string;
+  to?: string;
+  optional?: boolean;
+}) {
+  const inner = (
+    <li className={`flex items-center gap-2 ${done ? 'text-slate-400 line-through' : 'text-slate-200'}`}>
+      <span className={`text-[10px] font-bold ${done ? 'text-emerald-400' : 'text-slate-600'}`}>
+        {done ? '✓' : '○'}
+      </span>
+      {label}
+      {optional && <span className="text-slate-500 text-[10px]">(opt)</span>}
+    </li>
+  );
+  if (!done && to) {
+    return <Link to={to} className="hover:text-emerald-300">{inner}</Link>;
+  }
+  return inner;
 }

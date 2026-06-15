@@ -381,6 +381,7 @@ export interface SignupInput {
   ownerEmail: string;
   ownerPassword: string;
   timezone?: string;
+  locationName?: string;
 }
 
 export interface SignupResult {
@@ -444,4 +445,34 @@ export async function confirmPasswordReset(token: string, password: string): Pro
     const body = await res.text();
     throw new Error(`Reset failed (${res.status}): ${body}`);
   }
+}
+
+/**
+ * Check whether an email address is available for signup.
+ * Best-effort UX hint only — not a security guarantee.
+ */
+export async function checkEmailAvailable(email: string): Promise<boolean> {
+  const res = await fetch(
+    `${BASE}/api/auth/check-email?email=${encodeURIComponent(email)}`,
+    { credentials: 'include' },
+  );
+  if (!res.ok) return true; // fail open: don't block on network errors
+  const data = (await res.json()) as { available: boolean };
+  return data.available;
+}
+
+export interface OnboardingStatus {
+  storeCreated: true;
+  tcgapiConfigured: boolean;
+  inventoryImported: boolean;
+  posConfigured: boolean;
+  completedAt: string | null;
+}
+
+export async function getOnboardingStatus(): Promise<OnboardingStatus> {
+  return api.get<OnboardingStatus>('/settings/onboarding-status');
+}
+
+export async function completeOnboarding(): Promise<void> {
+  await api.post('/settings/onboarding-complete', {});
 }

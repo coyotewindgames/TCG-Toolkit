@@ -45,6 +45,13 @@
       "when": 1781136000000,
       "tag": "0005_import_identity_idx",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1781308800000,
+      "tag": "0006_onboarding",
+      "breakpoints": true
     }
   ]
 }
