@@ -147,4 +147,25 @@ describe('InventoryImportService', () => {
       marketPriceCents: 725,
     });
   });
+
+  it('treats Variance=Unlimited as Normal printing', async () => {
+    const db = new FakeDb();
+    const service = new InventoryImportService(db as never);
+
+    const result = await service.import({
+      storeId: 'store-1',
+      req: {
+        locationId: 'location-1',
+        csv: [
+          'Product Name,Category,Set,Card Number,Variance,Card Condition,Average Cost Paid,Quantity,Market Price (As of 2026-06-12)',
+          'Scyther,Pokemon,Neo Discovery,46,Unlimited,Near Mint,0.00,1,2.00',
+        ].join('\n'),
+      },
+    });
+
+    expect(result.totalRows).toBe(1);
+    expect(result.errors).toEqual([]);
+    expect(db.state.inventoryValues).toHaveLength(1);
+    expect(db.state.currentPriceValues).toHaveLength(1);
+  });
 });

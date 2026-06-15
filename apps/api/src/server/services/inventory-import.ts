@@ -184,6 +184,8 @@ function toPrinting(v: string | undefined, fallback: Printing): Printing {
   if (n.includes('1stedition') || n.includes('firstedition')) return 'FirstEdition';
   if (n.includes('holo')) return 'Holo';
   if (n.includes('foil') && !n.includes('non')) return 'Foil';
+  // Some exports (for example Variance=Unlimited) mean a regular non-foil print.
+  if (n.includes('unlimited')) return 'Normal';
   if (n.includes('nonfoil') || n.includes('normal') || n === 'regular') return 'Normal';
   throw new Error(`unrecognized printing "${v}"`);
 }
