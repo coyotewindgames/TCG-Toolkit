@@ -39,9 +39,22 @@ class FakeSelectBuilder {
     return this;
   }
 
+  innerJoin() {
+    return this;
+  }
+
   where() {
     this.whereCalled = true;
     return this;
+  }
+
+  // Makes the builder directly awaitable (e.g. `await select().from().where()`)
+  // resolving to an empty array for cache pre-warm queries.
+  then(
+    resolve: (value: unknown[]) => unknown,
+    _reject?: (reason: unknown) => unknown,
+  ) {
+    resolve([]);
   }
 
   limit() {
