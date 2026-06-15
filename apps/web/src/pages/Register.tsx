@@ -250,15 +250,15 @@ export default function RegisterPage() {
         <ul className="divide-y divide-slate-800">
           {lines.length === 0 && <li className="py-8 text-center opacity-60">No items yet — scan to begin.</li>}
           {lines.map((l) => (
-            <li key={l.skuId} className="flex items-center gap-4 py-3">
+            <li key={l.skuId} className="flex items-center gap-5 py-4">
               {l.imageUrl ? (
                 <img
                   src={l.imageUrl}
                   alt={l.name}
-                  className="w-12 h-16 rounded object-cover bg-slate-800"
+                  className="w-20 h-28 rounded-md border border-slate-700 object-contain bg-slate-800 p-1 shrink-0"
                 />
               ) : (
-                <div className="w-12 h-16 rounded border border-dashed border-slate-700 bg-slate-800/50" />
+                <div className="w-20 h-28 rounded-md border border-dashed border-slate-700 bg-slate-800/50 shrink-0" />
               )}
               <div className="flex-1">
                 <div className="font-semibold">{l.name}</div>

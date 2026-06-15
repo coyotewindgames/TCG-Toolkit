@@ -18,7 +18,7 @@
  * this and gives us audit history + customer store credit + manager
  * approval for free. The "buy" framing is just the cash-payout variant.
  */
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { CardCondition, CardLanguage, CardPrinting, PayoutKind } from '@tcg/shared';
 import { api } from '../lib/api';
@@ -64,6 +64,28 @@ type PriceRow = {
 };
 
 type PricesResponse = { cardId: string; prices: PriceRow[] };
+
+type CreateTradeResponse = {
+  id: string;
+  status: string;
+  totalValueCents: number;
+  skuIds: { skuId: string; quantity: number }[];
+};
+
+type QueuedTradeItem = {
+  id: string;
+  tcgapiProductId: string;
+  name: string;
+  imageSourceUrl: string | null;
+  rarity: string | null;
+  condition: CardCondition;
+  printing: CardPrinting;
+  language: CardLanguage;
+  quantity: number;
+  payoutModifierPercent: number;
+  overrideValueCents?: number;
+  estimatedUnitValueCents: number;
+};
 
 const CONDITIONS: CardCondition[] = ['NM', 'LP', 'MP', 'HP', 'DMG'];
 const PRINTINGS: CardPrinting[] = ['Normal', 'Foil', 'Reverse', 'Holo', 'FirstEdition'];
@@ -161,6 +183,17 @@ function suggestedUnitValueCents(
   const base = candidates.length ? Math.min(...candidates) : 0;
   const payoutBase = Math.max(0, Math.floor(base * PAYOUT_MULTIPLIERS[payout][condition]));
   return Math.max(0, Math.floor(payoutBase * (1 + payoutModifierPercent / 100)));
+}
+
+function sameQueuedItemIdentity(a: QueuedTradeItem, b: QueuedTradeItem): boolean {
+  return (
+    a.tcgapiProductId === b.tcgapiProductId &&
+    a.condition === b.condition &&
+    a.printing === b.printing &&
+    a.language === b.language &&
+    a.payoutModifierPercent === b.payoutModifierPercent &&
+    (a.overrideValueCents ?? null) === (b.overrideValueCents ?? null)
+  );
 }
 
 export default function TradeInPage() {
@@ -420,7 +453,7 @@ function IntakeDetail({ card, locationId, onClose }: IntakeDetailProps) {
           open ? 'translate-x-0' : 'translate-x-full'
         }`}
       >
-        {open && card && <IntakeDetailBody key={card.id} card={card} locationId={locationId} onClose={onClose} />}
+        {open && card && <IntakeDetailBody card={card} locationId={locationId} onClose={onClose} />}
       </aside>
     </>
   );
@@ -445,6 +478,7 @@ function IntakeDetailBody({
   const [language, setLanguage] = useState<CardLanguage>('EN');
   const [quantity, setQuantity] = useState(1);
   const [payout, setPayout] = useState<PayoutKind>('cash');
+  const [items, setItems] = useState<QueuedTradeItem[]>([]);
   const [payoutModifierPercent, setPayoutModifierPercent] = useState<string>('0');
   const [overrideValue, setOverrideValue] = useState<string>('');
   const [submitMsg, setSubmitMsg] = useState<string | null>(null);
@@ -455,6 +489,20 @@ function IntakeDetailBody({
   } | null>(null);
   const [labelErr, setLabelErr] = useState<string | null>(null);
   const [printingLabels, setPrintingLabels] = useState(false);
+
+  useEffect(() => {
+    setActiveCard(card);
+    setCondition('NM');
+    setPrinting('Normal');
+    setLanguage('EN');
+    setQuantity(1);
+    setPayoutModifierPercent('0');
+    setOverrideValue('');
+    setIsGraded(false);
+    setSubmitMsg(null);
+    setSubmitErr(null);
+    setLabelErr(null);
+  }, [card]);
 
   const prices = useQuery<PricesResponse>({
     queryKey: ['tcgapi.prices', activeCard.id],
@@ -515,55 +563,108 @@ function IntakeDetailBody({
 
   const effectiveCents = overrideCents ?? suggested;
 
+  const itemsTotalPayoutCents = useMemo(
+    () => items.reduce((sum, item) => sum + item.estimatedUnitValueCents * item.quantity, 0),
+    [items],
+  );
+
+  const pendingLineTotalCents = effectiveCents * quantity;
+  const projectedTradeTotalCents = itemsTotalPayoutCents + pendingLineTotalCents;
+
+  function addCurrentToBatch() {
+    setSubmitMsg(null);
+    setSubmitErr(null);
+    setLabelInfo(null);
+    setLabelErr(null);
+
+    const next: QueuedTradeItem = {
+      id: crypto.randomUUID(),
+      tcgapiProductId: activeCard.id,
+      name: activeCard.name,
+      imageSourceUrl: activeCard.imageUrl,
+      rarity: activeCard.rarity,
+      condition,
+      printing,
+      language,
+      quantity,
+      payoutModifierPercent: payoutModifier,
+      overrideValueCents: overrideCents ?? undefined,
+      estimatedUnitValueCents: effectiveCents,
+    };
+
+    setItems((prev) => {
+      const idx = prev.findIndex((i) => sameQueuedItemIdentity(i, next));
+      if (idx === -1) return [...prev, next];
+      return prev.map((i, iIdx) =>
+        iIdx === idx ? { ...i, quantity: i.quantity + next.quantity } : i,
+      );
+    });
+
+    setQuantity(1);
+    setOverrideValue('');
+    setPayoutModifierPercent('0');
+  }
+
+  function removeQueuedItem(id: string) {
+    setItems((prev) => prev.filter((item) => item.id !== id));
+  }
+
+  function clearQueuedItems() {
+    setItems([]);
+    setSubmitMsg(null);
+    setSubmitErr(null);
+    setLabelInfo(null);
+    setLabelErr(null);
+  }
+
   const add = useMutation({
     mutationFn: async () => {
       if (!locationId) throw new Error('Pick a location first.');
+      if (items.length === 0) throw new Error('Add at least one item to the trade.');
       const body = {
         locationId,
         payout,
-        items: [
-          {
-            tcgapiProductId: activeCard.id,
-            name: activeCard.name,
-            imageSourceUrl: activeCard.imageUrl,
-            rarity: activeCard.rarity ?? undefined,
-            game: 'other' as const,
-            condition,
-            printing,
-            language,
-            quantity,
-            payoutModifierPercent: payoutModifier,
-            overrideValueCents: overrideCents ?? undefined,
-          },
-        ],
+        items: items.map((item) => ({
+          tcgapiProductId: item.tcgapiProductId,
+          name: item.name,
+          imageSourceUrl: item.imageSourceUrl,
+          rarity: item.rarity ?? undefined,
+          game: 'other' as const,
+          condition: item.condition,
+          printing: item.printing,
+          language: item.language,
+          quantity: item.quantity,
+          payoutModifierPercent: item.payoutModifierPercent,
+          overrideValueCents: item.overrideValueCents,
+        })),
       };
-      return api.post<{
-        id: string;
-        status: string;
-        totalValueCents: number;
-        skuIds: { skuId: string; quantity: number }[];
-      }>('/tradeins', body);
+      return api.post<CreateTradeResponse>('/tradeins', body);
     },
     onSuccess: (data) => {
+      const submittedItems = [...items];
       setSubmitErr(null);
       setLabelErr(null);
       const dollars = (data.totalValueCents / 100).toFixed(2);
+      const totalCards = submittedItems.reduce((sum, item) => sum + item.quantity, 0);
+      const distinctLines = submittedItems.length;
       setSubmitMsg(
         data.status === 'pending_approval'
-          ? `Created trade ${data.id.slice(0, 8)}… for $${dollars} — needs manager approval before it lands in inventory.`
-          : `Added ${quantity} × ${activeCard.name} (${condition}/${printing}) to inventory. Payout $${dollars}.`,
+          ? `Created trade ${data.id.slice(0, 8)}… for $${dollars} (${totalCards} card${totalCards === 1 ? '' : 's'} across ${distinctLines} line${distinctLines === 1 ? '' : 's'}) — needs manager approval before it lands in inventory.`
+          : `Added ${totalCards} card${totalCards === 1 ? '' : 's'} across ${distinctLines} line${distinctLines === 1 ? '' : 's'} to inventory. Payout $${dollars}.`,
       );
       qc.invalidateQueries({ queryKey: ['products'] });
       qc.invalidateQueries({ queryKey: ['inventory'] });
+      setItems([]);
       // Once a SKU exists, surface a print-labels affordance. We auto-trigger
       // a print only when the trade actually landed in inventory; pending
       // trades wait for manager approval before a label makes sense.
       if (data.skuIds?.length) {
-        setLabelInfo({ skuIds: data.skuIds, cardName: activeCard.name });
+        const firstCardName = submittedItems[0]?.name ?? activeCard.name;
+        setLabelInfo({ skuIds: data.skuIds, cardName: firstCardName });
         if (data.status !== 'pending_approval') {
           // Fire-and-forget; user sees the result via the print dialog.
           // If popup-blocked, the manual button below still works.
-          void printQrLabels(data.skuIds, activeCard.name).catch((e) =>
+          void printQrLabels(data.skuIds, firstCardName).catch((e) =>
             setLabelErr(e instanceof Error ? e.message : String(e)),
           );
         }
@@ -863,6 +964,71 @@ function IntakeDetailBody({
           </Field>
         </div>
 
+        <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-950 border border-slate-700 rounded-lg p-3">
+          <div className="text-xs text-slate-300">
+            Pending line total: <span className="font-mono text-emerald-300">{formatCents(pendingLineTotalCents)}</span>
+            <span className="text-slate-500"> ({quantity} × {formatCents(effectiveCents)})</span>
+          </div>
+          <button
+            type="button"
+            onClick={addCurrentToBatch}
+            disabled={quantity < 1}
+            className="text-xs bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-semibold rounded-md px-3 py-1.5 disabled:bg-slate-700 disabled:text-slate-400"
+          >
+            Add line item
+          </button>
+        </div>
+
+        <div className="space-y-2">
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-xs uppercase tracking-wide text-slate-400">Trade batch</h3>
+            {items.length > 0 && (
+              <button
+                type="button"
+                onClick={clearQueuedItems}
+                className="text-xs text-slate-400 hover:text-rose-300"
+              >
+                Clear all
+              </button>
+            )}
+          </div>
+          {items.length === 0 ? (
+            <p className="text-sm text-slate-500">No line items yet. Configure the card and click Add line item.</p>
+          ) : (
+            <ul className="space-y-2">
+              {items.map((item) => (
+                <li
+                  key={item.id}
+                  className="rounded-lg border border-slate-700 bg-slate-950/70 p-2.5 flex items-start justify-between gap-2"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm text-slate-100 truncate" title={item.name}>{item.name}</p>
+                    <p className="text-[11px] text-slate-400">
+                      {item.condition} / {item.printing} / {item.language}
+                    </p>
+                    <p className="text-[11px] text-slate-500">
+                      {item.quantity} × {formatCents(item.estimatedUnitValueCents)}
+                      {item.overrideValueCents != null ? ' (override)' : ''}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="font-mono text-xs text-emerald-300">
+                      {formatCents(item.estimatedUnitValueCents * item.quantity)}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => removeQueuedItem(item.id)}
+                      className="text-xs text-slate-400 hover:text-rose-300"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
         {!locationId && (
           <p className="text-xs text-rose-300">
             No location selected. Use the location switcher in the header first.
@@ -893,22 +1059,26 @@ function IntakeDetailBody({
       <footer className="border-t border-slate-800 p-4 bg-slate-900">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="text-sm text-slate-300">
-            Total payout:{' '}
+            Trade total:{' '}
             <span className="font-mono font-semibold text-emerald-300">
-              {formatCents(effectiveCents * quantity)}
+              {formatCents(itemsTotalPayoutCents)}
             </span>
             <span className="text-slate-500">
-              {' '}
-              ({quantity} × {formatCents(effectiveCents)})
+              {' '}({items.reduce((sum, item) => sum + item.quantity, 0)} cards, {items.length} lines)
             </span>
+            {items.length > 0 && (
+              <span className="block text-xs text-slate-500 mt-0.5">
+                + current unsaved line {formatCents(pendingLineTotalCents)} = {formatCents(projectedTradeTotalCents)} projected
+              </span>
+            )}
           </div>
           <button
             type="button"
             onClick={() => add.mutate()}
-            disabled={!locationId || add.isPending || quantity < 1}
+            disabled={!locationId || add.isPending || items.length === 0}
             className="bg-emerald-500 hover:bg-emerald-400 disabled:bg-slate-700 disabled:text-slate-400 text-slate-900 font-bold rounded-lg px-5 py-2.5 transition"
           >
-            {add.isPending ? 'Adding…' : 'Add to inventory'}
+            {add.isPending ? 'Submitting…' : 'Submit trade batch'}
           </button>
         </div>
       </footer>
