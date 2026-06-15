@@ -313,9 +313,23 @@ export function inventoryRouter(c: Container): Router {
         res.status(400).json({ error: 'TCGapi.dev is not configured for this store.' });
         return;
       }
-      // One batch only. The free-tier daily cap means we cannot safely loop.
-      const result = await enricher.enrichStore({ storeId, onlyMissingImage: true });
-      res.json(result);
+
+      const scope = { storeId, onlyMissingImage: true };
+      const alreadyRunning = enricher.isRunning(scope);
+      const pending = await enricher.pendingCount(scope);
+
+      if (alreadyRunning) {
+        res.json({ started: false, running: true, pending });
+        return;
+      }
+
+      if (pending === 0) {
+        res.json({ started: false, running: false, pending: 0 });
+        return;
+      }
+
+      enricher.runInBackground(scope);
+      res.status(202).json({ started: true, running: true, pending });
     }),
   );
 
@@ -324,8 +338,10 @@ export function inventoryRouter(c: Container): Router {
     requireRole('owner', 'manager'),
     asyncHandler(async (req, res) => {
       const storeId = req.user!.storeId;
-      const pending = await enricher.pendingCount({ storeId, onlyMissingImage: true });
-      res.json({ pending, running: false });
+      const scope = { storeId, onlyMissingImage: true };
+      const pending = await enricher.pendingCount(scope);
+      const running = enricher.isRunning(scope);
+      res.json({ pending, running });
     }),
   );
 
