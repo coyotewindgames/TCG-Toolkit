@@ -16,6 +16,9 @@ import RemoteScanPage from './pages/RemoteScan';
 import InventoryPage from './pages/Inventory';
 import TradeInPage from './pages/TradeIn';
 import SettingsIntegrationsPage from './pages/SettingsIntegrations';
+import { useQuery } from '@tanstack/react-query';
+import { useSession } from './hooks/useSession';
+import { getOnboardingStatus } from './lib/api';
 import './index.css';
 
 const queryClient = new QueryClient({
@@ -26,6 +29,25 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+/** Redirect `/` — owners without completed onboarding go to `/onboarding`, others to `/register`. */
+function RootRedirect() {
+  const session = useSession();
+  const isOwner = session.user?.role === 'owner';
+  const { data, isLoading } = useQuery({
+    queryKey: ['onboarding-status'],
+    queryFn: getOnboardingStatus,
+    enabled: isOwner,
+    staleTime: 60_000,
+  });
+
+  if (isOwner && isLoading) return null; // brief loading pause — avoid flash
+
+  if (isOwner && data?.completedAt == null) {
+    return <Navigate to="/onboarding" replace />;
+  }
+  return <Navigate to="/register" replace />;
+}
 
 const root = document.getElementById('root');
 if (!root) throw new Error('root element missing');
@@ -78,7 +100,7 @@ createRoot(root).render(
               </AuthGuard>
             }
           >
-            <Route path="/" element={<Navigate to="/register" replace />} />
+            <Route path="/" element={<RootRedirect />} />
             <Route path="/register" element={<RegisterPage />} />
             <Route path="/inventory" element={<InventoryPage />} />
             <Route path="/tradein" element={<TradeInPage />} />

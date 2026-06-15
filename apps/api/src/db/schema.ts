@@ -93,6 +93,8 @@ export const stores = pgTable('stores', {
   timezone: text('timezone').notNull().default('America/New_York'),
   defaultPosProvider: posProviderEnum('default_pos_provider').notNull().default('clover'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  /** Set when the owner completes (or dismisses) the onboarding wizard. */
+  onboardingCompletedAt: timestamp('onboarding_completed_at', { withTimezone: true }),
 });
 
 export const locations = pgTable(
