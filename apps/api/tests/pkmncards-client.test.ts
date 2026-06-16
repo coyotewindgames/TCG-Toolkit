@@ -66,4 +66,27 @@ describe('PkmnCardsClient', () => {
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
+
+  it('infers card number from name suffix for deterministic lookup', async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.endsWith('/me1_en_62_std.jpg')) return new Response('', { status: 404 });
+      if (url.endsWith('/me1_en_062_std.jpg')) return new Response('', { status: 200 });
+      return new Response('', { status: 404 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const client = new PkmnCardsClient();
+    const result = await client.lookup({
+      name: 'Mewtwo EX (62)',
+      setCode: 'ME1',
+      setName: 'Mega Evolution',
+      cardNumber: null,
+    });
+
+    expect(result).toEqual({
+      imageUrl: 'https://pkmncards.com/wp-content/uploads/me1_en_062_std.jpg',
+      cardUrl: null,
+      method: 'deterministic',
+    });
+  });
 });

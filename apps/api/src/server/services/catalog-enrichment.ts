@@ -30,6 +30,7 @@ export interface EnrichResult {
 
 /** Manual enrichment batch size per click/run. */
 export const ENRICH_BATCH_SIZE = 50;
+const ENRICH_ROW_DELAY_MS = 10;
 
 /**
  * Safety guardrails for background runs. The old fixed 1000-batch loop could
@@ -58,21 +59,14 @@ export class CatalogEnrichmentService {
   }): Promise<EnrichResult> {
     const limit = ENRICH_BATCH_SIZE;
 
-    // Pick products that still need enrichment. Either no tcgapi mapping yet,
-    // or (if onlyMissingImage) just no image. Skip games where tcgapi has no
-    // catalogue (sealed/supplies/other). Only process products with actual inventory.
+    // Pick only Pokemon products missing images. Image backfill is PkmnCards-only.
     const where = and(
       eq(schema.products.storeId, args.storeId),
-      sql`${schema.products.game} not in ('sealed','supplies','other')`,
-      args.onlyMissingImage
-        ? or(
-            isNull(schema.products.imageSourceUrl),
-            eq(schema.products.imageSourceUrl, ''),
-          )
-        : or(
-            isNull(schema.products.tcgapiProductId),
-            isNull(schema.products.imageSourceUrl),
-          ),
+      eq(schema.products.game, 'pokemon'),
+      or(
+        isNull(schema.products.imageSourceUrl),
+        eq(schema.products.imageSourceUrl, ''),
+      ),
     );
 
     const candidates = await this.db
@@ -83,7 +77,6 @@ export class CatalogEnrichmentService {
         setId: schema.products.setId,
         cardNumber: schema.products.cardNumber,
         game: schema.products.game,
-        tcgapiProductId: schema.products.tcgapiProductId,
         imageSourceUrl: schema.products.imageSourceUrl,
       })
       .from(schema.products)
@@ -103,7 +96,6 @@ export class CatalogEnrichmentService {
         schema.products.setId,
         schema.products.cardNumber,
         schema.products.game,
-        schema.products.tcgapiProductId,
         schema.products.imageSourceUrl,
       )
       .having(sql`sum(${schema.inventory.qtyOnHand}) > 0`)
@@ -138,7 +130,7 @@ export class CatalogEnrichmentService {
         const match = await this.findBestMatch(p);
         if (!match) {
           result.unmatched.push({ productId: p.id, name: p.name, reason: 'no match' });
-          await sleep(60);
+          await sleep(ENRICH_ROW_DELAY_MS);
           continue;
         }
 
@@ -171,7 +163,7 @@ export class CatalogEnrichmentService {
           reason: err instanceof Error ? err.message : String(err),
         });
       }
-      await sleep(60); // gentle rate limit
+      await sleep(ENRICH_ROW_DELAY_MS); // gentle rate limit
     }
 
     return result;
@@ -257,13 +249,8 @@ export class CatalogEnrichmentService {
   }): Promise<number> {
     const where = and(
       eq(schema.products.storeId, args.storeId),
-      sql`${schema.products.game} not in ('sealed','supplies','other')`,
-      args.onlyMissingImage
-        ? or(isNull(schema.products.imageSourceUrl), eq(schema.products.imageSourceUrl, ''))
-        : or(
-            isNull(schema.products.tcgapiProductId),
-            isNull(schema.products.imageSourceUrl),
-          ),
+      eq(schema.products.game, 'pokemon'),
+      or(isNull(schema.products.imageSourceUrl), eq(schema.products.imageSourceUrl, '')),
     );
     const [row] = await this.db
       .select({ n: sql<number>`count(distinct ${schema.products.id})::int` })
