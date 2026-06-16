@@ -2,6 +2,7 @@ import { and, eq, isNull, or, sql } from 'drizzle-orm';
 import { schema, type Database } from '../../db/client';
 import type { ConfigService } from './config-service';
 import { PkmnCardsClient } from '../../integrations/pkmncards/client';
+import { getLogger } from '../../common/logger';
 
 export interface EnrichMatched {
   productId: string;
@@ -17,6 +18,8 @@ interface EnrichMatch {
   source: 'pkmncards';
   tcgapiProductId: string | null;
   imageUrl: string | null;
+  lookupMethod: 'deterministic' | 'search';
+  cardUrl: string | null;
 }
 
 export interface EnrichResult {
@@ -38,12 +41,15 @@ const ENRICH_ROW_DELAY_MS = 10;
  */
 const MAX_BACKGROUND_BATCHES_ABSOLUTE = 200;
 const STAGNANT_BATCH_LIMIT = 3;
+const UNMATCHED_SAMPLE_LIMIT = 10;
+const REASON_MAX_LEN = 220;
 
 /**
  * In-memory set of (storeId, scope) tuples currently being processed by a
  * background runner. Prevents the same scope from being kicked off twice.
  */
 const BACKGROUND_RUNS = new Set<string>();
+const logger = getLogger();
 
 export class CatalogEnrichmentService {
   private readonly pkmnCards = new PkmnCardsClient();
@@ -57,6 +63,7 @@ export class CatalogEnrichmentService {
     storeId: string;
     onlyMissingImage?: boolean;
   }): Promise<EnrichResult> {
+    const startedAt = Date.now();
     const limit = ENRICH_BATCH_SIZE;
 
     // Pick only Pokemon products missing images. Image backfill is PkmnCards-only.
@@ -116,6 +123,17 @@ export class CatalogEnrichmentService {
       .having(sql`sum(${schema.inventory.qtyOnHand}) > 0`);
     const totalToDo = Number(remainingRows[0]?.n ?? 0);
 
+    logger.info(
+      {
+        storeId: args.storeId,
+        onlyMissingImage: !!args.onlyMissingImage,
+        batchSize: limit,
+        pendingBefore: totalToDo,
+        scanned: candidates.length,
+      },
+      '[enrichment] backfill batch start',
+    );
+
     const result: EnrichResult = {
       scanned: candidates.length,
       matched: 0,
@@ -126,10 +144,26 @@ export class CatalogEnrichmentService {
     };
 
     for (const p of candidates) {
+      const lookupInput = {
+        productId: p.id,
+        name: p.name,
+        setName: p.setName,
+        setCode: p.setId,
+        cardNumber: p.cardNumber,
+      };
       try {
+        logger.debug(
+          { storeId: args.storeId, ...lookupInput },
+          '[enrichment] lookup start',
+        );
+
         const match = await this.findBestMatch(p);
         if (!match) {
           result.unmatched.push({ productId: p.id, name: p.name, reason: 'no match' });
+          logger.debug(
+            { storeId: args.storeId, ...lookupInput, reason: 'no match' },
+            '[enrichment] lookup miss',
+          );
           await sleep(ENRICH_ROW_DELAY_MS);
           continue;
         }
@@ -155,16 +189,60 @@ export class CatalogEnrichmentService {
             tcgapiProductId: null,
             source: match.source,
           });
+          logger.debug(
+            {
+              storeId: args.storeId,
+              ...lookupInput,
+              source: match.source,
+              lookupMethod: match.lookupMethod,
+              cardUrl: match.cardUrl,
+              imageUrl: newImage,
+            },
+            '[enrichment] lookup hit',
+          );
+        } else {
+          logger.debug(
+            {
+              storeId: args.storeId,
+              ...lookupInput,
+              source: match.source,
+              lookupMethod: match.lookupMethod,
+              cardUrl: match.cardUrl,
+              reason: 'match found but no image update needed',
+            },
+            '[enrichment] lookup skipped update',
+          );
         }
       } catch (err) {
+        const reason = toReason(err);
         result.unmatched.push({
           productId: p.id,
           name: p.name,
-          reason: err instanceof Error ? err.message : String(err),
+          reason,
         });
+        logger.warn(
+          { storeId: args.storeId, ...lookupInput, reason },
+          '[enrichment] lookup error',
+        );
       }
       await sleep(ENRICH_ROW_DELAY_MS); // gentle rate limit
     }
+
+    logger.info(
+      {
+        storeId: args.storeId,
+        onlyMissingImage: !!args.onlyMissingImage,
+        durationMs: Date.now() - startedAt,
+        scanned: result.scanned,
+        matched: result.matched,
+        imagesUpdated: result.imagesUpdated,
+        remaining: result.remaining,
+        unmatchedCount: result.unmatched.length,
+        unmatchedByReason: summarizeUnmatchedReasons(result.unmatched),
+        unmatchedSample: result.unmatched.slice(0, UNMATCHED_SAMPLE_LIMIT),
+      },
+      '[enrichment] backfill batch complete',
+    );
 
     return result;
   }
@@ -177,6 +255,12 @@ export class CatalogEnrichmentService {
   runInBackground(args: { storeId: string; onlyMissingImage?: boolean }): void {
     const key = `${args.storeId}:${args.onlyMissingImage ? 'img' : 'all'}`;
     if (BACKGROUND_RUNS.has(key)) return; // already running for this scope
+
+    logger.info(
+      { storeId: args.storeId, onlyMissingImage: !!args.onlyMissingImage },
+      '[enrichment] background run start',
+    );
+
     BACKGROUND_RUNS.add(key);
     void (async () => {
       try {
@@ -198,6 +282,15 @@ export class CatalogEnrichmentService {
           const madeImageProgress = r.imagesUpdated > 0;
 
           if (pendingAfter === 0 || r.scanned === 0) {
+            logger.info(
+              {
+                storeId: args.storeId,
+                onlyMissingImage: !!args.onlyMissingImage,
+                pendingAfter,
+                scanned: r.scanned,
+              },
+              '[enrichment] background run finished naturally',
+            );
             return;
           }
 
@@ -208,32 +301,46 @@ export class CatalogEnrichmentService {
           }
 
           if (stagnantBatches >= STAGNANT_BATCH_LIMIT) {
-            // eslint-disable-next-line no-console
-            console.warn('[enrichment] stopping background run after repeated no-progress batches', {
-              storeId: args.storeId,
-              onlyMissingImage: !!args.onlyMissingImage,
-              stagnantBatches,
-              pendingBefore,
-              pendingAfter,
-            });
+            logger.warn(
+              {
+                storeId: args.storeId,
+                onlyMissingImage: !!args.onlyMissingImage,
+                stagnantBatches,
+                pendingBefore,
+                pendingAfter,
+              },
+              '[enrichment] stopping background run after repeated no-progress batches',
+            );
             return;
           }
 
           pendingBefore = pendingAfter;
         }
 
-        // eslint-disable-next-line no-console
-        console.warn('[enrichment] stopping background run after reaching batch safety cap', {
-          storeId: args.storeId,
-          onlyMissingImage: !!args.onlyMissingImage,
-          maxBatches,
-          pendingRemaining: pendingBefore,
-        });
+        logger.warn(
+          {
+            storeId: args.storeId,
+            onlyMissingImage: !!args.onlyMissingImage,
+            maxBatches,
+            pendingRemaining: pendingBefore,
+          },
+          '[enrichment] stopping background run after reaching batch safety cap',
+        );
       } catch (err) {
-        // eslint-disable-next-line no-console
-        console.error('[enrichment] background batch failed', err);
+        logger.error(
+          {
+            storeId: args.storeId,
+            onlyMissingImage: !!args.onlyMissingImage,
+            err: err instanceof Error ? err.message : String(err),
+          },
+          '[enrichment] background batch failed',
+        );
       } finally {
         BACKGROUND_RUNS.delete(key);
+        logger.info(
+          { storeId: args.storeId, onlyMissingImage: !!args.onlyMissingImage },
+          '[enrichment] background run end',
+        );
       }
     })();
   }
@@ -291,8 +398,24 @@ export class CatalogEnrichmentService {
       source: 'pkmncards',
       tcgapiProductId: null,
       imageUrl: pkmn.imageUrl,
+      lookupMethod: pkmn.method,
+      cardUrl: pkmn.cardUrl,
     };
   }
+}
+
+function toReason(err: unknown): string {
+  const reason = err instanceof Error ? err.message : String(err);
+  return reason.length > REASON_MAX_LEN ? `${reason.slice(0, REASON_MAX_LEN)}...` : reason;
+}
+
+function summarizeUnmatchedReasons(unmatched: Array<{ reason: string }>): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const row of unmatched) {
+    const key = row.reason || 'unknown';
+    out[key] = (out[key] ?? 0) + 1;
+  }
+  return out;
 }
 
 function sleep(ms: number): Promise<void> {

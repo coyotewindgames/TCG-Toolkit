@@ -8,7 +8,7 @@ import { BadRequest } from '../../common/http-errors';
 import { schema } from '../../db/client';
 import type { Container } from '../container';
 import { requireAuth, requireRole } from '../auth/middleware';
-import { InventoryImportService } from '../services/inventory-import';
+import { InventoryImportService, type ImportResult } from '../services/inventory-import';
 import { CatalogEnrichmentService } from '../services/catalog-enrichment';
 
 const ImportBody = z.object({
@@ -162,6 +162,59 @@ async function resolveImportLocationId(args: {
   );
 }
 
+function shouldScheduleAutoEnrichment(result: ImportResult): boolean {
+  if (result.dryRun) return false;
+  const wroteInventory = result.inventoryCreated > 0 || result.inventoryUpdated > 0;
+  const createdCatalog = result.productsCreated > 0 || result.skusCreated > 0;
+  return wroteInventory || createdCatalog;
+}
+
+function scheduleAutoEnrichmentAfterImport(args: {
+  enricher: CatalogEnrichmentService;
+  storeId: string;
+  result: ImportResult;
+}): void {
+  const { enricher, storeId, result } = args;
+  if (!shouldScheduleAutoEnrichment(result)) {
+    console.info('[enrichment] auto-backfill skipped after import', {
+      storeId,
+      dryRun: result.dryRun,
+      productsCreated: result.productsCreated,
+      skusCreated: result.skusCreated,
+      inventoryCreated: result.inventoryCreated,
+      inventoryUpdated: result.inventoryUpdated,
+    });
+    return;
+  }
+
+  console.info('[enrichment] auto-backfill scheduled after import', {
+    storeId,
+    productsCreated: result.productsCreated,
+    skusCreated: result.skusCreated,
+    inventoryCreated: result.inventoryCreated,
+    inventoryUpdated: result.inventoryUpdated,
+  });
+  // Non-blocking: import response should not wait on enrichment lookups.
+  enricher.runInBackground({ storeId, onlyMissingImage: true });
+}
+
+function scheduleAutoEnrichmentDeferred(args: {
+  enricher: CatalogEnrichmentService;
+  storeId: string;
+  result: ImportResult;
+}): void {
+  setImmediate(() => {
+    try {
+      scheduleAutoEnrichmentAfterImport(args);
+    } catch (err) {
+      console.error('[enrichment] auto-backfill scheduling failed', {
+        storeId: args.storeId,
+        err: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+}
+
 export function inventoryRouter(c: Container): Router {
   const r = Router();
   r.use(requireAuth);
@@ -191,6 +244,11 @@ export function inventoryRouter(c: Container): Router {
         },
       });
       res.json(result);
+      scheduleAutoEnrichmentDeferred({
+        enricher,
+        storeId: req.user!.storeId,
+        result,
+      });
     }),
   );
 
@@ -277,8 +335,12 @@ export function inventoryRouter(c: Container): Router {
         errors: result.errors.length,
         dryRun: result.dryRun,
       });
-
       res.json(result);
+      scheduleAutoEnrichmentDeferred({
+        enricher,
+        storeId: req.user!.storeId,
+        result,
+      });
     }),
   );
 
@@ -308,8 +370,17 @@ export function inventoryRouter(c: Container): Router {
     requireRole('owner', 'manager'),
     asyncHandler(async (req, res) => {
       const storeId = req.user!.storeId;
+      console.info('[enrichment] backfill request start', { storeId });
       // Manual mode: one click == one batch.
       const result = await enricher.enrichStore({ storeId, onlyMissingImage: true });
+      console.info('[enrichment] backfill request complete', {
+        storeId,
+        scanned: result.scanned,
+        matched: result.matched,
+        imagesUpdated: result.imagesUpdated,
+        unmatched: result.unmatched.length,
+        remaining: result.remaining,
+      });
       res.json(result);
     }),
   );
