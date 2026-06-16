@@ -4,6 +4,17 @@ import { hashPassword } from '../auth/service';
 import { BadRequest, Conflict } from '../../common/http-errors';
 import type { AuthenticatedUser } from '../auth/types';
 
+function isMissingOnboardingColumnError(err: unknown): boolean {
+  const maybe = err as {
+    message?: string;
+    code?: string;
+    cause?: { message?: string; code?: string };
+  };
+  const msg = `${maybe?.message ?? ''} ${maybe?.cause?.message ?? ''}`.toLowerCase();
+  const code = maybe?.code ?? maybe?.cause?.code;
+  return code === '42703' && msg.includes('onboarding_completed_at');
+}
+
 export interface CreateStoreInput {
   storeName: string;
   ownerEmail: string;
@@ -127,11 +138,23 @@ export async function getOnboardingStatus(
   db: Database,
   storeId: string,
 ): Promise<OnboardingStatus> {
-  const [storeRow] = await db
-    .select({ onboardingCompletedAt: schema.stores.onboardingCompletedAt })
-    .from(schema.stores)
-    .where(eq(schema.stores.id, storeId))
-    .limit(1);
+  let storeCompletedAt: Date | null = null;
+  try {
+    const [storeRow] = await db
+      .select({ onboardingCompletedAt: schema.stores.onboardingCompletedAt })
+      .from(schema.stores)
+      .where(eq(schema.stores.id, storeId))
+      .limit(1);
+    storeCompletedAt = storeRow?.onboardingCompletedAt ?? null;
+  } catch (err) {
+    if (!isMissingOnboardingColumnError(err)) {
+      throw err;
+    }
+    console.warn(
+      '[onboarding] stores.onboarding_completed_at missing; returning completedAt=null. Run migration 0006_onboarding.sql.',
+      { storeId },
+    );
+  }
 
   const [tcgapiRow] = await db
     .select({ id: schema.tcgapiConfigs.storeId })
@@ -163,7 +186,7 @@ export async function getOnboardingStatus(
     tcgapiConfigured: !!tcgapiRow,
     inventoryImported: !!invRow,
     posConfigured: !!posRow,
-    completedAt: storeRow?.onboardingCompletedAt ?? null,
+    completedAt: storeCompletedAt,
   };
 }
 
@@ -172,8 +195,18 @@ export async function getOnboardingStatus(
  * Idempotent — safe to call even if already marked complete.
  */
 export async function completeOnboarding(db: Database, storeId: string): Promise<void> {
-  await db
-    .update(schema.stores)
-    .set({ onboardingCompletedAt: new Date() })
-    .where(eq(schema.stores.id, storeId));
+  try {
+    await db
+      .update(schema.stores)
+      .set({ onboardingCompletedAt: new Date() })
+      .where(eq(schema.stores.id, storeId));
+  } catch (err) {
+    if (!isMissingOnboardingColumnError(err)) {
+      throw err;
+    }
+    console.warn(
+      '[onboarding] cannot persist completion because stores.onboarding_completed_at is missing. Run migration 0006_onboarding.sql.',
+      { storeId },
+    );
+  }
 }

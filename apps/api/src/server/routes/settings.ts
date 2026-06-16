@@ -143,12 +143,8 @@ export function settingsRouter(c: Container): Router {
     asyncHandler(async (req, res) => {
       const body = TcgapiOnboardingUpsert.parse(req.body ?? {});
 
-      const [storeRow] = await c.db
-        .select({ onboardingCompletedAt: schema.stores.onboardingCompletedAt })
-        .from(schema.stores)
-        .where(eq(schema.stores.id, req.user!.storeId))
-        .limit(1);
-      if (storeRow?.onboardingCompletedAt) {
+      const onboarding = await getOnboardingStatus(c.db, req.user!.storeId);
+      if (onboarding.completedAt) {
         throw Forbidden('onboarding already completed; use the regular settings endpoint');
       }
 

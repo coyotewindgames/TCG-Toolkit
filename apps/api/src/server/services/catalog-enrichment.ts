@@ -2,7 +2,7 @@ import { and, eq, isNull, or, sql } from 'drizzle-orm';
 import { schema, type Database } from '../../db/client';
 import type { ConfigService } from './config-service';
 import { TcgapiClient, type TcgapiCard, type TcgapiSet } from '../../integrations/tcgapi/client';
-import { BadRequest } from '../../common/http-errors';
+import { PkmnCardsClient } from '../../integrations/pkmncards/client';
 
 interface TcgapiSetEntry extends TcgapiSet {
   /** Pre-normalized name for fast comparison. */
@@ -31,7 +31,14 @@ export interface EnrichMatched {
   setName: string | null;
   cardNumber: string | null;
   imageSourceUrl: string | null;
-  tcgapiProductId: string;
+  tcgapiProductId: string | null;
+  source: 'tcgapi' | 'pkmncards';
+}
+
+interface EnrichMatch {
+  source: 'tcgapi' | 'pkmncards';
+  tcgapiProductId: string | null;
+  imageUrl: string | null;
 }
 
 export interface EnrichResult {
@@ -43,9 +50,15 @@ export interface EnrichResult {
   remaining: number;
 }
 
-/** Hard-coded batch size for every enrichment run. Conservative because the
- * tcgapi.dev free tier currently allows only 100 requests/day. */
-export const ENRICH_BATCH_SIZE = 10;
+/** Manual enrichment batch size per click/run. */
+export const ENRICH_BATCH_SIZE = 50;
+
+/**
+ * Safety guardrails for background runs. The old fixed 1000-batch loop could
+ * burn through API quotas when candidate rows never become enrichable.
+ */
+const MAX_BACKGROUND_BATCHES_ABSOLUTE = 200;
+const STAGNANT_BATCH_LIMIT = 3;
 
 /**
  * In-memory set of (storeId, scope) tuples currently being processed by a
@@ -61,6 +74,7 @@ export class CatalogEnrichmentService {
    */
   private readonly setsByGame = new Map<string, TcgapiSetEntry[]>();
   private readonly cardsBySet = new Map<string, TcgapiCard[]>();
+  private readonly pkmnCards = new PkmnCardsClient();
 
   constructor(
     private readonly db: Database,
@@ -73,12 +87,12 @@ export class CatalogEnrichmentService {
   }): Promise<EnrichResult> {
     const limit = ENRICH_BATCH_SIZE;
 
+    let tcgClient: TcgapiClient | null = null;
     const status = await this.configs.getTcgapiStatus(args.storeId);
-    if (!status.configured || !status.hasKey) {
-      throw BadRequest('TCGapi.dev is not configured for this store. Set it up in Settings first.');
+    if (status.configured && status.hasKey) {
+      const tcg = await this.configs.getTcgapi(args.storeId);
+      tcgClient = new TcgapiClient({ baseUrl: tcg.baseUrl, apiKey: tcg.apiKey });
     }
-    const tcg = await this.configs.getTcgapi(args.storeId);
-    const client = new TcgapiClient({ baseUrl: tcg.baseUrl, apiKey: tcg.apiKey });
 
     // Pick products that still need enrichment. Either no tcgapi mapping yet,
     // or (if onlyMissingImage) just no image. Skip games where tcgapi has no
@@ -102,6 +116,7 @@ export class CatalogEnrichmentService {
         id: schema.products.id,
         name: schema.products.name,
         setName: schema.products.setName,
+        setId: schema.products.setId,
         cardNumber: schema.products.cardNumber,
         game: schema.products.game,
         tcgapiProductId: schema.products.tcgapiProductId,
@@ -121,6 +136,7 @@ export class CatalogEnrichmentService {
         schema.products.id,
         schema.products.name,
         schema.products.setName,
+        schema.products.setId,
         schema.products.cardNumber,
         schema.products.game,
         schema.products.tcgapiProductId,
@@ -155,7 +171,7 @@ export class CatalogEnrichmentService {
 
     for (const p of candidates) {
       try {
-        const match = await this.findBestMatch(client, p);
+        const match = await this.findBestMatch(tcgClient, p);
         if (!match) {
           result.unmatched.push({ productId: p.id, name: p.name, reason: 'no match' });
           await sleep(60);
@@ -163,7 +179,7 @@ export class CatalogEnrichmentService {
         }
 
         const patch: Record<string, unknown> = { updatedAt: new Date() };
-        if (!p.tcgapiProductId) patch.tcgapiProductId = match.id;
+        if (!p.tcgapiProductId && match.tcgapiProductId) patch.tcgapiProductId = match.tcgapiProductId;
         const newImage = match.imageUrl && !p.imageSourceUrl ? match.imageUrl : null;
         if (newImage) {
           patch.imageSourceUrl = newImage;
@@ -181,7 +197,8 @@ export class CatalogEnrichmentService {
             setName: p.setName,
             cardNumber: p.cardNumber,
             imageSourceUrl: newImage ?? p.imageSourceUrl ?? null,
-            tcgapiProductId: match.id,
+            tcgapiProductId: match.tcgapiProductId ?? p.tcgapiProductId ?? null,
+            source: match.source,
           });
         }
       } catch (err) {
@@ -208,10 +225,55 @@ export class CatalogEnrichmentService {
     BACKGROUND_RUNS.add(key);
     void (async () => {
       try {
-        for (let i = 0; i < 1000; i++) {
+        let pendingBefore = await this.pendingCount(args);
+        if (pendingBefore === 0) return;
+
+        // Dynamic cap based on outstanding work plus a small retry cushion.
+        const maxBatches = Math.min(
+          MAX_BACKGROUND_BATCHES_ABSOLUTE,
+          Math.max(1, Math.ceil(pendingBefore / ENRICH_BATCH_SIZE) + 10),
+        );
+
+        let stagnantBatches = 0;
+        for (let i = 0; i < maxBatches; i++) {
           const r = await this.enrichStore(args);
-          if (r.remaining === 0 || r.scanned === 0) return;
+
+          const pendingAfter = await this.pendingCount(args);
+          const madePendingProgress = pendingAfter < pendingBefore;
+          const madeImageProgress = r.imagesUpdated > 0;
+
+          if (pendingAfter === 0 || r.scanned === 0) {
+            return;
+          }
+
+          if (madePendingProgress || madeImageProgress) {
+            stagnantBatches = 0;
+          } else {
+            stagnantBatches += 1;
+          }
+
+          if (stagnantBatches >= STAGNANT_BATCH_LIMIT) {
+            // eslint-disable-next-line no-console
+            console.warn('[enrichment] stopping background run after repeated no-progress batches', {
+              storeId: args.storeId,
+              onlyMissingImage: !!args.onlyMissingImage,
+              stagnantBatches,
+              pendingBefore,
+              pendingAfter,
+            });
+            return;
+          }
+
+          pendingBefore = pendingAfter;
         }
+
+        // eslint-disable-next-line no-console
+        console.warn('[enrichment] stopping background run after reaching batch safety cap', {
+          storeId: args.storeId,
+          onlyMissingImage: !!args.onlyMissingImage,
+          maxBatches,
+          pendingRemaining: pendingBefore,
+        });
       } catch (err) {
         // eslint-disable-next-line no-console
         console.error('[enrichment] background batch failed', err);
@@ -257,14 +319,34 @@ export class CatalogEnrichmentService {
   }
 
   private async findBestMatch(
-    client: TcgapiClient,
+    client: TcgapiClient | null,
     p: {
       name: string;
       setName: string | null;
+      setId: string | null;
       cardNumber: string | null;
       game: string;
+      imageSourceUrl: string | null;
     },
-  ): Promise<TcgapiCard | null> {
+  ): Promise<EnrichMatch | null> {
+    if (p.game === 'pokemon' && !p.imageSourceUrl) {
+      const pkmn = await this.pkmnCards.lookup({
+        name: p.name,
+        setCode: p.setId,
+        setName: p.setName,
+        cardNumber: p.cardNumber,
+      });
+      if (pkmn?.imageUrl) {
+        return {
+          source: 'pkmncards',
+          tcgapiProductId: null,
+          imageUrl: pkmn.imageUrl,
+        };
+      }
+    }
+
+    if (!client) return null;
+
     const game = GAME_SLUG[p.game] ?? p.game;
 
     // Strategy: try to resolve the *set* first, then look up the card by
@@ -276,7 +358,13 @@ export class CatalogEnrichmentService {
     if (setEntry) {
       const cards = await this.getSetCards(client, setEntry.id);
       const direct = matchCardInSet(cards, p.name, p.cardNumber);
-      if (direct) return direct;
+      if (direct) {
+        return {
+          source: 'tcgapi',
+          tcgapiProductId: direct.id,
+          imageUrl: direct.imageUrl,
+        };
+      }
     }
 
     // Fallback: targeted search. Pass set_id when we have one to drastically
@@ -321,7 +409,11 @@ export class CatalogEnrichmentService {
     }
 
     if (!best || best.score < 5) return null;
-    return best.card;
+    return {
+      source: 'tcgapi',
+      tcgapiProductId: best.card.id,
+      imageUrl: best.card.imageUrl,
+    };
   }
 
   /**

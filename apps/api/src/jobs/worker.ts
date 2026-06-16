@@ -83,7 +83,12 @@ const syncCatalog: Processor<CatalogSyncJob> = async (job) => {
 
   const offset = (page - 1) * perPage;
   const localProducts = await db
-    .select({ id: schema.products.id, tcgapiId: schema.products.tcgapiProductId })
+    .select({
+      id: schema.products.id,
+      game: schema.products.game,
+      tcgapiId: schema.products.tcgapiProductId,
+      imageSourceUrl: schema.products.imageSourceUrl,
+    })
     .from(schema.products)
     .where(
       game
@@ -99,6 +104,11 @@ const syncCatalog: Processor<CatalogSyncJob> = async (job) => {
     if (!p.tcgapiId) continue;
     try {
       const card = await tcgapi.getCard(p.tcgapiId);
+      const keepPkmnCardsImage =
+        p.game === 'pokemon' &&
+        !!p.imageSourceUrl &&
+        p.imageSourceUrl.includes('pkmncards.com/wp-content/uploads/');
+
       await db
         .update(schema.products)
         .set({
@@ -106,7 +116,7 @@ const syncCatalog: Processor<CatalogSyncJob> = async (job) => {
           setName: card.setName,
           cardNumber: card.number,
           rarity: card.rarity,
-          imageSourceUrl: card.imageUrl,
+          imageSourceUrl: keepPkmnCardsImage ? p.imageSourceUrl : card.imageUrl,
           updatedAt: new Date(),
         })
         .where(eq(schema.products.id, p.id));

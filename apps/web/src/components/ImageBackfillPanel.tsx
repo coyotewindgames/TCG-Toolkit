@@ -1,5 +1,4 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useRef } from 'react';
 import { api } from '../lib/api';
 
 interface EnrichStatus {
@@ -7,92 +6,55 @@ interface EnrichStatus {
   running: boolean;
 }
 
-interface TcgapiStatus {
-  configured: boolean;
-  hasKey: boolean;
+interface EnrichMatched {
+  productId: string;
+  name: string;
+  setName: string | null;
+  cardNumber: string | null;
+  imageSourceUrl: string | null;
+  tcgapiProductId: string | null;
+  source: 'tcgapi' | 'pkmncards';
 }
 
-interface StartBackfillResponse {
-  started: boolean;
-  running: boolean;
-  pending: number;
+interface EnrichBatchResult {
+  scanned: number;
+  matched: number;
+  imagesUpdated: number;
+  remaining: number;
+  matches: EnrichMatched[];
+  unmatched: Array<{ productId: string; name: string; reason: string }>;
 }
 
 /**
- * Backfill product images via tcgapi.dev. Lives in the Inventory side pane.
- * Shows a configuration prompt if tcgapi.dev isn't set up yet.
+ * Backfill product images from external catalog sources. Pokemon products
+ * use PkmnCards first, while non-Pokemon games continue using tcgapi.dev
+ * when configured.
  */
 export default function ImageBackfillPanel() {
   const qc = useQueryClient();
-  const wasRunningRef = useRef(false);
-
-  const integrations = useQuery({
-    queryKey: ['settings', 'integrations'],
-    queryFn: () => api.get<{ tcgapi: TcgapiStatus }>('/settings/integrations'),
-  });
 
   const status = useQuery({
     queryKey: ['inventory', 'enrich-status'],
-    queryFn: () => api.get<EnrichStatus>('/inventory/enrich/status'),
-    enabled: !!integrations.data?.tcgapi.configured && !!integrations.data?.tcgapi.hasKey,
-    refetchInterval: (query) => {
-      const data = query.state.data as EnrichStatus | undefined;
-      return data?.running ? 2000 : false;
-    },
-    refetchIntervalInBackground: true,
+    queryFn: () => api.get<EnrichStatus>(`/inventory/enrich/status?ts=${Date.now()}`),
   });
 
   const start = useMutation({
-    mutationFn: () => api.post<StartBackfillResponse>('/inventory/enrich/backfill', {}),
+    mutationFn: () => api.post<EnrichBatchResult>('/inventory/enrich/backfill', {}),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['inventory', 'enrich-status'] });
+      qc.invalidateQueries({ queryKey: ['products'] });
     },
   });
 
-  useEffect(() => {
-    const running = !!status.data?.running;
-    if (running) {
-      wasRunningRef.current = true;
-      return;
-    }
-
-    if (wasRunningRef.current) {
-      wasRunningRef.current = false;
-      qc.invalidateQueries({ queryKey: ['products'] });
-    }
-  }, [qc, status.data?.running]);
-
-  if (integrations.isLoading) {
-    return <p className="text-sm text-slate-400">Checking integration status…</p>;
-  }
-
-  const tcgapi = integrations.data?.tcgapi;
-  if (!tcgapi?.configured || !tcgapi.hasKey) {
-    return (
-      <div className="text-sm space-y-2">
-        <p className="text-amber-300">
-          TCGapi.dev isn't configured yet. Add an API key under Settings → Integrations to
-          enable image backfill.
-        </p>
-        <a
-          href="/settings/integrations"
-          className="btn inline-flex"
-        >
-          Open settings
-        </a>
-      </div>
-    );
-  }
-
   const pending = status.data?.pending ?? 0;
-  const running = !!status.data?.running;
-  const startResult = start.data;
+  const lastRun = start.data;
 
   return (
     <div className="space-y-4">
       <p className="text-sm text-slate-400">
-        Fetches images from tcgapi.dev for products you imported earlier. One click starts a
-        background job that keeps running on the server even if you navigate away.
+        Fills missing product images for imported inventory. Pokemon cards use PkmnCards,
+        and other supported games use tcgapi.dev when available. Each click processes up to{' '}
+        <strong>50 products</strong>.
       </p>
 
       <div className="flex flex-wrap gap-3 items-center">
@@ -103,38 +65,81 @@ export default function ImageBackfillPanel() {
         <button
           type="button"
           className="btn-primary"
-          disabled={pending === 0 || start.isPending || running}
+          disabled={pending === 0 || start.isPending}
           onClick={() => start.mutate()}
         >
           {pending === 0
             ? 'All caught up'
-            : running
-              ? 'Running in background…'
-              : start.isPending
-                ? 'Starting…'
-                : 'Backfill all images'}
+            : start.isPending
+              ? 'Running…'
+              : 'Backfill next 50'}
         </button>
       </div>
 
-      {running && (
-        <div className="text-xs text-slate-300">
-          Background job is running. Remaining <strong>{pending.toLocaleString()}</strong> products.
+      {start.error && <p className="text-rose-300 text-sm">{String(start.error)}</p>}
+
+      {lastRun && (
+        <div className="space-y-3">
+          <div className="text-xs text-slate-300">
+            Scanned <strong>{lastRun.scanned}</strong> · Matched{' '}
+            <strong>{lastRun.matched}</strong> · Updated{' '}
+            <strong>{lastRun.imagesUpdated}</strong> · Remaining{' '}
+            <strong>{lastRun.remaining}</strong>
+          </div>
+
+          {lastRun.matches.length > 0 && (
+            <div>
+              <div className="text-xs text-slate-400 mb-2">Updated this batch:</div>
+              <ul className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {lastRun.matches.map((m) => (
+                  <li
+                    key={m.productId}
+                    className="bg-slate-900/60 border border-slate-700 rounded-lg p-2 text-xs"
+                  >
+                    {m.imageSourceUrl ? (
+                      <img
+                        src={m.imageSourceUrl}
+                        alt={m.name}
+                        className="w-full aspect-[5/7] object-cover rounded mb-1 bg-slate-800"
+                        loading="lazy"
+                      />
+                    ) : (
+                      <div className="w-full aspect-[5/7] rounded mb-1 bg-slate-800 border border-dashed border-slate-700" />
+                    )}
+                    <div className="font-semibold text-slate-100 truncate" title={m.name}>
+                      {m.name}
+                    </div>
+                    <div className="text-slate-400 truncate">
+                      {m.setName ?? '—'}
+                      {m.cardNumber ? ` · #${m.cardNumber}` : ''}
+                      {m.source === 'pkmncards' ? ' · PkmnCards' : ' · TCGapi'}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {lastRun.unmatched.length > 0 && (
+            <details>
+              <summary className="cursor-pointer text-amber-300 text-sm">
+                {lastRun.unmatched.length} unmatched
+              </summary>
+              <ul className="mt-2 space-y-1 text-xs text-slate-300 max-h-48 overflow-auto">
+                {lastRun.unmatched.map((u) => (
+                  <li key={u.productId}>
+                    {u.name} — <span className="opacity-70">{u.reason}</span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
         </div>
       )}
 
-      {!running && startResult?.started && (
-        <div className="text-xs text-emerald-300">Background backfill started successfully.</div>
-      )}
-
-      {!running && startResult && !startResult.started && startResult.pending > 0 && (
-        <div className="text-xs text-slate-300">A backfill run is already in progress.</div>
-      )}
-
-      {start.error && <p className="text-rose-300 text-sm">{String(start.error)}</p>}
-
-      {!running && pending > 0 && (
+      {pending > 0 && (
         <p className="text-xs text-slate-400">
-          {pending.toLocaleString()} products still need images. Start backfill to resume.
+          {pending.toLocaleString()} products still need images.
         </p>
       )}
     </div>
