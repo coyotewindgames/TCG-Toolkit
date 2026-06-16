@@ -53,6 +53,8 @@ export class ProductsService {
         cardNumber: schema.products.cardNumber,
         rarity: schema.products.rarity,
         imageSourceUrl: schema.products.imageSourceUrl,
+        availableQty:
+          sql<number>`coalesce(sum(${schema.inventory.qtyOnHand}), 0)::int`.as('available_qty'),
         minSellPriceCents:
           sql<number | null>`min(${schema.currentPrices.sellPriceCents})`.as('min_sell_price_cents'),
         maxSellPriceCents:
@@ -160,10 +162,28 @@ export class ProductsService {
         printing: schema.skus.printing,
         language: schema.skus.language,
         sellPriceCents: schema.currentPrices.sellPriceCents,
+        availableQty:
+          sql<number>`coalesce(sum(${schema.inventory.qtyOnHand}), 0)::int`.as('available_qty'),
       })
       .from(schema.skus)
       .leftJoin(schema.currentPrices, eq(schema.currentPrices.skuId, schema.skus.id))
-      .where(and(eq(schema.skus.storeId, storeId), eq(schema.skus.productId, productId)));
+      .leftJoin(schema.inventory, eq(schema.inventory.skuId, schema.skus.id))
+      .leftJoin(
+        schema.locations,
+        and(
+          eq(schema.locations.id, schema.inventory.locationId),
+          eq(schema.locations.storeId, storeId),
+        ),
+      )
+      .where(and(eq(schema.skus.storeId, storeId), eq(schema.skus.productId, productId)))
+      .groupBy(
+        schema.skus.id,
+        schema.skus.barcode,
+        schema.skus.condition,
+        schema.skus.printing,
+        schema.skus.language,
+        schema.currentPrices.sellPriceCents,
+      );
 
     return rows;
   }

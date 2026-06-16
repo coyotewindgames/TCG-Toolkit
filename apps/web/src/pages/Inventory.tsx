@@ -13,6 +13,7 @@ type Product = {
   cardNumber: string | null;
   rarity: string | null;
   imageSourceUrl?: string | null;
+  availableQty: number;
   minSellPriceCents: number | null;
   maxSellPriceCents: number | null;
 };
@@ -39,6 +40,7 @@ type ProductSku = {
   printing: string;
   language: string;
   sellPriceCents: number | null;
+  availableQty: number;
 };
 type ProductSkusResponse = { skus: ProductSku[] };
 type InventorySummary = {
@@ -449,6 +451,9 @@ export default function InventoryPage() {
                         <span className="rounded-full border border-slate-700 px-2 py-1 bg-slate-950/80">
                           Card #: {p.cardNumber || 'N/A'}
                         </span>
+                        <span className="rounded-full border border-cyan-700/60 px-2 py-1 bg-cyan-950/40 text-cyan-200">
+                          Available: {p.availableQty.toLocaleString()}
+                        </span>
                         <span className="rounded-full border border-emerald-700/60 px-2 py-1 bg-emerald-950/40 text-emerald-200">
                           Price: {renderPriceSummary(p)}
                         </span>
@@ -474,6 +479,8 @@ export default function InventoryPage() {
                     <span>Set: {p.setName || 'Unknown set'}</span>
                     <span>•</span>
                     <span>Card #: {p.cardNumber || 'N/A'}</span>
+                    <span>•</span>
+                    <span>Available: {p.availableQty.toLocaleString()}</span>
                     <span>•</span>
                     <span>Price: {renderPriceSummary(p)}</span>
                   </div>
@@ -512,6 +519,7 @@ export default function InventoryPage() {
                                 <span>{sku.condition}</span>
                                 <span>• {sku.printing}</span>
                                 <span>• {sku.language}</span>
+                                <span>• Available: {sku.availableQty.toLocaleString()}</span>
                                 {typeof sku.sellPriceCents === 'number' && (
                                   <span>• ${(sku.sellPriceCents / 100).toFixed(2)}</span>
                                 )}
@@ -580,6 +588,7 @@ export default function InventoryPage() {
                     <span>{sku.condition}</span>
                     <span>• {sku.printing}</span>
                     <span>• {sku.language}</span>
+                    <span>• Available: {sku.availableQty.toLocaleString()}</span>
                     {typeof sku.sellPriceCents === 'number' && (
                       <span>• ${(sku.sellPriceCents / 100).toFixed(2)}</span>
                     )}

@@ -70,13 +70,6 @@ export class OrdersService {
       order.locationId = reservableLocationId;
     }
 
-    await this.inventory.reserve({
-      storeId: args.storeId,
-      skuId: scan.skuId,
-      locationId: reserveLocationId,
-      qty: 1,
-    });
-
     const [line] = await this.db
       .insert(schema.orderItems)
       .values({
@@ -120,12 +113,6 @@ export class OrdersService {
     if (!line) throw NotFound('line not found');
 
     await this.db.delete(schema.orderItems).where(eq(schema.orderItems.id, line.id));
-    await this.inventory.releaseReservation({
-      storeId: args.storeId,
-      skuId: line.skuId,
-      locationId: order.locationId,
-      qty: line.quantity,
-    });
     await this.recomputeTotals(order.id);
     const totals = await this.totals(order.id);
     emitToOrder(order.id, SOCKET_EVENTS.cartItemRemoved, {
@@ -144,7 +131,7 @@ export class OrdersService {
         .where(and(eq(schema.orders.id, args.orderId), eq(schema.orders.storeId, args.storeId)));
 
       if (!order) throw NotFound('order not found');
-      if (order.status === 'paid') return { order, items: [] as Array<{ skuId: string; quantity: number }> };
+      if (order.status === 'paid') return { order, soldSkuIds: [] as string[] };
       if (order.status !== 'open' && order.status !== 'pending_payment') {
         throw BadRequest(`order is ${order.status}`);
       }
@@ -156,6 +143,36 @@ export class OrdersService {
 
       if (items.length === 0) throw BadRequest('order has no items');
 
+      // Record sale is the only place that mutates quantity-on-hand.
+      const qtyBySku = new Map<string, number>();
+      for (const item of items) {
+        qtyBySku.set(item.skuId, (qtyBySku.get(item.skuId) ?? 0) + item.quantity);
+      }
+
+      const soldSkuIds: string[] = [];
+      for (const [skuId, qtyToSell] of qtyBySku.entries()) {
+        const rows = await tx.execute(sql`
+          select qty_on_hand
+          from inventory
+          where sku_id = ${skuId} and location_id = ${order.locationId}
+          for update
+        `);
+        const inv = (rows.rows as Array<{ qty_on_hand: number }>)[0];
+        const onHand = Number(inv?.qty_on_hand ?? 0);
+        if (onHand < qtyToSell) {
+          throw Conflict(`insufficient inventory for sku ${skuId}: need ${qtyToSell}, available ${onHand}`);
+        }
+
+        await tx.execute(sql`
+          update inventory
+          set qty_on_hand = qty_on_hand - ${qtyToSell},
+              qty_reserved = greatest(0, qty_reserved - ${qtyToSell}),
+              updated_at = now()
+          where sku_id = ${skuId} and location_id = ${order.locationId}
+        `);
+        soldSkuIds.push(skuId);
+      }
+
       const [updatedOrder] = await tx
         .update(schema.orders)
         .set({ status: 'paid', closedAt: new Date() })
@@ -163,15 +180,13 @@ export class OrdersService {
         .returning();
 
       if (!updatedOrder) throw new Error('failed to mark order as paid');
-      return { order: updatedOrder, items };
+      return { order: updatedOrder, soldSkuIds };
     });
 
-    for (const line of result.items) {
-      await this.inventory.commitSale({
+    for (const skuId of result.soldSkuIds) {
+      await this.inventory.emitUpdatedForSku({
         storeId: result.order.storeId,
-        skuId: line.skuId,
-        locationId: result.order.locationId,
-        qty: line.quantity,
+        skuId,
       });
     }
 
@@ -217,10 +232,7 @@ export class OrdersService {
         productNameSnapshot: schema.orderItems.productNameSnapshot,
         condition: schema.skus.condition,
         imageUrl: schema.products.imageSourceUrl,
-        qtyRemaining:
-          sql<number>`GREATEST(COALESCE(${schema.inventory.qtyOnHand}, 0) - COALESCE(${schema.inventory.qtyReserved}, 0), 0)`.as(
-            'qty_remaining',
-          ),
+        qtyRemaining: sql<number>`GREATEST(COALESCE(${schema.inventory.qtyOnHand}, 0), 0)`.as('qty_remaining'),
       })
       .from(schema.orderItems)
       .innerJoin(schema.skus, eq(schema.skus.id, schema.orderItems.skuId))

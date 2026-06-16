@@ -170,23 +170,23 @@ export class BarcodeService {
     const textX = x + pad + qrSize + pad;
     const textW = SHEET.labelWidth - (textX - x) - pad;
 
-    if (item.title) {
-      doc
-        .font('Helvetica-Bold')
-        .fontSize(8)
-        .text(item.title.slice(0, 60), textX, y + pad, {
-          width: textW,
-          height: 24,
-          ellipsis: true,
-        });
-    }
+    const titleText = (item.title?.trim() || item.barcode).slice(0, 60);
+    doc
+      .font('Helvetica-Bold')
+      .fontSize(8)
+      .text(titleText, textX, y + pad, {
+        width: textW,
+        height: 24,
+        ellipsis: true,
+      });
 
     if (item.subtitle) {
       doc
         .font('Helvetica')
         .fontSize(7)
-        .text(item.subtitle, textX, y + SHEET.labelHeight - pad - 9, {
+        .text(item.subtitle.slice(0, 72), textX, y + SHEET.labelHeight - pad - 9, {
           width: textW,
+          ellipsis: true,
           lineBreak: false,
         });
     }

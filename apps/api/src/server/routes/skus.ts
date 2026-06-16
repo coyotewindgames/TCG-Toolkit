@@ -60,6 +60,10 @@ export function skusRouter(c: Container): Router {
           id: schema.skus.id,
           barcode: schema.skus.barcode,
           name: schema.products.name,
+          setName: schema.products.setName,
+          cardNumber: schema.products.cardNumber,
+          condition: schema.skus.condition,
+          printing: schema.skus.printing,
           sellPriceCents: schema.currentPrices.sellPriceCents,
         })
         .from(schema.skus)
@@ -71,13 +75,18 @@ export function skusRouter(c: Container): Router {
       const labels = body.items.map((it) => {
         const row = byId.get(it.skuId);
         if (!row) throw NotFound(`sku ${it.skuId} not found`);
+
+        const cardName = row.name?.trim() || row.barcode;
+        const setAndNumber = [row.setName, row.cardNumber].filter(Boolean).join(' #');
+        const variant = [row.condition, row.printing].join(' • ');
+        const price =
+          row.sellPriceCents != null ? `$${(row.sellPriceCents / 100).toFixed(2)}` : undefined;
+        const subtitle = [setAndNumber, variant, price].filter(Boolean).join('  ·  ');
+
         return {
           barcode: row.barcode,
-          title: row.name,
-          subtitle:
-            row.sellPriceCents != null
-              ? `$${(row.sellPriceCents / 100).toFixed(2)}`
-              : undefined,
+          title: cardName,
+          subtitle: subtitle || undefined,
           copies: it.copies ?? 1,
         };
       });

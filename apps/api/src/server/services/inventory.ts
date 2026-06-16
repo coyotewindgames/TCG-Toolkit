@@ -34,10 +34,10 @@ export class InventoryService {
       )
       .orderBy(
         desc(sql<number>`case when ${schema.inventory.locationId} = ${args.preferredLocationId} then 1 else 0 end`),
-        desc(sql<number>`${schema.inventory.qtyOnHand} - ${schema.inventory.qtyReserved}`),
+        desc(sql<number>`${schema.inventory.qtyOnHand}`),
       );
 
-    const reservable = rows.filter((row) => row.qtyOnHand - row.qtyReserved >= args.qty);
+    const reservable = rows.filter((row) => row.qtyOnHand >= args.qty);
     return reservable[0]?.locationId ?? null;
   }
 
@@ -203,5 +203,9 @@ export class InventoryService {
       qtyReserved: row?.qtyReserved ?? 0,
       marketPriceCents: price?.marketPriceCents ?? null,
     });
+  }
+
+  async emitUpdatedForSku(args: { storeId: string; skuId: string }): Promise<void> {
+    await this.emitUpdated(args.storeId, args.skuId);
   }
 }
