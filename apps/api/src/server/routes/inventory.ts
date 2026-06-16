@@ -140,14 +140,30 @@ async function resolveImportLocationId(args: {
 }): Promise<string> {
   const { db, storeId, requestedLocationId } = args;
 
-  if (requestedLocationId) {
-    return requestedLocationId;
-  }
-
   const locations = await db
     .select({ id: schema.locations.id })
     .from(schema.locations)
     .where(eq(schema.locations.storeId, storeId));
+
+  if (requestedLocationId) {
+    const belongsToStore = locations.some((location) => location.id === requestedLocationId);
+    if (belongsToStore) {
+      return requestedLocationId;
+    }
+
+    // Stale client location can happen after tenant/location switching.
+    // If there is only one valid location, recover automatically.
+    if (locations.length === 1) {
+      console.warn('[csv-import] requested locationId not in store; using only store location', {
+        storeId,
+        requestedLocationId,
+        resolvedLocationId: locations[0].id,
+      });
+      return locations[0].id;
+    }
+
+    throw BadRequest('locationId not found in this store. Select a valid location and retry.');
+  }
 
   if (locations.length === 1) {
     return locations[0].id;
