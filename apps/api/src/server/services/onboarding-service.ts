@@ -1,18 +1,29 @@
-import { eq, gt, and } from 'drizzle-orm';
+import { eq, gt, and, sql } from 'drizzle-orm';
 import { schema, type Database } from '../../db/client';
 import { hashPassword } from '../auth/service';
 import { BadRequest, Conflict } from '../../common/http-errors';
 import type { AuthenticatedUser } from '../auth/types';
 
+type PgErrorLike = {
+  message?: string;
+  code?: string;
+  cause?: { message?: string; code?: string };
+};
+
 function isMissingOnboardingColumnError(err: unknown): boolean {
-  const maybe = err as {
-    message?: string;
-    code?: string;
-    cause?: { message?: string; code?: string };
-  };
+  const maybe = err as PgErrorLike;
   const msg = `${maybe?.message ?? ''} ${maybe?.cause?.message ?? ''}`.toLowerCase();
   const code = maybe?.code ?? maybe?.cause?.code;
   return code === '42703' && msg.includes('onboarding_completed_at');
+}
+
+function isStoresInsertSchemaDriftError(err: unknown): boolean {
+  const maybe = err as PgErrorLike;
+  const msg = `${maybe?.message ?? ''} ${maybe?.cause?.message ?? ''}`.toLowerCase();
+  const code = maybe?.code ?? maybe?.cause?.code;
+  if (code !== '42703') return false;
+  if (!msg.includes('insert into') || !msg.includes('stores')) return false;
+  return msg.includes('onboarding_completed_at') || msg.includes('default_pos_provider');
 }
 
 export interface CreateStoreInput {
@@ -58,9 +69,11 @@ export async function createStoreWithOwner(
   input: CreateStoreInput,
 ): Promise<CreatedStore> {
   const email = input.ownerEmail.trim().toLowerCase();
+  const storeName = input.storeName.trim();
+  const timezone = input.timezone ?? 'America/New_York';
   if (!email) throw BadRequest('email required');
   if (input.ownerPassword.length < 8) throw BadRequest('password must be at least 8 characters');
-  if (!input.storeName.trim()) throw BadRequest('storeName required');
+  if (!storeName) throw BadRequest('storeName required');
   if (!input.ownerName.trim()) throw BadRequest('ownerName required');
 
   // Pre-flight check (still racy with a parallel signup — the transaction
@@ -83,13 +96,34 @@ export async function createStoreWithOwner(
       .limit(1);
     if (dupe.length > 0) throw Conflict('an account with that email already exists');
 
-    const [store] = await tx
-      .insert(schema.stores)
-      .values({
-        name: input.storeName.trim(),
-        timezone: input.timezone ?? 'America/New_York',
-      })
-      .returning({ id: schema.stores.id, name: schema.stores.name });
+    let store: { id: string; name: string };
+    try {
+      const [createdStore] = await tx
+        .insert(schema.stores)
+        .values({
+          name: storeName,
+          timezone,
+        })
+        .returning({ id: schema.stores.id, name: schema.stores.name });
+      store = createdStore;
+    } catch (err) {
+      if (!isStoresInsertSchemaDriftError(err)) {
+        throw err;
+      }
+      console.warn(
+        '[onboarding] stores schema drift detected during signup; retrying insert without optional/defaulted columns. Run migrations.',
+      );
+      const fallback = await tx.execute(sql`
+        insert into stores (name, timezone)
+        values (${storeName}, ${timezone})
+        returning id, name
+      `);
+      const row = (fallback.rows as Array<{ id: string; name: string }>)[0];
+      if (!row) {
+        throw err;
+      }
+      store = row;
+    }
 
     const [location] = await tx
       .insert(schema.locations)

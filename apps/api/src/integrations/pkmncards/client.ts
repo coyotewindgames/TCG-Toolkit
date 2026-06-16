@@ -11,8 +11,15 @@ export interface PkmnCardsLookupResult {
   method: 'deterministic' | 'search';
 }
 
+interface SetMeta {
+  slug: string;
+  name: string;
+  code: string;
+}
+
 const BASE_URL = 'https://pkmncards.com';
 const CARD_HREF_RE = /href=["']([^"']*\/card\/[^"']+)["']/gi;
+const SET_HREF_RE = /href=["']([^"']*\/set\/[^"']+\/)["'][^>]*>([^<]+)<\/a>/gi;
 const IMAGE_RE = /(?:https?:\/\/pkmncards\.com)?\/wp-content\/uploads\/[^"'\s<>]+\.(?:jpg|jpeg|png)/gi;
 
 const REQUEST_HEADERS: Record<string, string> = {
@@ -31,6 +38,10 @@ export class PkmnCardsClient {
   private readonly cardLinksBySearchQuery = new Map<string, string[]>();
   private readonly lookupCache = new Map<string, PkmnCardsLookupResult | null>();
   private readonly existsByUrl = new Map<string, boolean>();
+  private readonly setByNormalizedName = new Map<string, SetMeta>();
+  private readonly setByCode = new Map<string, SetMeta>();
+  private readonly cardLinksBySetSlug = new Map<string, string[]>();
+  private setsLoaded = false;
 
   async lookup(input: PkmnCardsLookupInput): Promise<PkmnCardsLookupResult | null> {
     const lookupKey = buildLookupCacheKey(input);
@@ -44,9 +55,11 @@ export class PkmnCardsClient {
     const inferredNumber = explicitNumber || extractNumberFromName(input.name);
     const numberVariants = buildCardNumberVariants(inferredNumber);
     const nameVariants = buildNameVariants(input.name);
+    const setMeta = await this.resolveSetMeta({ setName, setCode });
+    const effectiveSetCode = setCode || setMeta?.code || '';
 
-    if (setCode && numberVariants.length) {
-      const deterministic = await this.tryDeterministicImage(setCode, numberVariants);
+    if (effectiveSetCode && numberVariants.length) {
+      const deterministic = await this.tryDeterministicImage(effectiveSetCode, numberVariants);
       if (deterministic) {
         const hit: PkmnCardsLookupResult = {
           imageUrl: deterministic,
@@ -58,8 +71,46 @@ export class PkmnCardsClient {
       }
     }
 
+    if (setMeta && numberVariants.length && nameVariants.length) {
+      const directCard = await this.tryDirectCardUrl(setMeta, nameVariants, numberVariants);
+      if (directCard) {
+        const directImage = await this.extractImageFromCard(directCard);
+        if (directImage) {
+          const hit: PkmnCardsLookupResult = {
+            imageUrl: directImage,
+            cardUrl: directCard,
+            method: 'search',
+          };
+          this.lookupCache.set(lookupKey, hit);
+          return hit;
+        }
+      }
+
+      const setLinks = await this.getSetCardLinks(setMeta.slug);
+      if (setLinks.length) {
+        const picked = pickBestCardLink(setLinks, {
+          setCode: effectiveSetCode,
+          setName,
+          cardNumberVariants: numberVariants,
+          nameVariants,
+        });
+        if (picked) {
+          const setImage = await this.extractImageFromCard(picked);
+          if (setImage) {
+            const hit: PkmnCardsLookupResult = {
+              imageUrl: setImage,
+              cardUrl: picked,
+              method: 'search',
+            };
+            this.lookupCache.set(lookupKey, hit);
+            return hit;
+          }
+        }
+      }
+    }
+
     const cardUrl = await this.findCardUrlBySearch({
-      setCode,
+      setCode: effectiveSetCode,
       setName,
       cardNumberVariants: numberVariants,
       nameVariants,
@@ -82,6 +133,88 @@ export class PkmnCardsClient {
     };
     this.lookupCache.set(lookupKey, hit);
     return hit;
+  }
+
+  private async tryDirectCardUrl(
+    setMeta: SetMeta,
+    nameVariants: string[],
+    numberVariants: string[],
+  ): Promise<string | null> {
+    const names = nameVariants.slice(0, 2).map(slugify).filter(Boolean);
+    const numbers = numberVariants.slice(0, 2);
+
+    for (const name of names) {
+      for (const number of numbers) {
+        if (!setMeta.code) continue;
+        const candidate = `${BASE_URL}/card/${name}-${setMeta.slug}-${setMeta.code}-${number}/`;
+        if (await this.urlExists(candidate)) return candidate;
+      }
+    }
+
+    return null;
+  }
+
+  private async ensureSetDirectory(): Promise<void> {
+    if (this.setsLoaded) return;
+    const html = await this.fetchHtml(`${BASE_URL}/sets/`);
+
+    let m: RegExpExecArray | null;
+    SET_HREF_RE.lastIndex = 0;
+    while ((m = SET_HREF_RE.exec(html)) !== null) {
+      const href = m[1] ?? '';
+      const label = decodeHtml(m[2] ?? '').trim();
+      const setMeta = parseSetMetaFromLink(href, label);
+      if (!setMeta) continue;
+
+      const normalized = normalizeSetIdentity(setMeta.name);
+      if (normalized && !this.setByNormalizedName.has(normalized)) {
+        this.setByNormalizedName.set(normalized, setMeta);
+      }
+      if (setMeta.code && !this.setByCode.has(setMeta.code)) {
+        this.setByCode.set(setMeta.code, setMeta);
+      }
+    }
+
+    this.setsLoaded = true;
+  }
+
+  private async resolveSetMeta(input: { setName: string; setCode: string }): Promise<SetMeta | null> {
+    await this.ensureSetDirectory();
+
+    if (input.setCode) {
+      const byCode = this.setByCode.get(input.setCode);
+      if (byCode) return byCode;
+    }
+
+    const normalized = normalizeSetIdentity(input.setName);
+    if (normalized) {
+      const byName = this.setByNormalizedName.get(normalized);
+      if (byName) return byName;
+
+      // Common CSV pattern: "Generations: Radiant Collection".
+      const parts = input.setName
+        .split(':')
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .map(normalizeSetIdentity);
+      for (const part of parts) {
+        if (!part) continue;
+        const hit = this.setByNormalizedName.get(part);
+        if (hit) return hit;
+      }
+    }
+
+    return null;
+  }
+
+  private async getSetCardLinks(setSlug: string): Promise<string[]> {
+    const cached = this.cardLinksBySetSlug.get(setSlug);
+    if (cached) return cached;
+
+    const html = await this.fetchHtml(`${BASE_URL}/set/${setSlug}/`);
+    const links = extractCardLinks(html);
+    this.cardLinksBySetSlug.set(setSlug, links);
+    return links;
   }
 
   private async tryDeterministicImage(
@@ -416,4 +549,40 @@ function extractNumberFromName(name: string): string {
   const m = name.match(/\(([^)]*\d[^)]*)\)/);
   if (!m?.[1]) return '';
   return normalizeCardNumber(m[1]);
+}
+
+function decodeHtml(value: string): string {
+  return value
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ')
+    .trim();
+}
+
+function parseSetMetaFromLink(href: string, label: string): SetMeta | null {
+  const full = toAbsolutePkmnCardsUrl(href);
+  if (!full) return null;
+  const m = full.match(/\/set\/([^/]+)\/?$/i);
+  if (!m?.[1]) return null;
+
+  const codeMatch = label.match(/\(([^)]+)\)\s*$/);
+  const code = normalizeSetCode(codeMatch?.[1] ?? '');
+  const name = label.replace(/\s*\([^)]+\)\s*$/, '').trim();
+  return {
+    slug: m[1].toLowerCase(),
+    name,
+    code,
+  };
+}
+
+function normalizeSetIdentity(setName: string): string {
+  const collapsed = setName
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return collapsed;
 }

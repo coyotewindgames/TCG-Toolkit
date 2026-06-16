@@ -7,7 +7,14 @@ describe('PkmnCardsClient', () => {
   });
 
   it('returns deterministic URL when generated image exists', async () => {
-    const fetchMock = vi.fn(async () => new Response('', { status: 200 }));
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === 'https://pkmncards.com/sets/') {
+        return new Response('<a href="https://pkmncards.com/set/chaos-rising/">Chaos Rising (CRI)</a>', {
+          status: 200,
+        });
+      }
+      return new Response('', { status: 200 });
+    });
     vi.stubGlobal('fetch', fetchMock);
 
     const client = new PkmnCardsClient();
@@ -23,7 +30,7 @@ describe('PkmnCardsClient', () => {
       cardUrl: null,
       method: 'deterministic',
     });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock).toHaveBeenCalledWith(
       'https://pkmncards.com/wp-content/uploads/me4_en_116_std.jpg',
       expect.objectContaining({ method: 'HEAD' }),
@@ -32,6 +39,10 @@ describe('PkmnCardsClient', () => {
 
   it('falls back to search and card-page image extraction when deterministic lookup is unavailable', async () => {
     const fetchMock = vi.fn(async (url: string) => {
+      if (url === 'https://pkmncards.com/sets/') {
+        return new Response('', { status: 200 });
+      }
+
       if (url.startsWith('https://pkmncards.com/?')) {
         return new Response(
           '<a href="https://pkmncards.com/card/bulbasaur-mega-evolution-meg-001/">Bulbasaur</a>',
@@ -64,11 +75,12 @@ describe('PkmnCardsClient', () => {
       cardUrl: 'https://pkmncards.com/card/bulbasaur-mega-evolution-meg-001/',
       method: 'search',
     });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it('infers card number from name suffix for deterministic lookup', async () => {
     const fetchMock = vi.fn(async (url: string) => {
+      if (url === 'https://pkmncards.com/sets/') return new Response('', { status: 200 });
       if (url.endsWith('/me1_en_62_std.jpg')) return new Response('', { status: 404 });
       if (url.endsWith('/me1_en_062_std.jpg')) return new Response('', { status: 200 });
       return new Response('', { status: 404 });
