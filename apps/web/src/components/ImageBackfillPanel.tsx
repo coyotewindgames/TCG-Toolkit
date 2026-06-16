@@ -13,7 +13,7 @@ interface EnrichMatched {
   cardNumber: string | null;
   imageSourceUrl: string | null;
   tcgapiProductId: string | null;
-  source: 'tcgapi' | 'pkmncards';
+  source: 'pkmncards';
 }
 
 interface EnrichBatchResult {
@@ -26,9 +26,7 @@ interface EnrichBatchResult {
 }
 
 /**
- * Backfill product images from external catalog sources. Pokemon products
- * use PkmnCards first, while non-Pokemon games continue using tcgapi.dev
- * when configured.
+ * Backfill product images from PkmnCards.
  */
 export default function ImageBackfillPanel() {
   const qc = useQueryClient();
@@ -52,9 +50,8 @@ export default function ImageBackfillPanel() {
   return (
     <div className="space-y-4">
       <p className="text-sm text-slate-400">
-        Fills missing product images for imported inventory. Pokemon cards use PkmnCards,
-        and other supported games use tcgapi.dev when available. Each click processes up to{' '}
-        <strong>50 products</strong>.
+        Fills missing product images for Pokemon inventory from PkmnCards. Each click
+        processes up to <strong>50 products</strong>.
       </p>
 
       <div className="flex flex-wrap gap-3 items-center">
@@ -112,7 +109,7 @@ export default function ImageBackfillPanel() {
                     <div className="text-slate-400 truncate">
                       {m.setName ?? '—'}
                       {m.cardNumber ? ` · #${m.cardNumber}` : ''}
-                      {m.source === 'pkmncards' ? ' · PkmnCards' : ' · TCGapi'}
+                      {' · PkmnCards'}
                     </div>
                   </li>
                 ))}
