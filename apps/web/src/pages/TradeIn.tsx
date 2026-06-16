@@ -159,7 +159,6 @@ async function printQrLabels(
     a.click();
     a.remove();
   }
-  // The new tab is now responsible for the blob URL; revoke after a short
   // delay so the load can complete first.
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
