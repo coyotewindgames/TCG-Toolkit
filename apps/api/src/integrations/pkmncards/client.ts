@@ -278,12 +278,19 @@ export class PkmnCardsClient {
 
     const html = await this.fetchHtml(cardUrl);
     const rawImages = html.match(IMAGE_RE) ?? [];
+    const candidates: string[] = [];
     for (const raw of rawImages) {
       const imageUrl = toAbsolutePkmnCardsUrl(raw);
       if (!imageUrl) continue;
-      if (!imageUrl.includes('_std.')) continue;
-      this.imageByCardUrl.set(cardUrl, imageUrl);
-      return imageUrl;
+      // Ignore resized thumbs and tiny assets; keep full card scans.
+      if (/-(?:\d{2,4})x(?:\d{2,4})\.(?:jpg|jpeg|png)$/i.test(imageUrl)) continue;
+      candidates.push(imageUrl);
+    }
+
+    const picked = pickBestImageCandidate(candidates);
+    if (picked) {
+      this.imageByCardUrl.set(cardUrl, picked);
+      return picked;
     }
 
     this.imageByCardUrl.set(cardUrl, null);
@@ -456,6 +463,7 @@ function buildSearchQueries(ctx: {
       const slug = slugify(n);
       const quoted = n.replace(/["']/g, '').trim();
       const tokens: string[] = [];
+      if (quoted) tokens.push(quoted);
       if (slug) tokens.push(`name:${slug}`);
       if (quoted) tokens.push(`"${quoted}"`);
       return tokens;
@@ -585,4 +593,21 @@ function normalizeSetIdentity(setName: string): string {
     .replace(/\s+/g, ' ')
     .trim();
   return collapsed;
+}
+
+function pickBestImageCandidate(urls: string[]): string | null {
+  if (!urls.length) return null;
+
+  let best: { url: string; score: number } | null = null;
+  for (const url of urls) {
+    let score = 0;
+    if (/_std\.(?:jpg|jpeg|png)$/i.test(url)) score += 5;
+    if (/\/en_[a-z]{2}-/i.test(url)) score += 3;
+    if (/\.(?:jpg|jpeg)$/i.test(url)) score += 1;
+    if (!best || score > best.score) {
+      best = { url, score };
+    }
+  }
+
+  return best?.url ?? urls[0] ?? null;
 }

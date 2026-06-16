@@ -101,4 +101,92 @@ describe('PkmnCardsClient', () => {
       method: 'deterministic',
     });
   });
+
+  it('uses plain text name query when structured search tokens miss', async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === 'https://pkmncards.com/sets/') {
+        return new Response('', { status: 200 });
+      }
+
+      if (url.startsWith('https://pkmncards.com/?')) {
+        // Simulate production behavior: `name:slug` and quoted forms miss,
+        // but plain text search returns card links.
+        if (url.includes('name%3Azacian-v') || url.includes('s=%22Zacian+V%22')) {
+          return new Response('<div>no card links here</div>', { status: 200 });
+        }
+        if (url.includes('s=Zacian+V')) {
+          return new Response(
+            '<a href="https://pkmncards.com/card/zacian-sword-shield-ssh-138/">Zacian</a>',
+            { status: 200 },
+          );
+        }
+        return new Response('', { status: 200 });
+      }
+
+      if (url === 'https://pkmncards.com/card/zacian-sword-shield-ssh-138/') {
+        return new Response(
+          '<a href="https://pkmncards.com/wp-content/uploads/ssh_en_138_std.jpg">img</a>',
+          { status: 200 },
+        );
+      }
+
+      return new Response('', { status: 404 });
+    });
+
+    vi.stubGlobal('fetch', fetchMock);
+
+    const client = new PkmnCardsClient();
+    const result = await client.lookup({
+      name: 'Zacian V',
+      setCode: null,
+      setName: null,
+      cardNumber: null,
+    });
+
+    expect(result).toEqual({
+      imageUrl: 'https://pkmncards.com/wp-content/uploads/ssh_en_138_std.jpg',
+      cardUrl: 'https://pkmncards.com/card/zacian-sword-shield-ssh-138/',
+      method: 'search',
+    });
+  });
+
+  it('accepts canonical non-_std card images from card pages', async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === 'https://pkmncards.com/sets/') {
+        return new Response('', { status: 200 });
+      }
+
+      if (url.startsWith('https://pkmncards.com/?')) {
+        return new Response(
+          '<a href="https://pkmncards.com/card/zacian-v-crown-zenith-crz-095/">Zacian V</a>',
+          { status: 200 },
+        );
+      }
+
+      if (url === 'https://pkmncards.com/card/zacian-v-crown-zenith-crz-095/') {
+        return new Response(
+          '<a href="https://pkmncards.com/wp-content/uploads/en_US-CZ-095-zacian_v.jpg">jpg</a>',
+          { status: 200 },
+        );
+      }
+
+      return new Response('', { status: 404 });
+    });
+
+    vi.stubGlobal('fetch', fetchMock);
+
+    const client = new PkmnCardsClient();
+    const result = await client.lookup({
+      name: 'Zacian V',
+      setCode: null,
+      setName: null,
+      cardNumber: null,
+    });
+
+    expect(result).toEqual({
+      imageUrl: 'https://pkmncards.com/wp-content/uploads/en_US-CZ-095-zacian_v.jpg',
+      cardUrl: 'https://pkmncards.com/card/zacian-v-crown-zenith-crz-095/',
+      method: 'search',
+    });
+  });
 });
