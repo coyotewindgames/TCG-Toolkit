@@ -112,11 +112,12 @@ read the SKU directly without a separate lookup table. Image endpoints:
 | `GET /api/skus/:id/barcode.png?format=code128`   | Code 128 PNG (default) |
 | `GET /api/skus/:id/barcode.png?format=qr`        | QR code PNG            |
 | `GET /api/barcodes/:token.png?format=...`        | Same, keyed on barcode |
-| `POST /api/skus/labels.pdf`                      | Avery 5160 PDF sheet   |
+| `POST /api/skus/labels.pdf`                      | Avery 5160 or Nelko 14×40mm PDF |
 
-`POST /api/skus/labels.pdf` accepts `{ items: [{ skuId, copies? }, ...] }`
-(up to 500 labels total) and returns a 30-per-page PDF ready for Avery 5160
-stock. Existing rows can be backfilled with
+`POST /api/skus/labels.pdf` accepts `{ items: [{ skuId, copies? }, ...], sheet?: 'avery5160' | 'nelko14x40' }`
+(up to 500 labels total). Use `sheet: 'nelko14x40'` for 40mm × 14mm label
+stock on a Nelko printer, or leave it unset for Avery 5160 sheets. Existing
+rows can be backfilled with
 `npm run backfill:sku-barcodes -w @tcg/api`.
 
 Key flows:

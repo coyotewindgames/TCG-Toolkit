@@ -175,9 +175,13 @@ export default function InventoryPage() {
     if (page > totalPages) setPage(totalPages);
   }, [data?.pagination.totalPages, page]);
 
-  async function printLabels(items: Array<{ skuId: string; copies?: number }>, fileStem: string) {
+  async function printSingleLabel(skuId: string, fileStem: string) {
     setPrintErr(null);
-    const blob = await api.postBlob('/skus/labels.pdf', { format: 'qr', items });
+    const blob = await api.postBlob('/skus/labels.pdf', {
+      format: 'qr',
+      sheet: 'nelko14x40',
+      items: [{ skuId, copies: 1 }],
+    });
     const url = URL.createObjectURL(blob);
     const win = window.open(url, '_blank', 'noopener,noreferrer');
     if (!win) {
@@ -187,6 +191,15 @@ export default function InventoryPage() {
       a.click();
     }
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  }
+
+  async function printLabels(items: Array<{ skuId: string; copies?: number }>, fileStem: string) {
+    for (const item of items) {
+      const copies = Math.max(1, item.copies ?? 1);
+      for (let copy = 0; copy < copies; copy += 1) {
+        await printSingleLabel(item.skuId, fileStem);
+      }
+    }
   }
 
   async function onPrintOne(sku: ProductSku) {

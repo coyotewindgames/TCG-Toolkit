@@ -31,6 +31,23 @@ describe('BarcodeService', () => {
     expect(pdf.subarray(-32).toString('ascii')).toContain('%%EOF');
   });
 
+  it('renders a Nelko 14x40mm label PDF', async () => {
+    const pdf = await svc.labelSheetPdf(
+      [
+        {
+          barcode: '00000000-0000-0000-0000-000000000000',
+          title: 'Zacian V Crown Zenith',
+          subtitle: '$12.34',
+        },
+      ],
+      { format: 'qr', sheet: 'nelko14x40' },
+    );
+
+    const pdfText = pdf.toString('latin1');
+    expect(pdf.subarray(0, 5).toString('ascii')).toBe('%PDF-');
+    expect(pdfText).toMatch(/\/MediaBox \[0 0 113\.3[0-9]+ 39\.6[0-9]+\]/);
+  });
+
   it('respects copies count', async () => {
     const pdf = await svc.labelSheetPdf([
       { barcode: 'abc', title: 'x', copies: 3 },

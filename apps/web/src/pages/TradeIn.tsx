@@ -143,24 +143,28 @@ async function printQrLabels(
   skuIds: { skuId: string; quantity: number }[],
   cardName: string,
 ): Promise<void> {
-  const items = skuIds.map(({ skuId, quantity }) => ({
-    skuId,
-    copies: Math.max(1, quantity),
-  }));
-  const blob = await api.postBlob('/skus/labels.pdf', { format: 'qr', items });
-  const url = URL.createObjectURL(blob);
-  const win = window.open(url, '_blank', 'noopener,noreferrer');
-  if (!win) {
-    // Popup blocked — fall back to a download so the operator still gets the labels.
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `qr-labels-${cardName.replace(/[^a-z0-9]+/gi, '-').slice(0, 32)}.pdf`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+  for (const { skuId, quantity } of skuIds) {
+    for (let copy = 0; copy < Math.max(1, quantity); copy += 1) {
+      const blob = await api.postBlob('/skus/labels.pdf', {
+        format: 'qr',
+        sheet: 'nelko14x40',
+        items: [{ skuId, copies: 1 }],
+      });
+      const url = URL.createObjectURL(blob);
+      const win = window.open(url, '_blank', 'noopener,noreferrer');
+      if (!win) {
+        // Popup blocked — fall back to a download so the operator still gets the label.
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `qr-labels-${cardName.replace(/[^a-z0-9]+/gi, '-').slice(0, 32)}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      }
+      // Delay so the load can complete first before the next label job.
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    }
   }
-  // delay so the load can complete first.
-  setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
 function suggestedUnitValueCents(

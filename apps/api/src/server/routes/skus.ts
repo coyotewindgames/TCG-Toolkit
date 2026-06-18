@@ -11,6 +11,7 @@ const FormatSchema = z.enum(['code128', 'qr']).default('qr');
 
 const LabelsRequest = z.object({
   format: z.enum(['code128', 'qr']).optional(),
+  sheet: z.enum(['avery5160', 'nelko14x40']).optional(),
   items: z
     .array(
       z.object({
@@ -93,10 +94,22 @@ export function skusRouter(c: Container): Router {
 
       const total = labels.reduce((s, l) => s + (l.copies ?? 1), 0);
       if (total > 500) throw BadRequest('total label count exceeds 500');
+      if (
+        body.sheet === 'nelko14x40' &&
+        (body.items.length !== 1 || (body.items[0]?.copies ?? 1) !== 1)
+      ) {
+        throw BadRequest('Nelko labels must be printed one at a time. Send exactly one SKU per request.');
+      }
 
-      const pdf = await c.barcode.labelSheetPdf(labels, { format: body.format });
+      const pdf = await c.barcode.labelSheetPdf(labels, {
+        format: body.format,
+        sheet: body.sheet,
+      });
       res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', 'attachment; filename="sku-labels.pdf"');
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="${body.sheet === 'nelko14x40' ? 'sku-labels-14x40.pdf' : 'sku-labels.pdf'}"`,
+      );
       res.send(pdf);
     }),
   );

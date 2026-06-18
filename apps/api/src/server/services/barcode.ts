@@ -13,10 +13,28 @@ export interface LabelItem {
 }
 
 const POINTS_PER_INCH = 72;
+const POINTS_PER_MM = POINTS_PER_INCH / 25.4;
+
+function mmToPoints(mm: number): number {
+  return mm * POINTS_PER_MM;
+}
+
+type LabelLayout = {
+  pageWidth: number;
+  pageHeight: number;
+  marginTop: number;
+  marginLeft: number;
+  labelWidth: number;
+  labelHeight: number;
+  hGutter: number;
+  vGutter: number;
+  cols: number;
+  rows: number;
+};
 
 // Avery 5160: US Letter (8.5" × 11"), 3 cols × 10 rows = 30 labels/page.
 // Label is 2.625" wide × 1" tall. Top/left margin 0.5", horizontal gutter 0.125".
-const SHEET = {
+const AVERY_5160 = {
   pageWidth: 8.5 * POINTS_PER_INCH,
   pageHeight: 11 * POINTS_PER_INCH,
   marginTop: 0.5 * POINTS_PER_INCH,
@@ -28,6 +46,26 @@ const SHEET = {
   cols: 3,
   rows: 10,
 } as const;
+
+// Nelko label preset: one label per page at 40mm × 14mm.
+const NELKO_14X40 = {
+  pageWidth: mmToPoints(40),
+  pageHeight: mmToPoints(14),
+  marginTop: 0,
+  marginLeft: 0,
+  labelWidth: mmToPoints(40),
+  labelHeight: mmToPoints(14),
+  hGutter: 0,
+  vGutter: 0,
+  cols: 1,
+  rows: 1,
+} as const;
+
+type LabelSheet = 'avery5160' | 'nelko14x40';
+
+function getSheet(sheet: LabelSheet): LabelLayout {
+  return sheet === 'nelko14x40' ? NELKO_14X40 : AVERY_5160;
+}
 
 export class BarcodeService {
   async code128(text: string): Promise<Buffer> {
@@ -53,6 +91,10 @@ export class BarcodeService {
    * Render an Avery 5160-style sheet of labels as a single PDF. Each item is
    * laid out left-to-right, top-to-bottom; sheets break automatically.
    *
+   * `sheet` controls the paper size/layout:
+   *   - 'avery5160' (default): 30-up US Letter label sheet.
+   *   - 'nelko14x40': one label per page sized for 40mm × 14mm printers.
+   *
    * `format` controls what's drawn on each label:
    *   - 'code128' (default): wide barcode across the label, title above,
    *     subtitle below.
@@ -62,11 +104,12 @@ export class BarcodeService {
    */
   async labelSheetPdf(
     items: LabelItem[],
-    opts: { format?: 'code128' | 'qr' } = {},
+    opts: { format?: 'code128' | 'qr'; sheet?: LabelSheet } = {},
   ): Promise<Buffer> {
     const format = opts.format ?? 'code128';
+    const sheet = getSheet(opts.sheet ?? 'avery5160');
     const doc = new PDFDocument({
-      size: [SHEET.pageWidth, SHEET.pageHeight],
+      size: [sheet.pageWidth, sheet.pageHeight],
       margin: 0,
     });
     const chunks: Buffer[] = [];
@@ -79,19 +122,21 @@ export class BarcodeService {
     for (const item of items) {
       const copies = Math.max(1, item.copies ?? 1);
       for (let i = 0; i < copies; i++) {
-        if (slot > 0 && slot % (SHEET.cols * SHEET.rows) === 0) {
-          doc.addPage({ size: [SHEET.pageWidth, SHEET.pageHeight], margin: 0 });
+        if (slot > 0 && slot % (sheet.cols * sheet.rows) === 0) {
+          doc.addPage({ size: [sheet.pageWidth, sheet.pageHeight], margin: 0 });
         }
-        const indexOnPage = slot % (SHEET.cols * SHEET.rows);
-        const col = indexOnPage % SHEET.cols;
-        const row = Math.floor(indexOnPage / SHEET.cols);
-        const x = SHEET.marginLeft + col * (SHEET.labelWidth + SHEET.hGutter);
-        const y = SHEET.marginTop + row * (SHEET.labelHeight + SHEET.vGutter);
+        const indexOnPage = slot % (sheet.cols * sheet.rows);
+        const col = indexOnPage % sheet.cols;
+        const row = Math.floor(indexOnPage / sheet.cols);
+        const x = sheet.marginLeft + col * (sheet.labelWidth + sheet.hGutter);
+        const y = sheet.marginTop + row * (sheet.labelHeight + sheet.vGutter);
 
-        if (format === 'qr') {
-          await this.drawQrLabel(doc, item, x, y);
+        if (sheet === NELKO_14X40) {
+          await this.drawNelkoLabel(doc, item, x, y, sheet);
+        } else if (format === 'qr') {
+          await this.drawQrLabel(doc, item, x, y, sheet);
         } else {
-          await this.drawLabel(doc, item, x, y);
+          await this.drawLabel(doc, item, x, y, sheet);
         }
         slot += 1;
       }
@@ -106,6 +151,7 @@ export class BarcodeService {
     item: LabelItem,
     x: number,
     y: number,
+    sheet: LabelLayout,
   ): Promise<void> {
     const png = await bwipjs.toBuffer({
       bcid: 'code128',
@@ -116,7 +162,7 @@ export class BarcodeService {
     });
 
     const pad = 4;
-    const innerW = SHEET.labelWidth - pad * 2;
+    const innerW = sheet.labelWidth - pad * 2;
 
     if (item.title) {
       doc
@@ -131,14 +177,14 @@ export class BarcodeService {
     }
 
     const barcodeY = y + pad + (item.title ? 12 : 0);
-    const barcodeH = SHEET.labelHeight - (barcodeY - y) - (item.subtitle ? 16 : pad);
+    const barcodeH = sheet.labelHeight - (barcodeY - y) - (item.subtitle ? 16 : pad);
     doc.image(png, x + pad, barcodeY, { width: innerW, height: barcodeH });
 
     if (item.subtitle) {
       doc
         .font('Helvetica')
         .fontSize(7)
-        .text(item.subtitle, x + pad, y + SHEET.labelHeight - 12, {
+        .text(item.subtitle, x + pad, y + sheet.labelHeight - 12, {
           width: innerW,
           align: 'center',
           lineBreak: false,
@@ -155,6 +201,7 @@ export class BarcodeService {
     item: LabelItem,
     x: number,
     y: number,
+    sheet: LabelLayout,
   ): Promise<void> {
     const png = await bwipjs.toBuffer({
       bcid: 'qrcode',
@@ -164,11 +211,11 @@ export class BarcodeService {
 
     const pad = 4;
     // Square QR sized to the label height minus padding.
-    const qrSize = SHEET.labelHeight - pad * 2;
+    const qrSize = sheet.labelHeight - pad * 2;
     doc.image(png, x + pad, y + pad, { width: qrSize, height: qrSize });
 
     const textX = x + pad + qrSize + pad;
-    const textW = SHEET.labelWidth - (textX - x) - pad;
+    const textW = sheet.labelWidth - (textX - x) - pad;
 
     const titleText = (item.title?.trim() || item.barcode).slice(0, 60);
     doc
@@ -184,11 +231,43 @@ export class BarcodeService {
       doc
         .font('Helvetica')
         .fontSize(7)
-        .text(item.subtitle.slice(0, 72), textX, y + SHEET.labelHeight - pad - 9, {
+        .text(item.subtitle.slice(0, 72), textX, y + sheet.labelHeight - pad - 9, {
           width: textW,
           ellipsis: true,
           lineBreak: false,
         });
     }
+  }
+
+  private async drawNelkoLabel(
+    doc: PDFKit.PDFDocument,
+    item: LabelItem,
+    x: number,
+    y: number,
+    sheet: LabelLayout,
+  ): Promise<void> {
+    const png = await bwipjs.toBuffer({
+      bcid: 'qrcode',
+      text: item.barcode,
+      scale: 3,
+    });
+
+    const pad = mmToPoints(0.8);
+    const qrSize = sheet.labelHeight - pad * 2;
+    doc.image(png, x + pad, y + pad, { width: qrSize, height: qrSize });
+
+    const textX = x + pad + qrSize + pad;
+    const textW = sheet.labelWidth - (textX - x) - pad;
+    const titleText = (item.title?.trim() || item.barcode).slice(0, 28);
+
+    doc
+      .font('Helvetica-Bold')
+      .fontSize(5.5)
+      .text(titleText, textX, y + pad, {
+        width: textW,
+        height: qrSize,
+        ellipsis: true,
+        lineBreak: false,
+      });
   }
 }
