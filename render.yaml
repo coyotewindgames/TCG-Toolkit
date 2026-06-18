@@ -93,6 +93,8 @@ envVarGroups:
         value: 0.0.0.0
       - key: DATABASE_URL
         sync: false
+      - key: PG_SSL_REJECT_UNAUTHORIZED
+        value: 'false'
       - key: JWT_SECRET
         generateValue: true
       - key: CONFIG_ENCRYPTION_KEY

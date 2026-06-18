@@ -85,6 +85,9 @@ The blueprint in [`render.yaml`](./render.yaml) provisions:
 
 Click **New → Blueprint** in Render, point at this repo, then fill in the
 `sync: false` secrets (TCGapi.dev key, Clover tokens, etc.).
+Render's managed Postgres currently needs `PG_SSL_REJECT_UNAUTHORIZED=false`
+in the shared env group so the API, worker, and nightly cron can connect
+without tripping over the database certificate chain.
 Drizzle migrations should run on deploy via a Render *pre-deploy* command
 (`npx drizzle-kit migrate`).
 
