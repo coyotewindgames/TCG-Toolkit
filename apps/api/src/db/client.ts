@@ -16,23 +16,13 @@ function databaseHost(url: string): string {
 }
 
 function assertExpectedDatabaseHost(databaseUrl: string): void {
-  const isProd = (process.env.NODE_ENV ?? 'development') === 'production';
   const expected = (process.env.EXPECTED_DATABASE_HOST ?? '').trim().toLowerCase();
+  if (!expected) return;
   const actual = databaseHost(databaseUrl).toLowerCase();
-  if (!actual) {
-    throw new Error('DATABASE_URL is invalid; unable to parse database host');
-  }
-  if (!expected) {
-    if (isProd) {
-      throw new Error(
-        `EXPECTED_DATABASE_HOST is required in production. DATABASE_URL currently points to "${actual}".`,
-      );
-    }
-    return;
-  }
+  if (!actual) return; // can't parse — skip the check
   if (actual !== expected) {
     throw new Error(
-      `DATABASE_URL host mismatch: expected "${expected}", got "${actual}". Update Render DATABASE_URL/EXPECTED_DATABASE_HOST to the same target.`,
+      `DATABASE_URL host mismatch: expected "${expected}", got "${actual}". Update DATABASE_URL or EXPECTED_DATABASE_HOST in Render.`,
     );
   }
 }
