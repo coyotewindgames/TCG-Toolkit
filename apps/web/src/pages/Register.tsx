@@ -399,7 +399,7 @@ export default function RegisterPage() {
           )}
 
           {cardResults.length > 0 && (
-            <ul className="max-h-48 overflow-auto grid gap-2 rounded-md border border-slate-800 p-2 sm:grid-cols-2">
+            <ul className="max-h-56 overflow-auto grid grid-cols-2 gap-2 rounded-md border border-slate-800 p-2 sm:grid-cols-3">
               {cardResults.map((p) => (
                 <li key={p.id}>
                   <button
@@ -407,24 +407,24 @@ export default function RegisterPage() {
                     onClick={() => void loadProductSkus(p)}
                     className="w-full overflow-hidden rounded-xl border border-slate-800 bg-slate-900 text-left transition hover:border-emerald-500/60 hover:bg-slate-900/80"
                   >
-                    <div className="aspect-[2/4] bg-slate-800 flex items-center justify-center">
+                    <div className="h-24 bg-slate-800 flex items-center justify-center sm:h-28">
                       {p.imageSourceUrl ? (
                         <img
                           src={p.imageSourceUrl}
                           alt={p.name}
-                          className="h- w-full object-contain p-2"
+                          className="h-full w-full object-contain p-1"
                           loading="lazy"
                         />
                       ) : (
                         <span className="text-xs text-slate-500">No image</span>
                       )}
                     </div>
-                    <div className="space-y-1 p-3">
-                      <div className="text-sm font-semibold leading-tight">{p.name}</div>
+                    <div className="space-y-1 p-2">
+                      <div className="text-xs font-semibold leading-tight">{p.name}</div>
                       <div className="text-xs text-slate-400">
                         {[p.setName, p.cardNumber].filter(Boolean).join(' • ') || 'Unknown set'}
                       </div>
-                      <div className="text-xl font-black tracking-tight text-emerald-300">
+                      <div className="text-sm font-black tracking-tight text-emerald-300">
                         {formatMoney(p.minSellPriceCents ?? p.maxSellPriceCents ?? 0)}
                       </div>
                     </div>
