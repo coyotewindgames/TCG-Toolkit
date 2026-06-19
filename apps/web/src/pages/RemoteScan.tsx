@@ -220,12 +220,10 @@ export default function RemoteScanPage() {
   }, [canUseCamera, orderId, stopScanner, submitBarcode]);
 
   useEffect(() => {
-    if (!orderId) return;
-    void startScanner();
     return () => {
       stopScanner();
     };
-  }, [orderId, startScanner, stopScanner]);
+  }, [stopScanner]);
 
   useEffect(() => {
     return () => {
@@ -308,6 +306,10 @@ export default function RemoteScanPage() {
                 : cameraStatus === 'error'
                   ? 'Camera error'
                   : 'Idle'}
+          </p>
+
+          <p className="text-xs text-slate-500">
+            Tap Start camera to trigger the browser permission prompt on your phone.
           </p>
 
           {cameraError && <p className="text-xs text-rose-300">{cameraError}</p>}
