@@ -32,6 +32,52 @@ function toErrorMessage(error: unknown): string {
   return String(error);
 }
 
+function getAudioContext(): AudioContext | null {
+  if (typeof window === 'undefined') return null;
+  const AudioContextCtor = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!AudioContextCtor) return null;
+  return new AudioContextCtor();
+}
+
+async function playScanSuccessTone(context: AudioContext | null): Promise<void> {
+  if (!context) return;
+
+  try {
+    if (context.state === 'suspended') {
+      await context.resume();
+    }
+
+    const now = context.currentTime;
+    const gain = context.createGain();
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.18, now + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
+    gain.connect(context.destination);
+
+    const first = context.createOscillator();
+    first.type = 'sine';
+    first.frequency.setValueAtTime(880, now);
+    first.connect(gain);
+    first.start(now);
+    first.stop(now + 0.09);
+
+    const second = context.createOscillator();
+    second.type = 'sine';
+    second.frequency.setValueAtTime(1175, now + 0.09);
+    second.connect(gain);
+    second.start(now + 0.09);
+    second.stop(now + 0.18);
+
+    second.onended = () => {
+      gain.disconnect();
+      first.disconnect();
+      second.disconnect();
+    };
+  } catch {
+    // Audio feedback is best-effort only.
+  }
+}
+
 export default function RemoteScanPage() {
   const location = useLocation();
   const orderId = useMemo(
@@ -44,6 +90,7 @@ export default function RemoteScanPage() {
   const controlsRef = useRef<IScannerControls | null>(null);
   const submitInFlightRef = useRef(false);
   const recentScanRef = useRef<{ code: string; at: number } | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
 
   const [cameraStatus, setCameraStatus] = useState<CameraStatus>('idle');
   const [cameraError, setCameraError] = useState<string | null>(null);
@@ -92,6 +139,7 @@ export default function RemoteScanPage() {
         setLastAdded(out.line);
         setTotals(out.totals);
         setScanCount((n) => n + 1);
+        await playScanSuccessTone(audioContextRef.current);
         if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
           navigator.vibrate?.(35);
         }
@@ -118,6 +166,17 @@ export default function RemoteScanPage() {
     stopScanner();
     setCameraError(null);
     setCameraStatus('starting');
+
+    if (!audioContextRef.current) {
+      audioContextRef.current = getAudioContext();
+    }
+    if (audioContextRef.current?.state === 'suspended') {
+      try {
+        await audioContextRef.current.resume();
+      } catch {
+        // Ignore resume failures; the scan still works without sound.
+      }
+    }
 
     if (!readerRef.current) {
       readerRef.current = new BrowserMultiFormatReader();
