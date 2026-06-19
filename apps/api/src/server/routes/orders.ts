@@ -60,6 +60,18 @@ export function ordersRouter(c: Container): Router {
     }),
   );
 
+  r.post(
+    '/:id/cancel',
+    requireRole('clerk', 'manager', 'owner'),
+    asyncHandler(async (req, res) => {
+      const out = await c.orders.cancelOrder({
+        storeId: req.user!.storeId,
+        orderId: req.params.id,
+      });
+      res.json(out);
+    }),
+  );
+
   r.delete(
     '/:id/items/:lineId',
     asyncHandler(async (req, res) => {

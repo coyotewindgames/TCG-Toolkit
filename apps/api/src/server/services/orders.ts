@@ -205,6 +205,42 @@ export class OrdersService {
     };
   }
 
+  async cancelOrder(args: { storeId: string; orderId: string }) {
+    const result = await this.db.transaction(async (tx) => {
+      const [order] = await tx
+        .select()
+        .from(schema.orders)
+        .where(and(eq(schema.orders.id, args.orderId), eq(schema.orders.storeId, args.storeId)));
+
+      if (!order) throw NotFound('order not found');
+      if (order.status === 'paid') {
+        throw BadRequest('order is paid');
+      }
+      if (order.status === 'voided') {
+        return order;
+      }
+
+      const [updatedOrder] = await tx
+        .update(schema.orders)
+        .set({ status: 'voided', closedAt: new Date() })
+        .where(and(eq(schema.orders.id, order.id), eq(schema.orders.storeId, args.storeId)))
+        .returning();
+
+      if (!updatedOrder) throw new Error('failed to void order');
+      return updatedOrder;
+    });
+
+    emitToOrder(result.id, 'order.voided', {
+      orderId: result.id,
+      status: result.status,
+    });
+
+    return {
+      orderId: result.id,
+      status: result.status,
+    };
+  }
+
   async requireOpenOrder(storeId: string, orderId: string) {
     const [order] = await this.db
       .select()

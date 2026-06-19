@@ -51,6 +51,7 @@ type ProductSearchItem = {
   name: string;
   setName: string | null;
   cardNumber: string | null;
+  imageSourceUrl?: string | null;
   availableQty: number;
   minSellPriceCents: number | null;
   maxSellPriceCents: number | null;
@@ -109,6 +110,16 @@ export default function RegisterPage() {
   const [loadingProductSkus, setLoadingProductSkus] = useState(false);
   const [productSkuError, setProductSkuError] = useState<string | null>(null);
   const [addingSkuId, setAddingSkuId] = useState<string | null>(null);
+
+  const createOrder = useCallback(async () => {
+    if (!session.locationId) return null;
+    const r = await api.post<{ id: string }>('/orders', {
+      locationId: session.locationId,
+      ...(session.registerId ? { registerId: session.registerId } : {}),
+    });
+    setOrderId(r.id);
+    return r.id;
+  }, [session.locationId, session.registerId]);
 
   const configuredRemoteBase = import.meta.env.VITE_REMOTE_SCAN_BASE_URL?.trim();
   const browserOrigin = typeof window !== 'undefined' ? window.location.origin : null;
@@ -218,14 +229,8 @@ export default function RegisterPage() {
   // Ensure we have an order id
   useEffect(() => {
     if (!session.locationId) return;
-    (async () => {
-      const r = await api.post<{ id: string }>('/orders', {
-        locationId: session.locationId,
-        ...(session.registerId ? { registerId: session.registerId } : {}),
-      });
-      setOrderId(r.id);
-    })().catch((e) => setLastError(String(e)));
-  }, [session.locationId, session.registerId]);
+    void createOrder().catch((e) => setLastError(String(e)));
+  }, [createOrder, session.locationId]);
 
   // Subscribe to socket events for this register/order
   useEffect(() => {
@@ -288,6 +293,28 @@ export default function RegisterPage() {
       setLastError(null);
     } catch (e) {
       setLastError(String(e));
+      setStatus('idle');
+    }
+  }
+
+  async function cancelTransaction() {
+    if (!orderId || status === 'paid') return;
+    setStatus('checkout');
+    try {
+      await api.post(`/orders/${orderId}/cancel`, {});
+      setLastError(null);
+      setLines([]);
+      setTotals({ subtotalCents: 0, taxCents: 0, totalCents: 0 });
+      setCardQuery('');
+      setCardResults([]);
+      setSelectedProduct(null);
+      setSelectedProductSkus([]);
+      setOrderId(null);
+      await createOrder();
+    } catch (e) {
+      setLastError(String(e));
+      setStatus('idle');
+    } finally {
       setStatus('idle');
     }
   }
@@ -372,17 +399,34 @@ export default function RegisterPage() {
           )}
 
           {cardResults.length > 0 && (
-            <ul className="max-h-56 overflow-auto divide-y divide-slate-800 rounded-md border border-slate-800">
+            <ul className="max-h-72 overflow-auto grid gap-2 rounded-md border border-slate-800 p-2 sm:grid-cols-2">
               {cardResults.map((p) => (
-                <li key={p.id} className="px-3 py-2">
+                <li key={p.id}>
                   <button
                     type="button"
                     onClick={() => void loadProductSkus(p)}
-                    className="w-full text-left hover:text-emerald-300"
+                    className="w-full overflow-hidden rounded-xl border border-slate-800 bg-slate-900 text-left transition hover:border-emerald-500/60 hover:bg-slate-900/80"
                   >
-                    <div className="text-sm font-medium">{p.name}</div>
-                    <div className="text-xs text-slate-400">
-                      {[p.setName, p.cardNumber].filter(Boolean).join(' • ') || 'Unknown set'}
+                    <div className="aspect-[3/4] bg-slate-800 flex items-center justify-center">
+                      {p.imageSourceUrl ? (
+                        <img
+                          src={p.imageSourceUrl}
+                          alt={p.name}
+                          className="h-full w-full object-contain p-2"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <span className="text-xs text-slate-500">No image</span>
+                      )}
+                    </div>
+                    <div className="space-y-1 p-3">
+                      <div className="text-sm font-semibold leading-tight">{p.name}</div>
+                      <div className="text-xs text-slate-400">
+                        {[p.setName, p.cardNumber].filter(Boolean).join(' • ') || 'Unknown set'}
+                      </div>
+                      <div className="text-xl font-black tracking-tight text-emerald-300">
+                        {formatMoney(p.minSellPriceCents ?? p.maxSellPriceCents ?? 0)}
+                      </div>
                     </div>
                   </button>
                 </li>
@@ -455,13 +499,22 @@ export default function RegisterPage() {
         <Row label="Tax" value={formatMoney(taxCents)} />
         <div className="border-t border-slate-800 my-2" />
         <Row label="Total" value={formatMoney(total)} large />
-        <button
-          disabled={lines.length === 0 || status === 'checkout' || status === 'paid'}
-          onClick={checkout}
-          className="mt-auto bg-emerald-500 hover:bg-emerald-400 disabled:bg-slate-700 text-slate-900 font-bold rounded-xl py-4 text-lg"
-        >
-          {status === 'checkout' ? 'Recording…' : status === 'paid' ? 'Sale recorded ✓' : 'Record Sale'}
-        </button>
+        <div className="mt-auto grid grid-cols-2 gap-3">
+          <button
+            disabled={lines.length === 0 || status === 'checkout' || status === 'paid'}
+            onClick={cancelTransaction}
+            className="bg-rose-600 hover:bg-rose-500 disabled:bg-slate-700 text-white font-bold rounded-xl py-4 text-lg"
+          >
+            {status === 'checkout' ? 'Cancelling…' : 'Cancel'}
+          </button>
+          <button
+            disabled={lines.length === 0 || status === 'checkout' || status === 'paid'}
+            onClick={checkout}
+            className="bg-emerald-500 hover:bg-emerald-400 disabled:bg-slate-700 text-slate-900 font-bold rounded-xl py-4 text-lg"
+          >
+            {status === 'checkout' ? 'Recording…' : status === 'paid' ? 'Sale recorded ✓' : 'Record Sale'}
+          </button>
+        </div>
         {lastError && <p className="text-rose-400 text-xs mt-3 break-all">{lastError}</p>}
       </aside>
     </div>
