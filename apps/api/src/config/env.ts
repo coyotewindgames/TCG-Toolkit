@@ -13,6 +13,7 @@ const Env = z.object({
   CORS_ORIGIN: z.string().default('http://localhost:5173'),
 
   DATABASE_URL: z.string().min(1),
+  EXPECTED_DATABASE_HOST: z.string().min(1).optional(),
   PG_POOL_MAX: z.coerce.number().int().positive().optional(),
   PG_SSL_REJECT_UNAUTHORIZED: z.enum(['true', 'false']).optional(),
 

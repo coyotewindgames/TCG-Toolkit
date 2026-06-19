@@ -7,11 +7,34 @@ export type Database = NodePgDatabase<typeof schema>;
 let pool: Pool | null = null;
 let dbInstance: Database | null = null;
 
+function databaseHost(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return '';
+  }
+}
+
+function assertExpectedDatabaseHost(databaseUrl: string): void {
+  const expected = (process.env.EXPECTED_DATABASE_HOST ?? '').trim().toLowerCase();
+  if (!expected) return;
+  const actual = databaseHost(databaseUrl).toLowerCase();
+  if (!actual) {
+    throw new Error('DATABASE_URL is invalid; unable to parse database host');
+  }
+  if (actual !== expected) {
+    throw new Error(
+      `DATABASE_URL host mismatch: expected "${expected}", got "${actual}". Update Render DATABASE_URL/EXPECTED_DATABASE_HOST to the same target.`,
+    );
+  }
+}
+
 export function getPool(databaseUrl = process.env.DATABASE_URL): Pool {
   if (!databaseUrl) {
     throw new Error('DATABASE_URL is not set');
   }
   if (!pool) {
+    assertExpectedDatabaseHost(databaseUrl);
     // Detect cloud-hosted Postgres (Neon, Supabase, RDS, Render, etc.) by
     // checking for a non-local hostname. When detected we enforce SSL so the
     // connection string's `?sslmode=require` is respected regardless of NODE_ENV.
