@@ -4,9 +4,8 @@
  * in sync with TCGapi.dev for stores that have configured credentials.
  */
 import { GAMES } from '@tcg/shared';
-import { and, eq, inArray, isNotNull } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 import { getDb, schema } from '../../db/client';
-import { ConfigService } from '../../server/services/config-service';
 import { getQueues } from '../queues';
 
 function dbTargetForLog(): string {
@@ -28,25 +27,31 @@ function isMissingConfigTable(err: unknown): boolean {
 
 async function main() {
   const db = getDb();
-  const configs = new ConfigService(db);
   const queues = getQueues();
   const today = new Date().toISOString().slice(0, 10);
 
   // eslint-disable-next-line no-console
   console.log(`[cron] database target: ${dbTargetForLog()}`);
 
-  const storeRows = await db.select({ id: schema.stores.id }).from(schema.stores);
+  const storeRows = await db.select({ id: schema.stores.id }).from(schema.stores).limit(10);
   // eslint-disable-next-line no-console
   console.log(
-    `[cron] visible stores (${storeRows.length} sampled): ${storeRows.length ? storeRows.slice(0, 10).map((s) => s.id).join(', ') : '(none)'}`,
+    `[cron] visible stores (${storeRows.length} sampled): ${storeRows.length ? storeRows.map((s) => s.id).join(', ') : '(none)'}`,
   );
 
-  const configuredStoreIds: string[] = [];
+  let configuredStoreIds: string[] = [];
   try {
-    for (const store of storeRows) {
-      const status = await configs.getTcgapiStatus(store.id);
-      if (status.configured) configuredStoreIds.push(store.id);
-    }
+    const configured = await db.execute(sql<{ storeId: string }>`
+      select distinct store_id::text as "storeId"
+      from public.tcgapi_configs
+      where coalesce(api_key_ciphertext, '') <> ''
+    `);
+    configuredStoreIds = configured.rows
+      .map((r) => {
+        const row = r as { storeId?: unknown };
+        return typeof row.storeId === 'string' ? row.storeId : null;
+      })
+      .filter((id): id is string => id != null);
   } catch (err) {
     if (isMissingConfigTable(err)) {
       throw new Error(
