@@ -397,6 +397,7 @@ export const tradeItems = pgTable(
       .references(() => skus.id, { onDelete: 'restrict' }),
     quantity: integer('quantity').notNull(),
     unitValueCents: integer('unit_value_cents').notNull(),
+    marketPriceCents: integer('market_price_cents'),
     barcode: varchar('barcode', { length: 64 }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },

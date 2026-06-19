@@ -13,9 +13,9 @@ import { generateBarcodeToken } from '../../common/barcode-token';
 import { emitToStore, SOCKET_EVENTS } from '../realtime/socket';
 import { InventoryService } from './inventory';
 
-const PAYOUT_MULTIPLIERS: Record<PayoutKind, Record<CardCondition, number>> = {
-  cash: { NM: 0.4, LP: 0.35, MP: 0.3, HP: 0.2, DMG: 0.1 },
-  store_credit: { NM: 0.6, LP: 0.55, MP: 0.5, HP: 0.35, DMG: 0.2 },
+const PAYOUT_MULTIPLIERS: Record<PayoutKind, number> = {
+  cash: 0.7,
+  store_credit: 0.8,
 };
 
 const APPROVAL_THRESHOLD_CENTS = 5_000; // trades above $50 need manager sign-off
@@ -40,7 +40,7 @@ export function computeSuggestedUnitValueCents(args: {
     (n): n is number => typeof n === 'number' && n > 0,
   );
   const base = candidates.length ? Math.min(...candidates) : 0;
-  const mult = PAYOUT_MULTIPLIERS[args.payout][args.condition];
+  const mult = PAYOUT_MULTIPLIERS[args.payout];
   return applyPayoutModifierPercent(Math.max(0, Math.floor(base * mult)), args.payoutModifierPercent);
 }
 
@@ -96,7 +96,12 @@ export class TradeinsService {
 
     const trade = await this.db.transaction(async (tx) => {
       let total = 0;
-      const lineRows: Array<{ skuId: string; qty: number; unitValueCents: number }> = [];
+      const lineRows: Array<{
+        skuId: string;
+        qty: number;
+        unitValueCents: number;
+        marketPriceCents: number | null;
+      }> = [];
 
       for (const item of body.items) {
         const imageSourceUrl = (item as TradeItemInput & { imageSourceUrl?: string | null })
@@ -105,6 +110,12 @@ export class TradeinsService {
         const skuId = item.skuId ?? (await this.upsertSku(tx, storeId, item, imageSourceUrl, rarity));
         const payoutModifierPercent =
           (item as TradeItemInput & { payoutModifierPercent?: number }).payoutModifierPercent;
+        const marketPriceCentsRaw =
+          (item as TradeItemInput & { marketPriceCents?: number | null }).marketPriceCents;
+        const marketPriceCents =
+          typeof marketPriceCentsRaw === 'number' && marketPriceCentsRaw >= 0
+            ? Math.floor(marketPriceCentsRaw)
+            : null;
         const unit =
           item.overrideValueCents ??
           (await this.suggestUnitValueCents(
@@ -117,7 +128,12 @@ export class TradeinsService {
             tx,
           ));
         total += unit * item.quantity;
-        lineRows.push({ skuId, qty: item.quantity, unitValueCents: unit });
+        lineRows.push({
+          skuId,
+          qty: item.quantity,
+          unitValueCents: unit,
+          marketPriceCents,
+        });
       }
 
       const status = total >= APPROVAL_THRESHOLD_CENTS ? 'pending_approval' : 'approved';
@@ -142,6 +158,7 @@ export class TradeinsService {
           skuId: l.skuId,
           quantity: l.qty,
           unitValueCents: l.unitValueCents,
+          marketPriceCents: l.marketPriceCents,
           barcode: generateBarcodeToken('TLI'),
         });
       }
@@ -220,6 +237,24 @@ export class TradeinsService {
       .from(schema.tradeItems)
       .where(eq(schema.tradeItems.tradeId, tradeId));
     for (const item of items) {
+      if (typeof item.marketPriceCents === 'number' && item.marketPriceCents >= 0) {
+        await this.db
+          .insert(schema.currentPrices)
+          .values({
+            skuId: item.skuId,
+            sellPriceCents: item.marketPriceCents,
+            buyPriceCents: 0,
+            marketPriceCents: item.marketPriceCents,
+            marketMedianCents: item.marketPriceCents,
+          })
+          .onConflictDoUpdate({
+            target: schema.currentPrices.skuId,
+            set: {
+              marketPriceCents: item.marketPriceCents,
+              updatedAt: new Date(),
+            },
+          });
+      }
       await this.inventory.receive({
         storeId: trade.storeId,
         skuId: item.skuId,

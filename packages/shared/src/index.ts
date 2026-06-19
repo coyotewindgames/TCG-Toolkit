@@ -171,6 +171,8 @@ export const TradeItemInput = z.object({
   payoutModifierPercent: z.number().finite().optional(),
   // Overrides for the suggested trade value (cents per unit):
   overrideValueCents: z.number().int().nonnegative().optional(),
+  // Optional market signal captured at intake time for current price upsert.
+  marketPriceCents: z.number().int().nonnegative().nullable().optional(),
 });
 export type TradeItemInput = z.infer<typeof TradeItemInput>;
 

@@ -84,6 +84,7 @@ type QueuedTradeItem = {
   quantity: number;
   payoutModifierPercent: number;
   overrideValueCents?: number;
+  marketPriceCents: number | null;
   estimatedUnitValueCents: number;
 };
 
@@ -105,10 +106,19 @@ const GRADE_OPTIONS: Record<GradingCompany, string[]> = {
 // in sync manually because exporting them from the server would drag the
 // API workspace into the web bundle. Only used for the on-screen suggested
 // value preview; the server recomputes authoritatively on submit.
-const PAYOUT_MULTIPLIERS: Record<PayoutKind, Record<CardCondition, number>> = {
-  cash: { NM: 0.4, LP: 0.35, MP: 0.3, HP: 0.2, DMG: 0.1 },
-  store_credit: { NM: 0.6, LP: 0.55, MP: 0.5, HP: 0.35, DMG: 0.2 },
+const PAYOUT_MULTIPLIERS: Record<PayoutKind, number> = {
+  cash: 0.7,
+  store_credit: 0.8,
 };
+
+function pickPricingRow(prices: PriceRow[] | undefined, printing: CardPrinting): PriceRow | undefined {
+  if (!prices?.length) return undefined;
+  return (
+    prices.find((p) => tcgapiPrintingToEnum(p.printing) === printing) ??
+    prices.find((p) => (p.marketCents ?? 0) > 0) ??
+    prices[0]
+  );
+}
 
 /**
  * Map tcgapi's freeform printing labels ("Holofoil", "Reverse Holofoil",
@@ -174,17 +184,14 @@ function suggestedUnitValueCents(
   payout: PayoutKind,
   payoutModifierPercent: number,
 ): number {
-  if (!prices?.length) return 0;
-  const match =
-    prices.find((p) => tcgapiPrintingToEnum(p.printing) === printing) ??
-    prices.find((p) => (p.marketCents ?? 0) > 0) ??
-    prices[0];
+  const match = pickPricingRow(prices, printing);
   if (!match) return 0;
   const candidates = [match.marketCents, match.medianCents].filter(
     (n): n is number => typeof n === 'number' && n > 0,
   );
   const base = candidates.length ? Math.min(...candidates) : 0;
-  const payoutBase = Math.max(0, Math.floor(base * PAYOUT_MULTIPLIERS[payout][condition]));
+  void condition;
+  const payoutBase = Math.max(0, Math.floor(base * PAYOUT_MULTIPLIERS[payout]));
   return Math.max(0, Math.floor(payoutBase * (1 + payoutModifierPercent / 100)));
 }
 
@@ -194,6 +201,7 @@ function sameQueuedItemIdentity(a: QueuedTradeItem, b: QueuedTradeItem): boolean
     a.condition === b.condition &&
     a.printing === b.printing &&
     a.language === b.language &&
+    a.marketPriceCents === b.marketPriceCents &&
     a.payoutModifierPercent === b.payoutModifierPercent &&
     (a.overrideValueCents ?? null) === (b.overrideValueCents ?? null)
   );
@@ -565,6 +573,11 @@ function IntakeDetailBody({
   }, [overrideValue]);
 
   const effectiveCents = overrideCents ?? suggested;
+  const selectedPriceRow = useMemo(
+    () => pickPricingRow(prices.data?.prices, printing),
+    [prices.data?.prices, printing],
+  );
+  const selectedMarketPriceCents = selectedPriceRow?.marketCents ?? null;
 
   const itemsTotalPayoutCents = useMemo(
     () => items.reduce((sum, item) => sum + item.estimatedUnitValueCents * item.quantity, 0),
@@ -592,6 +605,7 @@ function IntakeDetailBody({
       quantity,
       payoutModifierPercent: payoutModifier,
       overrideValueCents: overrideCents ?? undefined,
+      marketPriceCents: selectedMarketPriceCents,
       estimatedUnitValueCents: effectiveCents,
     };
 
@@ -639,6 +653,7 @@ function IntakeDetailBody({
           quantity: item.quantity,
           payoutModifierPercent: item.payoutModifierPercent,
           overrideValueCents: item.overrideValueCents,
+          marketPriceCents: item.marketPriceCents,
         })),
       };
       return api.post<CreateTradeResponse>('/tradeins', body);

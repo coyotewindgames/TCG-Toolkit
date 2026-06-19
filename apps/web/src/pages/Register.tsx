@@ -46,6 +46,32 @@ type OrderDetailResult = {
   }>;
 };
 
+type ProductSearchItem = {
+  id: string;
+  name: string;
+  setName: string | null;
+  cardNumber: string | null;
+  availableQty: number;
+  minSellPriceCents: number | null;
+  maxSellPriceCents: number | null;
+};
+
+type ProductSearchResult = {
+  results: ProductSearchItem[];
+};
+
+type ProductSkusResult = {
+  skus: Array<{
+    id: string;
+    barcode: string;
+    condition: string;
+    printing: string;
+    language: string;
+    sellPriceCents: number | null;
+    availableQty: number;
+  }>;
+};
+
 function formatMoney(cents: number) {
   return `$${(cents / 100).toFixed(2)}`;
 }
@@ -74,6 +100,15 @@ export default function RegisterPage() {
   const [status, setStatus] = useState<'idle' | 'scanning' | 'checkout' | 'paid'>('idle');
   const [lastError, setLastError] = useState<string | null>(null);
   const [remoteScanQr, setRemoteScanQr] = useState<string | null>(null);
+  const [cardQuery, setCardQuery] = useState('');
+  const [searchingCards, setSearchingCards] = useState(false);
+  const [cardSearchError, setCardSearchError] = useState<string | null>(null);
+  const [cardResults, setCardResults] = useState<ProductSearchItem[]>([]);
+  const [selectedProduct, setSelectedProduct] = useState<ProductSearchItem | null>(null);
+  const [selectedProductSkus, setSelectedProductSkus] = useState<ProductSkusResult['skus']>([]);
+  const [loadingProductSkus, setLoadingProductSkus] = useState(false);
+  const [productSkuError, setProductSkuError] = useState<string | null>(null);
+  const [addingSkuId, setAddingSkuId] = useState<string | null>(null);
 
   const configuredRemoteBase = import.meta.env.VITE_REMOTE_SCAN_BASE_URL?.trim();
   const browserOrigin = typeof window !== 'undefined' ? window.location.origin : null;
@@ -138,6 +173,47 @@ export default function RegisterPage() {
       cancelled = true;
     };
   }, [remoteScanUrl]);
+
+  useEffect(() => {
+    const trimmed = cardQuery.trim();
+    if (trimmed.length < 2) {
+      setCardResults([]);
+      setSearchingCards(false);
+      setCardSearchError(null);
+      return;
+    }
+
+    let cancelled = false;
+    setSearchingCards(true);
+    setCardSearchError(null);
+    const timeout = window.setTimeout(() => {
+      const params = new URLSearchParams({
+        q: trimmed,
+        page: '1',
+        pageSize: '8',
+        sort: 'name_asc',
+      });
+      void api
+        .get<ProductSearchResult>(`/products/search?${params.toString()}`)
+        .then((data) => {
+          if (cancelled) return;
+          setCardResults(data.results ?? []);
+        })
+        .catch((err) => {
+          if (cancelled) return;
+          setCardSearchError(err instanceof Error ? err.message : String(err));
+          setCardResults([]);
+        })
+        .finally(() => {
+          if (!cancelled) setSearchingCards(false);
+        });
+    }, 300);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+    };
+  }, [cardQuery]);
 
   // Ensure we have an order id
   useEffect(() => {
@@ -216,6 +292,35 @@ export default function RegisterPage() {
     }
   }
 
+  async function loadProductSkus(product: ProductSearchItem) {
+    setSelectedProduct(product);
+    setLoadingProductSkus(true);
+    setProductSkuError(null);
+    setSelectedProductSkus([]);
+    try {
+      const data = await api.get<ProductSkusResult>(`/products/${product.id}/skus`);
+      setSelectedProductSkus(data.skus ?? []);
+    } catch (err) {
+      setProductSkuError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoadingProductSkus(false);
+    }
+  }
+
+  async function addSkuToOrder(sku: ProductSkusResult['skus'][number]) {
+    if (!orderId || status === 'paid') return;
+    setAddingSkuId(sku.id);
+    try {
+      await api.post<AddItemResult>(`/orders/${orderId}/items`, { barcode: sku.barcode });
+      await refreshOrder();
+      setLastError(null);
+    } catch (err) {
+      setLastError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAddingSkuId(null);
+    }
+  }
+
   return (
     <div className="grid grid-cols-12 gap-4 p-4 min-h-screen">
       <section className="col-span-8 bg-slate-900 rounded-2xl p-4">
@@ -247,6 +352,73 @@ export default function RegisterPage() {
             reachable URL (for example your deployed web URL or LAN IP host).
           </div>
         )}
+        <div className="mb-3 rounded-lg border border-slate-800 bg-slate-950 p-3 space-y-2">
+          <p className="text-xs text-slate-400">Search card name and add to cart without scanning</p>
+          <input
+            value={cardQuery}
+            onChange={(e) => {
+              setCardQuery(e.target.value);
+              setSelectedProduct(null);
+              setSelectedProductSkus([]);
+              setProductSkuError(null);
+            }}
+            placeholder="Search by card name..."
+            className="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm outline-none focus:border-emerald-500"
+          />
+          {searchingCards && <p className="text-xs text-slate-400">Searching cards...</p>}
+          {cardSearchError && <p className="text-xs text-rose-300">{cardSearchError}</p>}
+          {!searchingCards && cardQuery.trim().length >= 2 && cardResults.length === 0 && !cardSearchError && (
+            <p className="text-xs text-slate-400">No matching cards found.</p>
+          )}
+
+          {cardResults.length > 0 && (
+            <ul className="max-h-56 overflow-auto divide-y divide-slate-800 rounded-md border border-slate-800">
+              {cardResults.map((p) => (
+                <li key={p.id} className="px-3 py-2">
+                  <button
+                    type="button"
+                    onClick={() => void loadProductSkus(p)}
+                    className="w-full text-left hover:text-emerald-300"
+                  >
+                    <div className="text-sm font-medium">{p.name}</div>
+                    <div className="text-xs text-slate-400">
+                      {[p.setName, p.cardNumber].filter(Boolean).join(' • ') || 'Unknown set'}
+                    </div>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {selectedProduct && (
+            <div className="rounded-md border border-slate-800 bg-slate-900/60 p-2 space-y-2">
+              <p className="text-xs text-slate-300">SKUs for {selectedProduct.name}</p>
+              {loadingProductSkus && <p className="text-xs text-slate-400">Loading SKUs...</p>}
+              {productSkuError && <p className="text-xs text-rose-300">{productSkuError}</p>}
+              {!loadingProductSkus && !productSkuError && selectedProductSkus.length === 0 && (
+                <p className="text-xs text-slate-400">No SKUs available for this card.</p>
+              )}
+              {selectedProductSkus.map((sku) => (
+                <div key={sku.id} className="flex items-center justify-between gap-2 rounded border border-slate-800 bg-slate-950 px-2 py-1">
+                  <div className="text-xs text-slate-300">
+                    {sku.condition} • {sku.printing} • {sku.language} • Qty {sku.availableQty}
+                    {typeof sku.sellPriceCents === 'number'
+                      ? ` • ${formatMoney(sku.sellPriceCents)}`
+                      : ''}
+                  </div>
+                  <button
+                    type="button"
+                    className="btn"
+                    disabled={sku.availableQty <= 0 || !!addingSkuId || status === 'paid'}
+                    onClick={() => void addSkuToOrder(sku)}
+                  >
+                    {addingSkuId === sku.id ? 'Adding...' : 'Add'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
         <ul className="divide-y divide-slate-800">
           {lines.length === 0 && <li className="py-8 text-center opacity-60">No items yet — scan to begin.</li>}
           {lines.map((l) => (
