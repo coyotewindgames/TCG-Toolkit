@@ -399,7 +399,7 @@ export default function RegisterPage() {
           )}
 
           {cardResults.length > 0 && (
-            <ul className="max-h-72 overflow-auto grid gap-2 rounded-md border border-slate-800 p-2 sm:grid-cols-2">
+            <ul className="max-h-48 overflow-auto grid gap-2 rounded-md border border-slate-800 p-2 sm:grid-cols-2">
               {cardResults.map((p) => (
                 <li key={p.id}>
                   <button
@@ -407,7 +407,7 @@ export default function RegisterPage() {
                     onClick={() => void loadProductSkus(p)}
                     className="w-full overflow-hidden rounded-xl border border-slate-800 bg-slate-900 text-left transition hover:border-emerald-500/60 hover:bg-slate-900/80"
                   >
-                    <div className="aspect-[3/4] bg-slate-800 flex items-center justify-center">
+                    <div className="aspect-[2/4] bg-slate-800 flex items-center justify-center">
                       {p.imageSourceUrl ? (
                         <img
                           src={p.imageSourceUrl}
