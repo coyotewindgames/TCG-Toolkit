@@ -112,7 +112,17 @@ export function settingsRouter(c: Container): Router {
         actorId: req.user!.id,
         actorIp: req.ip,
       });
-      res.json({ ok: true });
+      const status = await c.configs.getTcgapiStatus(req.user!.storeId);
+      res.json({
+        ok: true,
+        storeId: req.user!.storeId,
+        tcgapi: {
+          configured: status.configured,
+          hasKey: status.hasKey,
+          baseUrl: status.baseUrl,
+          updatedAt: status.updatedAt,
+        },
+      });
     }),
   );
 
@@ -160,7 +170,17 @@ export function settingsRouter(c: Container): Router {
         actorId: req.user!.id,
         actorIp: req.ip,
       });
-      res.json({ ok: true });
+      const status = await c.configs.getTcgapiStatus(req.user!.storeId);
+      res.json({
+        ok: true,
+        storeId: req.user!.storeId,
+        tcgapi: {
+          configured: status.configured,
+          hasKey: status.hasKey,
+          baseUrl: status.baseUrl,
+          updatedAt: status.updatedAt,
+        },
+      });
     }),
   );
 
