@@ -6,9 +6,21 @@
 import { GAMES } from '@tcg/shared';
 import { and, eq, inArray, isNotNull } from 'drizzle-orm';
 import { getDb, schema } from '../../db/client';
+import { ConfigService } from '../../server/services/config-service';
 import { getQueues } from '../queues';
 
-function isMissingTcgapiConfigsTable(err: unknown): boolean {
+function dbTargetForLog(): string {
+  try {
+    const raw = process.env.DATABASE_URL;
+    if (!raw) return '(DATABASE_URL missing)';
+    const u = new URL(raw);
+    return `${u.hostname}${u.pathname}`;
+  } catch {
+    return '(DATABASE_URL parse error)';
+  }
+}
+
+function isMissingConfigTable(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   const cause = (err as Error & { cause?: { code?: string } }).cause;
   return cause?.code === '42P01';
@@ -16,16 +28,27 @@ function isMissingTcgapiConfigsTable(err: unknown): boolean {
 
 async function main() {
   const db = getDb();
+  const configs = new ConfigService(db);
   const queues = getQueues();
   const today = new Date().toISOString().slice(0, 10);
 
-  let configured: Array<{ storeId: string }>;
+  // eslint-disable-next-line no-console
+  console.log(`[cron] database target: ${dbTargetForLog()}`);
+
+  const storeRows = await db.select({ id: schema.stores.id }).from(schema.stores);
+  // eslint-disable-next-line no-console
+  console.log(
+    `[cron] visible stores (${storeRows.length} sampled): ${storeRows.length ? storeRows.slice(0, 10).map((s) => s.id).join(', ') : '(none)'}`,
+  );
+
+  const configuredStoreIds: string[] = [];
   try {
-    configured = await db
-      .select({ storeId: schema.tcgapiConfigs.storeId })
-      .from(schema.tcgapiConfigs);
+    for (const store of storeRows) {
+      const status = await configs.getTcgapiStatus(store.id);
+      if (status.configured) configuredStoreIds.push(store.id);
+    }
   } catch (err) {
-    if (isMissingTcgapiConfigsTable(err)) {
+    if (isMissingConfigTable(err)) {
       throw new Error(
         'Missing table "tcgapi_configs". Run the API migrations against the Render database before the nightly catalog cron can read saved TCGapi keys.',
         { cause: err },
@@ -36,7 +59,11 @@ async function main() {
 
   let total = 0;
   let priceJobs = 0;
-  const configuredStoreIds = configured.map((row) => row.storeId);
+
+  // eslint-disable-next-line no-console
+  console.log(
+    `[cron] configured tcgapi store ids: ${configuredStoreIds.length ? configuredStoreIds.join(', ') : '(none)'}`,
+  );
 
   if (configuredStoreIds.length === 0) {
     // eslint-disable-next-line no-console
@@ -77,7 +104,7 @@ async function main() {
     }
   }
 
-  for (const { storeId } of configured) {
+  for (const storeId of configuredStoreIds) {
     for (const game of GAMES) {
       await queues.catalogSync.add(
         'sync',
@@ -89,7 +116,7 @@ async function main() {
   }
   // eslint-disable-next-line no-console
   console.log(
-    `[cron] enqueued ${total} catalog-sync jobs and ${priceJobs} price-refresh jobs across ${configured.length} stores`,
+    `[cron] enqueued ${total} catalog-sync jobs and ${priceJobs} price-refresh jobs across ${configuredStoreIds.length} stores`,
   );
   process.exit(0);
 }

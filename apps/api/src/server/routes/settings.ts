@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { asyncHandler } from '../../common/async-handler';
 import { BadRequest, Forbidden, NotFound } from '../../common/http-errors';
@@ -84,11 +84,22 @@ export function settingsRouter(c: Container): Router {
   r.get(
     '/integrations',
     asyncHandler(async (req, res) => {
+      const [countRow] = await c.db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(schema.tcgapiConfigs);
       const [tcgapi, pos] = await Promise.all([
         c.configs.getTcgapiStatus(req.user!.storeId),
         c.configs.getPosStatus(req.user!.storeId),
       ]);
-      res.json({ tcgapi, pos });
+      res.json({
+        storeId: req.user!.storeId,
+        tcgapi,
+        pos,
+        diagnostics: {
+          tcgapiConfiguredStoreCount: countRow?.count ?? 0,
+          tcgapiConfiguredForCurrentStore: tcgapi.configured,
+        },
+      });
     }),
   );
 
