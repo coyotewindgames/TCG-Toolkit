@@ -103,7 +103,7 @@ async function main() {
           tcgapiCardId: row.tcgapiCardId,
           printing: row.printing,
         },
-        { jobId: `price:${row.storeId}:${row.skuId}:${today}` },
+        { jobId: `price-${row.storeId}-${row.skuId}-${today}` },
       );
       priceJobs += 1;
     }
@@ -114,7 +114,7 @@ async function main() {
       await queues.catalogSync.add(
         'sync',
         { storeId, game, page: 1 },
-        { jobId: `catalog:${storeId}:${game}:${today}` },
+        { jobId: `catalog-${storeId}-${game}-${today}` },
       );
       total += 1;
     }
