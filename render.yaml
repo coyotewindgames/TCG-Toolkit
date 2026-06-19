@@ -8,6 +8,7 @@ services:
     region: oregon
     rootDir: .
     buildCommand: npm ci --include=dev && npm run build --workspace=@tcg/shared && npm run build --workspace=@tcg/api
+    preDeployCommand: npm ci --include=dev && npm run build --workspace=@tcg/shared && npm run build --workspace=@tcg/api && npm run db:migrate --workspace=@tcg/api
     startCommand: node apps/api/dist/server/main.js
     healthCheckPath: /healthz
     autoDeploy: true
@@ -82,7 +83,7 @@ services:
     plan: starter
     region: oregon
     ipAllowList: []
-    maxmemoryPolicy: allkeys-lru
+    maxmemoryPolicy: noeviction
 
 envVarGroups:
   - name: tcg-shared-env

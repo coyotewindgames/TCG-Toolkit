@@ -88,8 +88,9 @@ Click **New → Blueprint** in Render, point at this repo, then fill in the
 Render's managed Postgres currently needs `PG_SSL_REJECT_UNAUTHORIZED=false`
 in the shared env group so the API, worker, and nightly cron can connect
 without tripping over the database certificate chain.
-Drizzle migrations should run on deploy via a Render *pre-deploy* command
-(`npx drizzle-kit migrate`).
+The Render API service must run database migrations as a *pre-deploy* command
+before the worker/cron start; otherwise jobs that query `tcgapi_configs` or
+other newer tables will fail against a partially-migrated database.
 
 ## High-level request flow
 
