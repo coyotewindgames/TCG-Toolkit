@@ -16,11 +16,13 @@ function databaseHost(url: string): string {
 }
 
 function assertExpectedDatabaseHost(databaseUrl: string): void {
-  const expected = (process.env.EXPECTED_DATABASE_HOST ?? '').trim().toLowerCase();
-  if (!expected) return;
+  const raw = (process.env.EXPECTED_DATABASE_HOST ?? '').trim();
+  if (!raw) return;
+  // Accept either a bare hostname or a full URL in EXPECTED_DATABASE_HOST.
+  const expected = databaseHost(raw) || raw.toLowerCase();
   const actual = databaseHost(databaseUrl).toLowerCase();
   if (!actual) return; // can't parse — skip the check
-  if (actual !== expected) {
+  if (actual !== expected.toLowerCase()) {
     throw new Error(
       `DATABASE_URL host mismatch: expected "${expected}", got "${actual}". Update DATABASE_URL or EXPECTED_DATABASE_HOST in Render.`,
     );
