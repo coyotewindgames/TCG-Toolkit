@@ -91,6 +91,7 @@ export default function RemoteScanPage() {
   const submitInFlightRef = useRef(false);
   const recentScanRef = useRef<{ code: string; at: number } | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
+  const successFlashTimerRef = useRef<number | null>(null);
 
   const [cameraStatus, setCameraStatus] = useState<CameraStatus>('idle');
   const [cameraError, setCameraError] = useState<string | null>(null);
@@ -100,6 +101,7 @@ export default function RemoteScanPage() {
   const [lastAdded, setLastAdded] = useState<AddItemResult['line'] | null>(null);
   const [totals, setTotals] = useState<AddItemResult['totals'] | null>(null);
   const [manualBarcode, setManualBarcode] = useState('');
+  const [showSuccessFlash, setShowSuccessFlash] = useState(false);
 
   const canUseCamera =
     typeof navigator !== 'undefined' &&
@@ -114,6 +116,17 @@ export default function RemoteScanPage() {
     }
     controlsRef.current = null;
     setCameraStatus((prev) => (prev === 'error' ? prev : 'idle'));
+  }, []);
+
+  const triggerSuccessFlash = useCallback(() => {
+    if (successFlashTimerRef.current != null) {
+      window.clearTimeout(successFlashTimerRef.current);
+    }
+    setShowSuccessFlash(true);
+    successFlashTimerRef.current = window.setTimeout(() => {
+      setShowSuccessFlash(false);
+      successFlashTimerRef.current = null;
+    }, 280);
   }, []);
 
   const submitBarcode = useCallback(
@@ -139,6 +152,7 @@ export default function RemoteScanPage() {
         setLastAdded(out.line);
         setTotals(out.totals);
         setScanCount((n) => n + 1);
+        triggerSuccessFlash();
         await playScanSuccessTone(audioContextRef.current);
         if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
           navigator.vibrate?.(35);
@@ -213,6 +227,14 @@ export default function RemoteScanPage() {
     };
   }, [orderId, startScanner, stopScanner]);
 
+  useEffect(() => {
+    return () => {
+      if (successFlashTimerRef.current != null) {
+        window.clearTimeout(successFlashTimerRef.current);
+      }
+    };
+  }, []);
+
   const onManualSubmit = useCallback(
     (event: React.FormEvent<HTMLFormElement>) => {
       event.preventDefault();
@@ -226,6 +248,12 @@ export default function RemoteScanPage() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-6">
+      <div
+        aria-hidden="true"
+        className={`pointer-events-none fixed inset-0 z-50 bg-emerald-400/30 transition-opacity duration-200 ease-out ${
+          showSuccessFlash ? 'opacity-100' : 'opacity-0'
+        }`}
+      />
       <div className="mx-auto w-full max-w-2xl space-y-5">
         <header className="space-y-1">
           <h1 className="text-2xl font-bold">Remote Barcode Scanner</h1>
