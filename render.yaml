@@ -35,7 +35,7 @@ services:
     region: oregon
     rootDir: .
     buildCommand: npm ci --include=dev && npm run build --workspace=@tcg/shared && npm run build --workspace=@tcg/api
-    startCommand: node apps/api/dist/jobs/worker.js
+    startCommand: npm run db:migrate --workspace=@tcg/api && node apps/api/dist/jobs/worker.js
     autoDeploy: true
     envVars:
       - fromGroup: tcg-shared-env
@@ -53,7 +53,7 @@ services:
     rootDir: .
     schedule: '0 7 * * *'
     buildCommand: npm ci --include=dev && npm run build --workspace=@tcg/shared && npm run build --workspace=@tcg/api
-    startCommand: node apps/api/dist/jobs/cron/catalog-sync.js
+    startCommand: npm run db:migrate --workspace=@tcg/api && node apps/api/dist/jobs/cron/catalog-sync.js
     envVars:
       - fromGroup: tcg-shared-env
       - key: REDIS_URL
