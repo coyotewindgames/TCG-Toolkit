@@ -39,6 +39,7 @@ type ProductSku = {
   condition: string;
   printing: string;
   language: string;
+  marketPriceCents: number | null;
   sellPriceCents: number | null;
   availableQty: number;
 };
@@ -302,7 +303,7 @@ export default function InventoryPage() {
       <section>
         <div className="mb-4 rounded-2xl border border-emerald-900/50 bg-emerald-950/20 px-4 py-3">
           <div className="text-xs uppercase tracking-wide text-emerald-300/80">
-            Total estimated inventory cost
+            Total estimated inventory market value
           </div>
           <div className="mt-1 flex flex-wrap items-end justify-between gap-3">
             <div>
@@ -602,8 +603,8 @@ export default function InventoryPage() {
                     <span>• {sku.printing}</span>
                     <span>• {sku.language}</span>
                     <span>• Available: {sku.availableQty.toLocaleString()}</span>
-                    {typeof sku.sellPriceCents === 'number' && (
-                      <span>• ${(sku.sellPriceCents / 100).toFixed(2)}</span>
+                    {typeof (sku.marketPriceCents ?? sku.sellPriceCents) === 'number' && (
+                      <span>• ${((sku.marketPriceCents ?? sku.sellPriceCents ?? 0) / 100).toFixed(2)}</span>
                     )}
                   </div>
                   <QrImage skuId={sku.id} label={`QR code for ${barcodeProduct.name}`} />

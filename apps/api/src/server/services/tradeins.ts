@@ -237,30 +237,13 @@ export class TradeinsService {
       .from(schema.tradeItems)
       .where(eq(schema.tradeItems.tradeId, tradeId));
     for (const item of items) {
-      if (typeof item.marketPriceCents === 'number' && item.marketPriceCents >= 0) {
-        await this.db
-          .insert(schema.currentPrices)
-          .values({
-            skuId: item.skuId,
-            sellPriceCents: item.marketPriceCents,
-            buyPriceCents: 0,
-            marketPriceCents: item.marketPriceCents,
-            marketMedianCents: item.marketPriceCents,
-          })
-          .onConflictDoUpdate({
-            target: schema.currentPrices.skuId,
-            set: {
-              marketPriceCents: item.marketPriceCents,
-              updatedAt: new Date(),
-            },
-          });
-      }
       await this.inventory.receive({
         storeId: trade.storeId,
         skuId: item.skuId,
         locationId: trade.locationId,
         qty: item.quantity,
         costCents: item.unitValueCents,
+        marketPriceCents: item.marketPriceCents,
       });
     }
 

@@ -122,6 +122,7 @@ export class InventoryService {
     locationId: string;
     qty: number;
     costCents?: number;
+    marketPriceCents?: number | null;
   }): Promise<void> {
     await this.db
       .insert(schema.inventory)
@@ -147,6 +148,28 @@ export class InventoryService {
           updatedAt: new Date(),
         },
       });
+
+    if (typeof args.marketPriceCents === 'number' && args.marketPriceCents >= 0) {
+      await this.db
+        .insert(schema.currentPrices)
+        .values({
+          skuId: args.skuId,
+          sellPriceCents: args.marketPriceCents,
+          buyPriceCents: 0,
+          marketPriceCents: args.marketPriceCents,
+          marketMedianCents: args.marketPriceCents,
+        })
+        .onConflictDoUpdate({
+          target: schema.currentPrices.skuId,
+          set: {
+            sellPriceCents: args.marketPriceCents,
+            marketPriceCents: args.marketPriceCents,
+            marketMedianCents: args.marketPriceCents,
+            updatedAt: new Date(),
+          },
+        });
+    }
+
     await this.emitUpdated(args.storeId, args.skuId);
   }
 
@@ -160,9 +183,9 @@ export class InventoryService {
           estimatedCostCents:
             sql<number>`coalesce(sum(
               ${schema.inventory.qtyOnHand} * coalesce(
-                nullif(${schema.inventory.costAvgCents}, 0),
                 ${schema.currentPrices.marketPriceCents},
                 ${schema.currentPrices.sellPriceCents},
+                nullif(${schema.inventory.costAvgCents}, 0),
                 0
               )
             ), 0)`.as(

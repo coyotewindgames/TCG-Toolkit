@@ -56,9 +56,9 @@ export class ProductsService {
         availableQty:
           sql<number>`coalesce(sum(${schema.inventory.qtyOnHand}), 0)::int`.as('available_qty'),
         minSellPriceCents:
-          sql<number | null>`min(${schema.currentPrices.sellPriceCents})`.as('min_sell_price_cents'),
+          sql<number | null>`min(coalesce(${schema.currentPrices.marketPriceCents}, ${schema.currentPrices.sellPriceCents}))`.as('min_sell_price_cents'),
         maxSellPriceCents:
-          sql<number | null>`max(${schema.currentPrices.sellPriceCents})`.as('max_sell_price_cents'),
+          sql<number | null>`max(coalesce(${schema.currentPrices.marketPriceCents}, ${schema.currentPrices.sellPriceCents}))`.as('max_sell_price_cents'),
       })
       .from(schema.products)
       .leftJoin(schema.skus, eq(schema.skus.productId, schema.products.id))
@@ -161,6 +161,7 @@ export class ProductsService {
         condition: schema.skus.condition,
         printing: schema.skus.printing,
         language: schema.skus.language,
+        marketPriceCents: schema.currentPrices.marketPriceCents,
         sellPriceCents: schema.currentPrices.sellPriceCents,
         availableQty:
           sql<number>`coalesce(sum(${schema.inventory.qtyOnHand}), 0)::int`.as('available_qty'),
@@ -182,6 +183,7 @@ export class ProductsService {
         schema.skus.condition,
         schema.skus.printing,
         schema.skus.language,
+        schema.currentPrices.marketPriceCents,
         schema.currentPrices.sellPriceCents,
       );
 
