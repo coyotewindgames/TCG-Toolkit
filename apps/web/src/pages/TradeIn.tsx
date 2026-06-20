@@ -18,7 +18,7 @@
  * this and gives us audit history + customer store credit + manager
  * approval for free. The "buy" framing is just the cash-payout variant.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { CardCondition, CardLanguage, CardPrinting, PayoutKind } from '@tcg/shared';
 import { api } from '../lib/api';
@@ -214,6 +214,7 @@ export default function TradeInPage() {
   const [setId, setSetId] = useState<string>('');
   const [rarity, setRarity] = useState<string>('');
   const [selected, setSelected] = useState<TcgapiCard | null>(null);
+  const [queuedItems, setQueuedItems] = useState<QueuedTradeItem[]>([]);
   const debounced = useDebounced(q, 300);
   const debouncedRarity = useDebounced(rarity, 300);
 
@@ -431,6 +432,8 @@ export default function TradeInPage() {
       <IntakeDetail
         card={selected}
         locationId={session.locationId}
+        queuedItems={queuedItems}
+        setQueuedItems={setQueuedItems}
         onClose={() => setSelected(null)}
       />
     </div>
@@ -440,10 +443,12 @@ export default function TradeInPage() {
 interface IntakeDetailProps {
   card: TcgapiCard | null;
   locationId: string | null;
+  queuedItems: QueuedTradeItem[];
+  setQueuedItems: Dispatch<SetStateAction<QueuedTradeItem[]>>;
   onClose: () => void;
 }
 
-function IntakeDetail({ card, locationId, onClose }: IntakeDetailProps) {
+function IntakeDetail({ card, locationId, queuedItems, setQueuedItems, onClose }: IntakeDetailProps) {
   const open = !!card;
   return (
     <>
@@ -464,7 +469,15 @@ function IntakeDetail({ card, locationId, onClose }: IntakeDetailProps) {
           open ? 'translate-x-0' : 'translate-x-full'
         }`}
       >
-        {open && card && <IntakeDetailBody card={card} locationId={locationId} onClose={onClose} />}
+        {open && card && (
+          <IntakeDetailBody
+            card={card}
+            locationId={locationId}
+            queuedItems={queuedItems}
+            setQueuedItems={setQueuedItems}
+            onClose={onClose}
+          />
+        )}
       </aside>
     </>
   );
@@ -473,10 +486,14 @@ function IntakeDetail({ card, locationId, onClose }: IntakeDetailProps) {
 function IntakeDetailBody({
   card,
   locationId,
+  queuedItems,
+  setQueuedItems,
   onClose,
 }: {
   card: TcgapiCard;
   locationId: string | null;
+  queuedItems: QueuedTradeItem[];
+  setQueuedItems: Dispatch<SetStateAction<QueuedTradeItem[]>>;
   onClose: () => void;
 }) {
   const qc = useQueryClient();
@@ -489,7 +506,6 @@ function IntakeDetailBody({
   const [language, setLanguage] = useState<CardLanguage>('EN');
   const [quantity, setQuantity] = useState(1);
   const [payout, setPayout] = useState<PayoutKind>('cash');
-  const [items, setItems] = useState<QueuedTradeItem[]>([]);
   const [payoutModifierPercent, setPayoutModifierPercent] = useState<string>('0');
   const [overrideValue, setOverrideValue] = useState<string>('');
   const [submitMsg, setSubmitMsg] = useState<string | null>(null);
@@ -580,8 +596,8 @@ function IntakeDetailBody({
   const selectedMarketPriceCents = selectedPriceRow?.marketCents ?? null;
 
   const itemsTotalPayoutCents = useMemo(
-    () => items.reduce((sum, item) => sum + item.estimatedUnitValueCents * item.quantity, 0),
-    [items],
+    () => queuedItems.reduce((sum, item) => sum + item.estimatedUnitValueCents * item.quantity, 0),
+    [queuedItems],
   );
 
   const pendingLineTotalCents = effectiveCents * quantity;
@@ -609,7 +625,7 @@ function IntakeDetailBody({
       estimatedUnitValueCents: effectiveCents,
     };
 
-    setItems((prev) => {
+    setQueuedItems((prev) => {
       const idx = prev.findIndex((i) => sameQueuedItemIdentity(i, next));
       if (idx === -1) return [...prev, next];
       return prev.map((i, iIdx) =>
@@ -623,11 +639,11 @@ function IntakeDetailBody({
   }
 
   function removeQueuedItem(id: string) {
-    setItems((prev) => prev.filter((item) => item.id !== id));
+    setQueuedItems((prev) => prev.filter((item) => item.id !== id));
   }
 
   function clearQueuedItems() {
-    setItems([]);
+    setQueuedItems([]);
     setSubmitMsg(null);
     setSubmitErr(null);
     setLabelInfo(null);
@@ -637,11 +653,11 @@ function IntakeDetailBody({
   const add = useMutation({
     mutationFn: async () => {
       if (!locationId) throw new Error('Pick a location first.');
-      if (items.length === 0) throw new Error('Add at least one item to the trade.');
+      if (queuedItems.length === 0) throw new Error('Add at least one item to the trade.');
       const body = {
         locationId,
         payout,
-        items: items.map((item) => ({
+        items: queuedItems.map((item) => ({
           tcgapiProductId: item.tcgapiProductId,
           name: item.name,
           imageSourceUrl: item.imageSourceUrl,
@@ -659,7 +675,7 @@ function IntakeDetailBody({
       return api.post<CreateTradeResponse>('/tradeins', body);
     },
     onSuccess: (data) => {
-      const submittedItems = [...items];
+      const submittedItems = [...queuedItems];
       setSubmitErr(null);
       setLabelErr(null);
       const dollars = (data.totalValueCents / 100).toFixed(2);
@@ -672,7 +688,7 @@ function IntakeDetailBody({
       );
       qc.invalidateQueries({ queryKey: ['products'] });
       qc.invalidateQueries({ queryKey: ['inventory'] });
-      setItems([]);
+      setQueuedItems([]);
       // Once a SKU exists, surface a print-labels affordance. We auto-trigger
       // a print only when the trade actually landed in inventory; pending
       // trades wait for manager approval before a label makes sense.
@@ -1000,7 +1016,7 @@ function IntakeDetailBody({
         <div className="space-y-2">
           <div className="flex items-center justify-between gap-3">
             <h3 className="text-xs uppercase tracking-wide text-slate-400">Trade batch</h3>
-            {items.length > 0 && (
+            {queuedItems.length > 0 && (
               <button
                 type="button"
                 onClick={clearQueuedItems}
@@ -1010,11 +1026,11 @@ function IntakeDetailBody({
               </button>
             )}
           </div>
-          {items.length === 0 ? (
+          {queuedItems.length === 0 ? (
             <p className="text-sm text-slate-500">No line items yet. Configure the card and click Add line item.</p>
           ) : (
             <ul className="space-y-2">
-              {items.map((item) => (
+              {queuedItems.map((item) => (
                 <li
                   key={item.id}
                   className="rounded-lg border border-slate-700 bg-slate-950/70 p-2.5 flex items-start justify-between gap-2"
@@ -1082,9 +1098,9 @@ function IntakeDetailBody({
               {formatCents(itemsTotalPayoutCents)}
             </span>
             <span className="text-slate-500">
-              {' '}({items.reduce((sum, item) => sum + item.quantity, 0)} cards, {items.length} lines)
+              {' '}({queuedItems.reduce((sum, item) => sum + item.quantity, 0)} cards, {queuedItems.length} lines)
             </span>
-            {items.length > 0 && (
+            {queuedItems.length > 0 && (
               <span className="block text-xs text-slate-500 mt-0.5">
                 + current unsaved line {formatCents(pendingLineTotalCents)} = {formatCents(projectedTradeTotalCents)} projected
               </span>
@@ -1093,7 +1109,7 @@ function IntakeDetailBody({
           <button
             type="button"
             onClick={() => add.mutate()}
-            disabled={!locationId || add.isPending || items.length === 0}
+            disabled={!locationId || add.isPending || queuedItems.length === 0}
             className="bg-emerald-500 hover:bg-emerald-400 disabled:bg-slate-700 disabled:text-slate-400 text-slate-900 font-bold rounded-lg px-5 py-2.5 transition"
           >
             {add.isPending ? 'Submitting…' : 'Submit trade batch'}
