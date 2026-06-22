@@ -96,6 +96,7 @@ export class TradeinsService {
 
     const trade = await this.db.transaction(async (tx) => {
       let total = 0;
+      let totalMarket = 0;
       const lineRows: Array<{
         skuId: string;
         qty: number;
@@ -128,6 +129,7 @@ export class TradeinsService {
             tx,
           ));
         total += unit * item.quantity;
+        totalMarket += (marketPriceCents ?? unit) * item.quantity;
         lineRows.push({
           skuId,
           qty: item.quantity,
@@ -146,6 +148,8 @@ export class TradeinsService {
           payout: body.payout,
           status,
           totalValueCents: total,
+          totalBuyValueCents: total,
+          totalMarketValueCents: totalMarket,
           barcode: generateBarcodeToken('TRD'),
           createdBy: args.userId,
         })

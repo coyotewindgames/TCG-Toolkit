@@ -371,6 +371,8 @@ export const tradeIns = pgTable(
     status: tradeStatusEnum('status').notNull().default('draft'),
     payout: payoutKindEnum('payout').notNull(),
     totalValueCents: integer('total_value_cents').notNull().default(0),
+    totalBuyValueCents: integer('total_buy_value_cents').notNull().default(0),
+    totalMarketValueCents: integer('total_market_value_cents').notNull().default(0),
     signatureUrl: text('signature_url'),
     idImageUrl: text('id_image_url'),
     approvedBy: uuid('approved_by').references(() => users.id, { onDelete: 'set null' }),

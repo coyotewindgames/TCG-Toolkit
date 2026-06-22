@@ -59,6 +59,13 @@
       "when": 1781827200000,
       "tag": "0007_trade_item_market_price",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1782086400000,
+      "tag": "0008_trade_totals_market_and_buy",
+      "breakpoints": true
     }
   ]
 }

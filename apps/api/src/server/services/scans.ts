@@ -18,6 +18,7 @@ export class ScansService {
         printing: schema.skus.printing,
         language: schema.skus.language,
         imageUrl: schema.products.imageSourceUrl,
+        marketPriceCents: schema.currentPrices.marketPriceCents,
         sellPriceCents: schema.currentPrices.sellPriceCents,
       })
       .from(schema.skus)
@@ -46,7 +47,7 @@ export class ScansService {
       printing: row.printing,
       language: row.language,
       imageUrl: row.imageUrl ?? null,
-      priceCents: row.sellPriceCents ?? 0,
+      priceCents: row.marketPriceCents ?? row.sellPriceCents ?? 0,
       stockOnHand,
       stockReserved,
     };
