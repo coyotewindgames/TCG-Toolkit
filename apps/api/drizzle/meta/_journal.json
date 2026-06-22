@@ -66,6 +66,13 @@
       "when": 1782086400000,
       "tag": "0008_trade_totals_market_and_buy",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1782172800000,
+      "tag": "0009_backfill_trade_and_order_prices",
+      "breakpoints": true
     }
   ]
 }
