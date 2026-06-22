@@ -137,6 +137,14 @@ export default function AnalyticsPage() {
     retry: false,
   });
 
+  const marketMoversError =
+    (topGainers.error instanceof Error ? topGainers.error.message : null) ??
+    (topLosers.error instanceof Error ? topLosers.error.message : null);
+  const marketMoversMissingConfig =
+    typeof marketMoversError === 'string' &&
+    (marketMoversError.toLowerCase().includes('not configured') ||
+      marketMoversError.toLowerCase().includes('api key'));
+
   return (
     <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
@@ -248,9 +256,15 @@ export default function AnalyticsPage() {
 
         <Panel title="7-day market movers">
           {topGainers.isError || topLosers.isError ? (
-            <p className="text-sm text-amber-300">
-              Market movers unavailable. Configure TCGapi credentials in Settings to enable this panel.
-            </p>
+            marketMoversMissingConfig ? (
+              <p className="text-sm text-amber-300">
+                Market movers unavailable. Configure TCGapi credentials in Settings to enable this panel.
+              </p>
+            ) : (
+              <p className="text-sm text-amber-300">
+                Market movers unavailable right now. {marketMoversError ?? 'Please retry in a moment.'}
+              </p>
+            )
           ) : (
             <div className="grid gap-3 md:grid-cols-2">
               <MoverList title="Top gainers" rows={topGainers.data?.data ?? []} positive />

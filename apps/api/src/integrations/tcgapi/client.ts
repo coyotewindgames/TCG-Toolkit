@@ -52,6 +52,19 @@ interface TcgapiPriceWire {
   last_updated_at?: string | null;
 }
 
+interface TcgapiTopMoverWire {
+  card_id: number | string;
+  name: string;
+  set_name?: string | null;
+  game_name?: string | null;
+  product_type?: string | null;
+  foil_only?: number | null;
+  printing?: string | null;
+  market_price?: number | null;
+  price_change_percent?: number | null;
+  image_url?: string | null;
+}
+
 // ---- Domain types (camelCase, prices in cents) ----------------------------
 
 export interface TcgapiCard {
@@ -75,6 +88,19 @@ export interface TcgapiPriceRow {
   medianCents: number | null;
   buylistCents: number | null;
   lastUpdatedAt: string | null;
+}
+
+export interface TcgapiTopMover {
+  cardId: string;
+  name: string;
+  setName: string | null;
+  gameName: string | null;
+  productType: string | null;
+  foilOnly: boolean;
+  printing: string | null;
+  marketCents: number | null;
+  priceChangePercent: number | null;
+  imageUrl: string | null;
 }
 
 export interface TcgapiGame {
@@ -208,6 +234,38 @@ export class TcgapiClient {
       page++;
     }
     return all;
+  }
+
+  async getTopMovers(opts: {
+    direction?: 'up' | 'down';
+    period?: '24h' | '7d' | '30d';
+    limit?: number;
+    type?: string;
+  } = {}): Promise<TcgapiTopMover[]> {
+    const params = new URLSearchParams();
+    if (opts.direction) params.set('direction', opts.direction);
+    if (opts.period) params.set('period', opts.period);
+    if (typeof opts.limit === 'number' && Number.isFinite(opts.limit)) {
+      params.set('limit', String(Math.max(1, Math.min(100, Math.trunc(opts.limit)))));
+    }
+    if (opts.type) params.set('type', opts.type);
+    const path = `/prices/top-movers${params.toString() ? `?${params.toString()}` : ''}`;
+    const body = await this.get<TcgapiEnvelope<TcgapiTopMoverWire[]>>(path);
+    return body.data.map((r) => ({
+      cardId: String(r.card_id),
+      name: r.name,
+      setName: r.set_name ?? null,
+      gameName: r.game_name ?? null,
+      productType: r.product_type ?? null,
+      foilOnly: Number(r.foil_only ?? 0) > 0,
+      printing: r.printing ?? null,
+      marketCents: dollarsToCents(r.market_price),
+      priceChangePercent:
+        typeof r.price_change_percent === 'number' && Number.isFinite(r.price_change_percent)
+          ? r.price_change_percent
+          : null,
+      imageUrl: r.image_url ?? null,
+    }));
   }
 
   // ---- HTTP plumbing ------------------------------------------------------

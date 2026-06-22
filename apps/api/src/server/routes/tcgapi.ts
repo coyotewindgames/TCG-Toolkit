@@ -37,6 +37,13 @@ const SearchQuery = z.object({
   perPage: z.coerce.number().int().positive().max(50).optional(),
 });
 
+const TopMoversQuery = z.object({
+  direction: z.enum(['up', 'down']).optional(),
+  period: z.enum(['24h', '7d', '30d']).optional(),
+  limit: z.coerce.number().int().positive().max(100).optional(),
+  type: z.string().trim().min(1).max(64).optional(),
+});
+
 // Pull the numeric portion before any "/" (e.g. "025/189" → "025") so we can
 // match against tcgapi numbers which may be stored as "025" or "025/189".
 function normalizeNumber(n: string): string {
@@ -151,6 +158,23 @@ export function tcgapiRouter(c: Container): Router {
       const client = await c.tcgapiFor(req.user!.storeId);
       const rows = await client.getCardPrices(req.params.id);
       res.json({ cardId: req.params.id, prices: rows });
+    }),
+  );
+
+  r.get(
+    '/prices/top-movers',
+    asyncHandler(async (req, res) => {
+      const parsed = TopMoversQuery.safeParse(req.query);
+      if (!parsed.success) {
+        throw BadRequest('invalid top movers params', parsed.error.flatten());
+      }
+      const status = await c.configs.getTcgapiStatus(req.user!.storeId);
+      if (!status.configured || !status.hasKey) {
+        throw BadRequest('TCGapi.dev is not configured for this store.');
+      }
+      const client = await c.tcgapiFor(req.user!.storeId);
+      const rows = await client.getTopMovers(parsed.data);
+      res.json({ data: rows });
     }),
   );
 
