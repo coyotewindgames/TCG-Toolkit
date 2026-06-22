@@ -15,6 +15,7 @@ import RegisterPage from './pages/Register';
 import RemoteScanPage from './pages/RemoteScan';
 import InventoryPage from './pages/Inventory';
 import TradeInPage from './pages/TradeIn';
+import AnalyticsPage from './pages/Analytics';
 import SettingsIntegrationsPage from './pages/SettingsIntegrations';
 import { useQuery } from '@tanstack/react-query';
 import { useSession } from './hooks/useSession';
@@ -104,6 +105,7 @@ createRoot(root).render(
             <Route path="/register" element={<RegisterPage />} />
             <Route path="/inventory" element={<InventoryPage />} />
             <Route path="/tradein" element={<TradeInPage />} />
+            <Route path="/analytics" element={<AnalyticsPage />} />
             <Route path="/settings/integrations" element={<SettingsIntegrationsPage />} />
           </Route>
         </Routes>
