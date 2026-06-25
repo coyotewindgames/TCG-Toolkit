@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 
@@ -6,6 +6,7 @@ interface TcgapiStatus {
   configured: boolean;
   baseUrl: string;
   hasKey: boolean;
+  queryGameSlugs: string[];
   lastVerifiedAt: string | null;
   updatedAt: string | null;
 }
@@ -81,7 +82,19 @@ function TcgapiCard({ status, onSaved }: { status: TcgapiStatus; onSaved: () => 
   const [baseUrl, setBaseUrl] = useState(status.baseUrl);
   const [apiKey, setApiKey] = useState('');
   const [password, setPassword] = useState('');
+  const [queryGameSlugs, setQueryGameSlugs] = useState<string[]>(status.queryGameSlugs ?? []);
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+
+  useEffect(() => {
+    setQueryGameSlugs(status.queryGameSlugs ?? []);
+  }, [status.queryGameSlugs]);
+
+  const games = useQuery<{ results: Array<{ name: string; slug: string }> }>({
+    queryKey: ['settings', 'tcgapi-games'],
+    queryFn: () => api.get<{ results: Array<{ name: string; slug: string }> }>('/tcgapi/games'),
+    enabled: status.configured && status.hasKey,
+    staleTime: 24 * 60 * 60_000,
+  });
 
   const save = useMutation({
     mutationFn: (body: Record<string, unknown>) => api.put('/settings/integrations/tcgapi', body),
@@ -102,6 +115,24 @@ function TcgapiCard({ status, onSaved }: { status: TcgapiStatus; onSaved: () => 
     },
     onError: (e: unknown) => setMsg({ kind: 'err', text: String(e) }),
   });
+
+  const saveQueryGames = useMutation({
+    mutationFn: () =>
+      api.put('/settings/integrations/tcgapi/query-games', {
+        queryGameSlugs,
+      }),
+    onSuccess: () => {
+      setMsg({ kind: 'ok', text: 'Query games saved.' });
+      onSaved();
+    },
+    onError: (e: unknown) => setMsg({ kind: 'err', text: String(e) }),
+  });
+
+  function toggleQueryGame(slug: string) {
+    setQueryGameSlugs((current) =>
+      current.includes(slug) ? current.filter((value) => value !== slug) : [...current, slug],
+    );
+  }
 
   return (
     <section className="bg-slate-800/50 border border-slate-700 rounded-xl p-5">
@@ -181,6 +212,63 @@ function TcgapiCard({ status, onSaved }: { status: TcgapiStatus; onSaved: () => 
         </div>
         <Message msg={msg} />
       </form>
+
+      <div className="mt-5 pt-4 border-t border-slate-700 space-y-3">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-200">Trade-In search games</h3>
+          <p className="text-xs text-slate-400 mt-1">
+            Selected games are applied automatically to Trade-In catalog search when no specific
+            game is chosen there. Leave all unchecked to search every game.
+          </p>
+        </div>
+        {!status.configured || !status.hasKey ? (
+          <p className="text-sm text-slate-500">Configure and verify TCGapi before choosing games.</p>
+        ) : games.isLoading ? (
+          <p className="text-sm text-slate-500">Loading games...</p>
+        ) : games.isError ? (
+          <p className="text-sm text-rose-300">Could not load games: {String(games.error)}</p>
+        ) : (
+          <>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {(games.data?.results ?? []).map((game) => (
+                <label
+                  key={game.slug}
+                  className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200"
+                >
+                  <input
+                    type="checkbox"
+                    checked={queryGameSlugs.includes(game.slug)}
+                    onChange={() => toggleQueryGame(game.slug)}
+                    className="accent-emerald-500"
+                  />
+                  {game.name}
+                </label>
+              ))}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                className="btn-primary"
+                disabled={saveQueryGames.isPending}
+                onClick={() => {
+                  setMsg(null);
+                  saveQueryGames.mutate();
+                }}
+              >
+                {saveQueryGames.isPending ? 'Saving...' : 'Save search games'}
+              </button>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => setQueryGameSlugs([])}
+                disabled={saveQueryGames.isPending || queryGameSlugs.length === 0}
+              >
+                Clear all
+              </button>
+            </div>
+          </>
+        )}
+      </div>
 
       {status.configured && status.hasKey && (
         <p className="mt-5 pt-4 border-t border-slate-700 text-sm text-slate-400">

@@ -526,6 +526,7 @@ export const tcgapiConfigs = pgTable('tcgapi_configs', {
   apiKeyCiphertext: text('api_key_ciphertext').notNull(),
   apiKeyIv: text('api_key_iv').notNull(),
   apiKeyTag: text('api_key_tag').notNull(),
+  queryGameSlugs: text('query_game_slugs').array().notNull().default(sql`ARRAY[]::text[]`),
   keyVersion: integer('key_version').notNull().default(1),
   lastVerifiedAt: timestamp('last_verified_at', { withTimezone: true }),
   updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),

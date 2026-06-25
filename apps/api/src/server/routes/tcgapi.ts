@@ -23,7 +23,7 @@ import type { TcgapiCard } from '../../integrations/tcgapi/client';
  *  - `q` (optional) — name fuzzy-search; if omitted we require a `setId` so
  *    we can browse a whole set instead of returning the entire catalog.
  *  - `game` / `setId` — scope filters passed through to tcgapi.dev.
- *  - `number` — card-number filter (e.g. "025" or "025/189"). Matched against
+ *  - `number` — card-number filter (e.g. "025", "025/189", or "XY133"). Matched against
  *    the prefix of the card's `number` field after any "/" is stripped.
  *  - `rarity` — case-insensitive substring filter on the card's rarity.
  */
@@ -44,13 +44,16 @@ const TopMoversQuery = z.object({
   type: z.string().trim().min(1).max(64).optional(),
 });
 
-// Pull the numeric portion before any "/" (e.g. "025/189" → "025") so we can
-// match against tcgapi numbers which may be stored as "025" or "025/189".
+// Pull the card-number portion before any "/" (e.g. "025/189" -> "025") and
+// normalize common formatting differences so "XY133", "XY 133", and "XY-133"
+// can match the same upstream card number.
 function normalizeNumber(n: string): string {
   const trimmed = n.trim().toLowerCase();
   const slash = trimmed.indexOf('/');
   const head = slash >= 0 ? trimmed.slice(0, slash) : trimmed;
-  return head.replace(/^0+/, '') || '0';
+  const cleaned = head.replace(/[^a-z0-9]/g, '');
+  if (!cleaned) return '0';
+  return cleaned.replace(/^0+/, '').replace(/([a-z])0+(\d)/g, '$1$2') || '0';
 }
 
 function numberMatches(cardNumber: string | null, needle: string): boolean {
@@ -115,6 +118,7 @@ export function tcgapiRouter(c: Container): Router {
         );
       }
       const client = await c.tcgapiFor(req.user!.storeId);
+      const queryGameSlugs = game ? [game] : status.queryGameSlugs;
 
       // Number search (or browsing a whole set): walk the set, then filter
       // locally. This is much friendlier on the free tier than firing one
@@ -136,9 +140,36 @@ export function tcgapiRouter(c: Container): Router {
 
       // Otherwise hit the API's name search and post-filter rarity/number
       // locally on the returned page.
+      if (queryGameSlugs.length > 1) {
+        const upstreamPerPage = Math.min(50, page * perPage);
+        const pages = await Promise.all(
+          queryGameSlugs.map((gameSlug) =>
+            client.search({
+              q: q ?? (number ?? ''),
+              game: gameSlug,
+              setId,
+              page: 1,
+              perPage: upstreamPerPage,
+            }),
+          ),
+        );
+        const merged = dedupeCards(
+          pages.flatMap((apiPage) => applyClientFilters(apiPage.results, { number, rarity })),
+        );
+        const start = (page - 1) * perPage;
+        res.json({
+          results: merged.slice(start, start + perPage),
+          page,
+          perPage,
+          hasMore: start + perPage < merged.length,
+          total: merged.length,
+        });
+        return;
+      }
+
       const apiPage = await client.search({
         q: q ?? (number ?? ''),
-        game,
+        game: queryGameSlugs[0],
         setId,
         page,
         perPage,
@@ -196,6 +227,17 @@ function applyClientFilters(
   if (opts.rarity) {
     const needle = opts.rarity.toLowerCase();
     out = out.filter((c) => (c.rarity ?? '').toLowerCase().includes(needle));
+  }
+  return out;
+}
+
+function dedupeCards(cards: TcgapiCard[]): TcgapiCard[] {
+  const seen = new Set<string>();
+  const out: TcgapiCard[] = [];
+  for (const card of cards) {
+    if (seen.has(card.id)) continue;
+    seen.add(card.id);
+    out.push(card);
   }
   return out;
 }

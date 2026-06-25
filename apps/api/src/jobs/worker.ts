@@ -32,6 +32,23 @@ interface CatalogSyncJob {
   perPage?: number;
 }
 
+function tcgapiPrintingToEnum(label: string | null | undefined): string {
+  const normalized = (label ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (!normalized) return 'Normal';
+  if (normalized.includes('reverseholo') || normalized === 'reverse' || normalized === 'rh') {
+    return 'Reverse';
+  }
+  if (normalized.includes('1stedition') || normalized.includes('firstedition')) {
+    return 'FirstEdition';
+  }
+  if (normalized.includes('holo')) return 'Holo';
+  if (normalized.includes('foil') && !normalized.includes('non')) return 'Foil';
+  if (normalized.includes('nonfoil') || normalized.includes('normal') || normalized === 'regular') {
+    return 'Normal';
+  }
+  return 'Normal';
+}
+
 const env = loadEnv();
 const db = getDb();
 const log = getLogger();
@@ -46,9 +63,21 @@ async function tcgapiFor(storeId: string): Promise<TcgapiClient> {
 const refreshPrice: Processor<PriceRefreshJob> = async (job) => {
   const { storeId, skuId, tcgapiCardId, printing } = job.data;
   const tcgapi = await tcgapiFor(storeId);
-  const rows = await tcgapi.getCardPrices(tcgapiCardId, { printing });
-  const row = printing ? rows.find((r) => r.printing === printing) ?? rows[0] : rows[0];
-  if (!row) return { skipped: true };
+  const rows = await tcgapi.getCardPrices(tcgapiCardId);
+  const row = printing ? rows.find((r) => tcgapiPrintingToEnum(r.printing) === printing) : rows[0];
+  if (!row) {
+    log.warn(
+      {
+        storeId,
+        skuId,
+        tcgapiCardId,
+        printing,
+        availablePrintings: rows.map((r) => r.printing),
+      },
+      'price refresh skipped: no matching price row',
+    );
+    return { skipped: true };
+  }
 
   const writes: Array<Promise<unknown>> = [];
   if (row.marketCents != null) {

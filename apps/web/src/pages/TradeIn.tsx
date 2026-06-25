@@ -24,6 +24,7 @@ import type { CardCondition, CardLanguage, CardPrinting, PayoutKind } from '@tcg
 import { api } from '../lib/api';
 import { useSession } from '../hooks/useSession';
 import { useDebounced } from '../hooks/useBarcodeScanner';
+import SearchableSelect from '../components/SearchableSelect';
 
 type TcgapiCard = {
   id: string;
@@ -50,8 +51,9 @@ type GamesResponse = { results: GameRow[] };
 type SetRow = { id: string; name: string; slug?: string };
 type SetsResponse = { sets: SetRow[] };
 
-// Matches "25", "025", "25/102", "025/189", etc.
-const NUMBER_QUERY_RE = /^\d+(\s*\/\s*\d+)?$/;
+// Matches numeric and alphanumeric card numbers: "25", "025/189", "XY133", "SVP 075".
+// Requires at least one digit so ordinary name searches like "Charizard" stay name searches.
+const NUMBER_QUERY_RE = /^(?=.*\d)[a-z0-9#\-\s]+(\s*\/\s*[a-z0-9#\-\s]+)?$/i;
 
 type PriceRow = {
   cardId: string;
@@ -219,7 +221,7 @@ export default function TradeInPage() {
   const debouncedRarity = useDebounced(rarity, 300);
 
   // If the operator types something that looks like a card number
-  // ("025" or "025/189"), use it as the `number` filter. Otherwise treat
+  // ("025", "025/189", "XY133"), use it as the `number` filter. Otherwise treat
   // it as a name search.
   const looksLikeNumber = NUMBER_QUERY_RE.test(debounced.trim());
   const numberParam = looksLikeNumber ? debounced.trim() : '';
@@ -298,46 +300,32 @@ export default function TradeInPage() {
           placeholder="Card name or number (e.g. “Charizard” or “025/189”)…"
           className="bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-base outline-none focus:border-emerald-500"
         />
-        <select
+        <SearchableSelect
           value={game}
-          onChange={(e) => onGameChange(e.target.value)}
-          className="bg-slate-900 border border-slate-700 rounded-xl px-3 py-3 text-base outline-none focus:border-emerald-500"
+          onChange={onGameChange}
+          placeholder={games.isLoading ? 'Loading games...' : 'Any game'}
+          searchPlaceholder="Search games"
           disabled={games.isLoading || games.isError}
-        >
-          <option value="">{games.isLoading ? 'Loading games…' : 'Any game'}</option>
-          {games.data?.results.map((g) => (
-            <option key={g.slug} value={g.slug}>
-              {g.name}
-            </option>
-          ))}
-        </select>
-        <select
+          options={(games.data?.results ?? []).map((g) => ({ value: g.slug, label: g.name }))}
+        />
+        <SearchableSelect
           value={setId}
-          onChange={(e) => setSetId(e.target.value)}
-          className="bg-slate-900 border border-slate-700 rounded-xl px-3 py-3 text-base outline-none focus:border-emerald-500 disabled:opacity-50"
+          onChange={setSetId}
+          placeholder={!game ? 'Pick a game first' : sets.isLoading ? 'Loading sets...' : 'Any set'}
+          searchPlaceholder="Search sets"
           disabled={!game || sets.isLoading}
-        >
-          <option value="">{!game ? 'Pick a game first' : sets.isLoading ? 'Loading sets…' : 'Any set'}</option>
-          {sets.data?.sets.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-            </option>
-          ))}
-        </select>
-        <select
+          options={(sets.data?.sets ?? []).map((s) => ({ value: s.id, label: s.name }))}
+        />
+        <SearchableSelect
           value={rarity}
-          onChange={(e) => setRarity(e.target.value)}
-          className="bg-slate-900 border border-slate-700 rounded-xl px-3 py-3 text-base outline-none focus:border-emerald-500"
-        >
-          <option value="">Any rarity</option>
-          {rarityOptions.map((r) => (
-            <option key={r} value={r}>
-              {r}
-            </option>
-          ))}
-          {/* Keep the chosen rarity visible even if it falls out of the current page */}
-          {rarity && !rarityOptions.includes(rarity) && <option value={rarity}>{rarity}</option>}
-        </select>
+          onChange={setRarity}
+          placeholder="Any rarity"
+          searchPlaceholder="Search rarities"
+          options={Array.from(new Set([...rarityOptions, rarity].filter(Boolean))).map((r) => ({
+            value: r,
+            label: r,
+          }))}
+        />
       </div>
 
       {(game || setId || rarity || numberParam) && (

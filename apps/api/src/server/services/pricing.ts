@@ -29,10 +29,10 @@ export class PricingService {
 
   /**
    * Recompute the effective `current_prices` row from the most recent snapshot
-   * per source for this SKU. `manual_override` always wins; otherwise sell
-   * price = max(market, median) so we never sell below what the market will
-   * bear. Buy price defaults to the buylist snapshot when present, else half
-   * of the lowest live price (the trade-in service can override).
+  * per source for this SKU. `manual_override` always wins; otherwise sell
+  * price follows the current market price, then median/low as fallbacks. Buy
+  * price defaults to the buylist snapshot when present, else half of the
+  * lowest live price (the trade-in service can override).
    */
   async recomputeCurrent(skuId: string): Promise<void> {
     await this.db.execute(sql`
@@ -54,7 +54,7 @@ export class PricingService {
       insert into current_prices (sku_id, sell_price_cents, buy_price_cents, market_price_cents, market_median_cents, updated_at)
       select
         ${skuId},
-        coalesce(p.override, greatest(coalesce(p.market, 0), coalesce(p.median, 0))),
+        coalesce(p.override, p.market, p.median, p.low, 0),
         coalesce(p.buylist, floor(coalesce(p.low, p.market, p.median, 0) * 0.5)::int),
         p.market,
         p.median,

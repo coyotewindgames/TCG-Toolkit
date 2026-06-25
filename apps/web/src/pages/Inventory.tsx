@@ -5,6 +5,7 @@ import { useDebounced } from '../hooks/useBarcodeScanner';
 import { useSession } from '../hooks/useSession';
 import SidePanel, { PanelSection } from '../components/SidePanel';
 import ImageBackfillPanel from '../components/ImageBackfillPanel';
+import SearchableSelect from '../components/SearchableSelect';
 
 type Product = {
   id: string;
@@ -350,37 +351,33 @@ export default function InventoryPage() {
             </select>
           </label>
 
-          <label className="text-xs text-slate-300">
+          <div className="text-xs text-slate-300">
             <span className="block mb-1">Set</span>
-            <select
-              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2"
+            <SearchableSelect
               value={setFilter}
-              onChange={(e) => setSetFilter(e.target.value)}
-            >
-              <option value="">All sets</option>
-              {(data?.filters.sets ?? []).map((setName) => (
-                <option key={setName} value={setName}>
-                  {setName}
-                </option>
-              ))}
-            </select>
-          </label>
+              onChange={setSetFilter}
+              placeholder="All sets"
+              searchPlaceholder="Search sets"
+              options={(data?.filters.sets ?? []).map((setName) => ({
+                value: setName,
+                label: setName,
+              }))}
+            />
+          </div>
 
-          <label className="text-xs text-slate-300">
+          <div className="text-xs text-slate-300">
             <span className="block mb-1">Rarity</span>
-            <select
-              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2"
+            <SearchableSelect
               value={rarityFilter}
-              onChange={(e) => setRarityFilter(e.target.value)}
-            >
-              <option value="">All rarities</option>
-              {(data?.filters.rarities ?? []).map((rarity) => (
-                <option key={rarity} value={rarity}>
-                  {rarity}
-                </option>
-              ))}
-            </select>
-          </label>
+              onChange={setRarityFilter}
+              placeholder="All rarities"
+              searchPlaceholder="Search rarities"
+              options={(data?.filters.rarities ?? []).map((rarity) => ({
+                value: rarity,
+                label: rarity,
+              }))}
+            />
+          </div>
 
           <label className="text-xs text-slate-300">
             <span className="block mb-1">Per page</span>

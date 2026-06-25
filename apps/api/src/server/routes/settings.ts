@@ -26,6 +26,10 @@ const TcgapiUpsert = StepUp.extend({
   apiKey: z.string().min(8).optional(),
 });
 
+const TcgapiQueryGamesUpsert = z.object({
+  queryGameSlugs: z.array(z.string().trim().min(1).max(64)).max(25),
+});
+
 // Onboarding variant — same fields but no password step-up required.
 const TcgapiOnboardingUpsert = z.object({
   baseUrl: z.string().url().default('https://api.tcgapi.dev/v1'),
@@ -131,9 +135,25 @@ export function settingsRouter(c: Container): Router {
           configured: status.configured,
           hasKey: status.hasKey,
           baseUrl: status.baseUrl,
+          queryGameSlugs: status.queryGameSlugs,
           updatedAt: status.updatedAt,
         },
       });
+    }),
+  );
+
+  r.put(
+    '/integrations/tcgapi/query-games',
+    asyncHandler(async (req, res) => {
+      const body = TcgapiQueryGamesUpsert.parse(req.body ?? {});
+      await c.configs.setTcgapiQueryGameSlugs({
+        storeId: req.user!.storeId,
+        queryGameSlugs: body.queryGameSlugs,
+        actorId: req.user!.id,
+        actorIp: req.ip,
+      });
+      const status = await c.configs.getTcgapiStatus(req.user!.storeId);
+      res.json({ ok: true, queryGameSlugs: status.queryGameSlugs });
     }),
   );
 

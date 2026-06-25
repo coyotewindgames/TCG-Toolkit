@@ -32,6 +32,7 @@ export interface UpsertTcgapiInput {
   storeId: string;
   baseUrl: string;
   apiKey?: string; // omit to keep existing
+  queryGameSlugs?: string[];
   actorId?: string | null;
   actorIp?: string | null;
 }
@@ -86,6 +87,7 @@ export class ConfigService {
     configured: boolean;
     baseUrl: string;
     hasKey: boolean;
+    queryGameSlugs: string[];
     lastVerifiedAt: Date | null;
     updatedAt: Date | null;
   }> {
@@ -95,15 +97,45 @@ export class ConfigService {
       .where(eq(schema.tcgapiConfigs.storeId, storeId))
       .limit(1);
     if (!row) {
-      return { configured: false, baseUrl: 'https://api.tcgapi.dev/v1', hasKey: false, lastVerifiedAt: null, updatedAt: null };
+      return {
+        configured: false,
+        baseUrl: 'https://api.tcgapi.dev/v1',
+        hasKey: false,
+        queryGameSlugs: [],
+        lastVerifiedAt: null,
+        updatedAt: null,
+      };
     }
     return {
       configured: true,
       baseUrl: row.baseUrl,
       hasKey: row.apiKeyCiphertext.length > 0,
+      queryGameSlugs: row.queryGameSlugs ?? [],
       lastVerifiedAt: row.lastVerifiedAt,
       updatedAt: row.updatedAt,
     };
+  }
+
+  async setTcgapiQueryGameSlugs(input: {
+    storeId: string;
+    queryGameSlugs: string[];
+    actorId?: string | null;
+    actorIp?: string | null;
+  }): Promise<void> {
+    const cleaned = normalizeGameSlugs(input.queryGameSlugs);
+    const updated = await this.db
+      .update(schema.tcgapiConfigs)
+      .set({ queryGameSlugs: cleaned, updatedBy: input.actorId ?? null, updatedAt: new Date() })
+      .where(eq(schema.tcgapiConfigs.storeId, input.storeId))
+      .returning({ storeId: schema.tcgapiConfigs.storeId });
+    if (updated.length === 0) throw NotFound(`tcgapi config not set for store ${input.storeId}`);
+    await this.audit({
+      storeId: input.storeId,
+      tableName: 'tcgapi_configs',
+      action: 'update_query_games',
+      actorId: input.actorId,
+      actorIp: input.actorIp,
+    });
   }
 
   async upsertTcgapi(input: UpsertTcgapiInput): Promise<void> {
@@ -135,6 +167,7 @@ export class ConfigService {
           apiKeyCiphertext: blob.ciphertext,
           apiKeyIv: blob.iv,
           apiKeyTag: blob.tag,
+          ...(input.queryGameSlugs ? { queryGameSlugs: normalizeGameSlugs(input.queryGameSlugs) } : {}),
           keyVersion: blob.keyVersion,
           updatedBy: input.actorId ?? null,
           updatedAt: new Date(),
@@ -147,6 +180,7 @@ export class ConfigService {
         apiKeyCiphertext: blob.ciphertext,
         apiKeyIv: blob.iv,
         apiKeyTag: blob.tag,
+        queryGameSlugs: normalizeGameSlugs(input.queryGameSlugs ?? []),
         keyVersion: blob.keyVersion,
         updatedBy: input.actorId ?? null,
       });
@@ -394,4 +428,14 @@ export class ConfigService {
       actorIp: args.actorIp ?? null,
     });
   }
+}
+
+function normalizeGameSlugs(values: string[]): string[] {
+  return Array.from(
+    new Set(
+      values
+        .map((value) => value.trim().toLowerCase())
+        .filter((value) => /^[a-z0-9_-]{1,64}$/.test(value)),
+    ),
+  );
 }

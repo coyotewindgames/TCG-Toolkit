@@ -21,6 +21,7 @@ import { productsRouter } from './routes/products';
 import { scansRouter } from './routes/scans';
 import { settingsRouter } from './routes/settings';
 import { skusRouter, barcodesRouter } from './routes/skus';
+import { analyticsRouter } from './routes/analytics';
 import { tcgapiRouter } from './routes/tcgapi';
 import { tradeinsRouter } from './routes/tradeins';
 import { webhooksRouter } from './routes/webhooks';
@@ -90,6 +91,7 @@ export function createApp(): Express {
     app.use(`${prefix}/settings`, settingsRouter(container));
     app.use(`${prefix}/tcgapi`, tcgapiRouter(container));
     app.use(`${prefix}/barcodes`, barcodesRouter(container));
+    app.use(`${prefix}/analytics`, analyticsRouter(container));
   }
   // Webhooks intentionally mount only at /webhooks (no /api prefix) so the
   // raw-body middleware path stays in lockstep with the registered routes.
