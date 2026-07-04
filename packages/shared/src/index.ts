@@ -21,6 +21,9 @@ export const PRICE_SOURCES = [
   'tcgapi_low',
   'tcgapi_median',
   'tcgapi_buylist',
+  'pkmnprices_market',
+  'pkmnprices_low',
+  'pkmnprices_cardmarket',
   'manual_override',
 ] as const;
 export type PriceSource = (typeof PRICE_SOURCES)[number];

@@ -174,7 +174,7 @@ async function rawFetch<T>(path: string, init?: RequestInit, retried = false): P
 }
 
 export const api = {
-  get: <T,>(p: string) => rawFetch<T>(p),
+  get: <T,>(p: string, opts?: { signal?: AbortSignal }) => rawFetch<T>(p, { signal: opts?.signal }),
   getBlob: async (p: string): Promise<Blob> => {
     const headers: Record<string, string> = {};
     const session = getSession();

@@ -21,3 +21,7 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
+
+/** Injected at build time by vite `define`. See vite.config.ts. */
+declare const __APP_BUILD_ID__: string;
+declare const __APP_BUILD_TIME__: string;

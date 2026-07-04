@@ -71,6 +71,9 @@ export const priceSourceEnum = pgEnum('price_source', [
   'tcgapi_low',
   'tcgapi_median',
   'tcgapi_buylist',
+  'pkmnprices_market',
+  'pkmnprices_low',
+  'pkmnprices_cardmarket',
   'manual_override',
 ]);
 export const gameEnum = pgEnum('game', [
@@ -162,6 +165,7 @@ export const products = pgTable(
       .notNull()
       .references(() => stores.id, { onDelete: 'cascade' }),
     tcgapiProductId: text('tcgapi_product_id'),
+    pkmnpricesProductId: integer('pkmnprices_product_id'),
     game: gameEnum('game').notNull().default('other'),
     name: text('name').notNull(),
     setName: text('set_name'),
@@ -178,6 +182,7 @@ export const products = pgTable(
   (t) => ({
     byStore: index('products_store_idx').on(t.storeId),
     byTcgapi: index('products_tcgapi_idx').on(t.tcgapiProductId),
+    byPkmnprices: index('products_pkmnprices_idx').on(t.pkmnpricesProductId),
     nameIdx: index('products_name_idx').on(t.name),
     importIdentityIdx: index('products_import_identity_idx').on(
       t.storeId,
@@ -527,6 +532,26 @@ export const tcgapiConfigs = pgTable('tcgapi_configs', {
   apiKeyIv: text('api_key_iv').notNull(),
   apiKeyTag: text('api_key_tag').notNull(),
   queryGameSlugs: text('query_game_slugs').array().notNull().default(sql`ARRAY[]::text[]`),
+  keyVersion: integer('key_version').notNull().default(1),
+  lastVerifiedAt: timestamp('last_verified_at', { withTimezone: true }),
+  updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Per-store credentials for the PkmnPrices.com pricing API. Same encrypted-blob
+ * shape as `tcgapi_configs`; Pokémon-only, so no game filter list is stored.
+ */
+export const pkmnpricesConfigs = pgTable('pkmnprices_configs', {
+  storeId: uuid('store_id')
+    .primaryKey()
+    .references(() => stores.id, { onDelete: 'cascade' }),
+  baseUrl: text('base_url').notNull().default('https://api.pkmnprices.com/v1'),
+  apiKeyCiphertext: text('api_key_ciphertext').notNull(),
+  apiKeyIv: text('api_key_iv').notNull(),
+  apiKeyTag: text('api_key_tag').notNull(),
+  /** Owner-declared tier so the router can decide whether to attempt JP lookups. */
+  tier: text('tier').notNull().default('free'), // 'free' | 'pro' | 'business'
   keyVersion: integer('key_version').notNull().default(1),
   lastVerifiedAt: timestamp('last_verified_at', { withTimezone: true }),
   updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),

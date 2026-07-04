@@ -82,30 +82,45 @@ async function main() {
       .select({
         storeId: schema.products.storeId,
         skuId: schema.skus.id,
+        language: schema.skus.language,
         tcgapiCardId: schema.products.tcgapiProductId,
-        printing: schema.skus.printing,
+        pkmnpricesCardId: schema.products.pkmnpricesProductId,
       })
       .from(schema.skus)
       .innerJoin(schema.products, eq(schema.products.id, schema.skus.productId))
-      .where(
-        and(
-          inArray(schema.products.storeId, configuredStoreIds),
-          isNotNull(schema.products.tcgapiProductId),
-        ),
-      );
+      .where(inArray(schema.products.storeId, configuredStoreIds));
 
+    // Group SKUs by (storeId, language). Only enqueue SKUs that have at
+    // least one upstream card id — those are the ones a provider can price.
+    const groups = new Map<string, { storeId: string; language: string; skuIds: string[] }>();
     for (const row of skuRows) {
-      await queues.priceRefresh.add(
-        'refresh',
-        {
-          storeId: row.storeId,
-          skuId: row.skuId,
-          tcgapiCardId: row.tcgapiCardId,
-          printing: row.printing,
-        },
-        { jobId: `price-${row.storeId}-${row.skuId}-${today}` },
-      );
-      priceJobs += 1;
+      const hasId = !!row.pkmnpricesCardId || !!row.tcgapiCardId;
+      if (!hasId) continue;
+      const key = `${row.storeId}|${row.language}`;
+      let bucket = groups.get(key);
+      if (!bucket) {
+        bucket = { storeId: row.storeId, language: row.language, skuIds: [] };
+        groups.set(key, bucket);
+      }
+      bucket.skuIds.push(row.skuId);
+    }
+
+    // Chunk each bucket into batches of 50 so a single BullMQ job stays small
+    // and a failure only re-runs 50 SKUs.
+    const BATCH_SIZE = 50;
+    for (const bucket of groups.values()) {
+      for (let i = 0; i < bucket.skuIds.length; i += BATCH_SIZE) {
+        const batchIdx = i / BATCH_SIZE;
+        const skuIds = bucket.skuIds.slice(i, i + BATCH_SIZE);
+        await queues.bulkRefresh.add(
+          'refresh',
+          { storeId: bucket.storeId, language: bucket.language, skuIds },
+          {
+            jobId: `bulk-${bucket.storeId}-${bucket.language}-${batchIdx}-${today}`,
+          },
+        );
+        priceJobs += 1;
+      }
     }
   }
 

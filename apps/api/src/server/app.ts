@@ -23,6 +23,7 @@ import { settingsRouter } from './routes/settings';
 import { skusRouter, barcodesRouter } from './routes/skus';
 import { analyticsRouter } from './routes/analytics';
 import { tcgapiRouter } from './routes/tcgapi';
+import { pkmnpricesRouter } from './routes/pkmnprices';
 import { tradeinsRouter } from './routes/tradeins';
 import { webhooksRouter } from './routes/webhooks';
 
@@ -90,6 +91,7 @@ export function createApp(): Express {
     app.use(`${prefix}/skus`, skusRouter(container));
     app.use(`${prefix}/settings`, settingsRouter(container));
     app.use(`${prefix}/tcgapi`, tcgapiRouter(container));
+    app.use(`${prefix}/pkmnprices`, pkmnpricesRouter(container));
     app.use(`${prefix}/barcodes`, barcodesRouter(container));
     app.use(`${prefix}/analytics`, analyticsRouter(container));
   }

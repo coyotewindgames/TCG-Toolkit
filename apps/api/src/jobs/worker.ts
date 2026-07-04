@@ -10,12 +10,14 @@
  */
 import { Worker, type Processor } from 'bullmq';
 import { eq, sql } from 'drizzle-orm';
+import pLimit from 'p-limit';
 import { loadEnv } from '../config/env';
 import { getLogger } from '../common/logger';
 import { getDb, schema } from '../db/client';
 import { TcgapiClient } from '../integrations/tcgapi/client';
 import { ConfigService } from '../server/services/config-service';
 import { PricingService } from '../server/services/pricing';
+import { PricingRouter } from '../server/services/pricing-router';
 import { QUEUE_NAMES, bullConnection } from './queues';
 
 interface PriceRefreshJob {
@@ -23,6 +25,12 @@ interface PriceRefreshJob {
   skuId: string;
   tcgapiCardId: string;
   printing?: string;
+}
+
+interface BulkRefreshJob {
+  storeId: string;
+  language: string;
+  skuIds: string[];
 }
 
 interface CatalogSyncJob {
@@ -54,6 +62,7 @@ const db = getDb();
 const log = getLogger();
 const configs = new ConfigService(db);
 const pricing = new PricingService(db);
+const router = new PricingRouter(db, configs, pricing);
 
 async function tcgapiFor(storeId: string): Promise<TcgapiClient> {
   const creds = await configs.getTcgapi(storeId);
@@ -154,6 +163,37 @@ const retryWebhook: Processor<{ eventId: string; provider?: string }> = async (j
   return { ok: true };
 };
 
+/**
+ * Batch price-refresh processor. Fans a small SKU list out through the
+ * pricing router at bounded concurrency so we (a) don't blow past
+ * PkmnPrices' 60 rpm rate limit and (b) keep BullMQ job overhead tiny
+ * regardless of catalog size. One job per (storeId, language, batchIdx) per
+ * day, id `bulk-{storeId}-{language}-{batchIdx}-{yyyy-mm-dd}` (idempotent).
+ */
+const bulkRefresh: Processor<BulkRefreshJob> = async (job) => {
+  const { storeId, language, skuIds } = job.data;
+  const started = Date.now();
+  const limit = pLimit(5);
+
+  const counts = { wrote: 0, skipped: 0, no_data: 0, no_id: 0, no_provider: 0, error: 0 };
+
+  const results = await Promise.all(
+    skuIds.map((skuId) =>
+      limit(async () => {
+        const r = await router.refreshSkuPrice(skuId);
+        counts[r.action] += 1;
+        return r;
+      }),
+    ),
+  );
+
+  log.info(
+    { storeId, language, size: skuIds.length, durationMs: Date.now() - started, ...counts },
+    'pricing.bulk-refresh completed',
+  );
+  return { ok: true, counts, size: skuIds.length, sampleErrors: results.filter((r) => r.err).slice(0, 5) };
+};
+
 function startWorker<T>(name: string, processor: Processor<T>): Worker<T> {
   const w = new Worker<T>(name, processor, {
     connection: bullConnection(),
@@ -166,6 +206,7 @@ function startWorker<T>(name: string, processor: Processor<T>): Worker<T> {
 }
 
 startWorker(QUEUE_NAMES.priceRefresh, refreshPrice);
+startWorker(QUEUE_NAMES.bulkRefresh, bulkRefresh);
 startWorker(QUEUE_NAMES.catalogSync, syncCatalog);
 startWorker(QUEUE_NAMES.webhookRetry, retryWebhook);
 

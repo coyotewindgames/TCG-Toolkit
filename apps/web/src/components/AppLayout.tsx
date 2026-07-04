@@ -221,6 +221,14 @@ export default function AppLayout() {
             >
               {collapsed ? '⎋' : 'Sign out'}
             </button>
+            <div
+              className={`mt-2 text-[10px] leading-tight text-slate-500 font-mono ${
+                collapsed ? 'md:hidden' : ''
+              }`}
+              title={`Built ${__APP_BUILD_TIME__}`}
+            >
+              build {__APP_BUILD_ID__}
+            </div>
           </div>
         )}
 

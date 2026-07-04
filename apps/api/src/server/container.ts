@@ -8,6 +8,7 @@
  */
 import { getDb, type Database } from '../db/client';
 import { CloverClient } from '../integrations/pos/clover';
+import { PkmnPricesClient } from '../integrations/pkmnprices/client';
 import { TcgapiClient } from '../integrations/tcgapi/client';
 import { BarcodeService } from './services/barcode';
 import { CheckoutService } from './services/checkout';
@@ -34,6 +35,8 @@ export interface Container {
   posFor(storeId: string): Promise<CloverClient>;
   /** Build a TCGapi client for the given store, using its encrypted creds. */
   tcgapiFor(storeId: string): Promise<TcgapiClient>;
+  /** Build a PkmnPrices client for the given store, using its encrypted creds. */
+  pkmnpricesFor(storeId: string): Promise<PkmnPricesClient>;
 }
 
 let cached: Container | null = null;
@@ -66,6 +69,11 @@ export function buildContainer(): Container {
     return new TcgapiClient({ baseUrl: creds.baseUrl, apiKey: creds.apiKey });
   }
 
+  async function pkmnpricesFor(storeId: string): Promise<PkmnPricesClient> {
+    const creds = await configs.getPkmnprices(storeId);
+    return new PkmnPricesClient({ apiKey: creds.apiKey });
+  }
+
   // CheckoutService receives a factory rather than a singleton client so each
   // call resolves the caller's store credentials.
   const checkout = new CheckoutService(db, orders, posFor);
@@ -83,6 +91,7 @@ export function buildContainer(): Container {
     configs,
     posFor,
     tcgapiFor,
+    pkmnpricesFor,
   };
   return cached;
 }

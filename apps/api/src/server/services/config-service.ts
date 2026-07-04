@@ -20,6 +20,13 @@ export interface TcgapiCreds {
   apiKey: string;
 }
 
+export interface PkmnpricesCreds {
+  apiKey: string;
+  tier: PkmnpricesTier;
+}
+
+export type PkmnpricesTier = 'free' | 'pro' | 'business';
+
 export interface PosCreds {
   provider: 'clover';
   baseUrl: string;
@@ -33,6 +40,14 @@ export interface UpsertTcgapiInput {
   baseUrl: string;
   apiKey?: string; // omit to keep existing
   queryGameSlugs?: string[];
+  actorId?: string | null;
+  actorIp?: string | null;
+}
+
+export interface UpsertPkmnpricesInput {
+  storeId: string;
+  apiKey?: string; // omit to keep existing
+  tier?: PkmnpricesTier;
   actorId?: string | null;
   actorIp?: string | null;
 }
@@ -56,6 +71,7 @@ const TTL_MS = 60_000;
 
 export class ConfigService {
   private readonly tcgapiCache = new Map<string, CacheEntry<TcgapiCreds>>();
+  private readonly pkmnpricesCache = new Map<string, CacheEntry<PkmnpricesCreds>>();
   private readonly posCache = new Map<string, CacheEntry<PosCreds>>();
   private readonly posByMerchantCache = new Map<string, CacheEntry<{ storeId: string } & PosCreds>>();
 
@@ -202,6 +218,126 @@ export class ConfigService {
       .set({ lastVerifiedAt: new Date() })
       .where(eq(schema.tcgapiConfigs.storeId, storeId));
     await this.audit({ storeId, tableName: 'tcgapi_configs', action: 'verify', actorId, actorIp });
+  }
+
+  // ---- PkmnPrices ----------------------------------------------------------
+
+  async getPkmnprices(storeId: string): Promise<PkmnpricesCreds> {
+    const hit = this.pkmnpricesCache.get(storeId);
+    if (hit && hit.expiresAt > Date.now()) return hit.value;
+
+    const [row] = await this.db
+      .select()
+      .from(schema.pkmnpricesConfigs)
+      .where(eq(schema.pkmnpricesConfigs.storeId, storeId))
+      .limit(1);
+    if (!row) throw NotFound(`pkmnprices config not set for store ${storeId}`);
+
+    const apiKey = this.vault.decrypt(this.blob(row.apiKeyCiphertext, row.apiKeyIv, row.apiKeyTag, row.keyVersion));
+    const value: PkmnpricesCreds = {
+      apiKey,
+      tier: (row.tier as PkmnpricesTier) ?? 'free',
+    };
+    this.pkmnpricesCache.set(storeId, { value, expiresAt: Date.now() + TTL_MS });
+    return value;
+  }
+
+  async getPkmnpricesStatus(storeId: string): Promise<{
+    configured: boolean;
+    baseUrl: string;
+    hasKey: boolean;
+    tier: PkmnpricesTier;
+    lastVerifiedAt: Date | null;
+    updatedAt: Date | null;
+  }> {
+    const [row] = await this.db
+      .select()
+      .from(schema.pkmnpricesConfigs)
+      .where(eq(schema.pkmnpricesConfigs.storeId, storeId))
+      .limit(1);
+    if (!row) {
+      return {
+        configured: false,
+        baseUrl: 'https://api.pkmnprices.com/v1',
+        hasKey: false,
+        tier: 'free',
+        lastVerifiedAt: null,
+        updatedAt: null,
+      };
+    }
+    return {
+      configured: true,
+      baseUrl: 'https://api.pkmnprices.com/v1',
+      hasKey: row.apiKeyCiphertext.length > 0,
+      tier: (row.tier as PkmnpricesTier) ?? 'free',
+      lastVerifiedAt: row.lastVerifiedAt,
+      updatedAt: row.updatedAt,
+    };
+  }
+
+  async upsertPkmnprices(input: UpsertPkmnpricesInput): Promise<void> {
+    const [existing] = await this.db
+      .select()
+      .from(schema.pkmnpricesConfigs)
+      .where(eq(schema.pkmnpricesConfigs.storeId, input.storeId))
+      .limit(1);
+
+    let blob: EncryptedBlob;
+    if (input.apiKey) {
+      blob = this.vault.encrypt(input.apiKey);
+    } else if (existing) {
+      blob = {
+        ciphertext: existing.apiKeyCiphertext,
+        iv: existing.apiKeyIv,
+        tag: existing.apiKeyTag,
+        keyVersion: existing.keyVersion,
+      };
+    } else {
+      throw new Error('apiKey is required when creating a new PkmnPrices config');
+    }
+
+    if (existing) {
+      await this.db
+        .update(schema.pkmnpricesConfigs)
+        .set({
+          apiKeyCiphertext: blob.ciphertext,
+          apiKeyIv: blob.iv,
+          apiKeyTag: blob.tag,
+          ...(input.tier ? { tier: input.tier } : {}),
+          keyVersion: blob.keyVersion,
+          updatedBy: input.actorId ?? null,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.pkmnpricesConfigs.storeId, input.storeId));
+    } else {
+      await this.db.insert(schema.pkmnpricesConfigs).values({
+        storeId: input.storeId,
+        baseUrl: 'https://api.pkmnprices.com/v1',
+        apiKeyCiphertext: blob.ciphertext,
+        apiKeyIv: blob.iv,
+        apiKeyTag: blob.tag,
+        tier: input.tier ?? 'free',
+        keyVersion: blob.keyVersion,
+        updatedBy: input.actorId ?? null,
+      });
+    }
+
+    await this.audit({
+      storeId: input.storeId,
+      tableName: 'pkmnprices_configs',
+      action: existing ? 'update' : 'create',
+      actorId: input.actorId,
+      actorIp: input.actorIp,
+    });
+    this.pkmnpricesCache.delete(input.storeId);
+  }
+
+  async markPkmnpricesVerified(storeId: string, actorId?: string | null, actorIp?: string | null): Promise<void> {
+    await this.db
+      .update(schema.pkmnpricesConfigs)
+      .set({ lastVerifiedAt: new Date() })
+      .where(eq(schema.pkmnpricesConfigs.storeId, storeId));
+    await this.audit({ storeId, tableName: 'pkmnprices_configs', action: 'verify', actorId, actorIp });
   }
 
   // ---- POS (Clover) --------------------------------------------------------
@@ -395,11 +531,13 @@ export class ConfigService {
   invalidate(storeId?: string): void {
     if (!storeId) {
       this.tcgapiCache.clear();
+      this.pkmnpricesCache.clear();
       this.posCache.clear();
       this.posByMerchantCache.clear();
       return;
     }
     this.tcgapiCache.delete(storeId);
+    this.pkmnpricesCache.delete(storeId);
     this.posCache.delete(storeId);
     // posByMerchantCache is keyed on merchantId; drop entries pointing at this store.
     for (const [k, v] of this.posByMerchantCache) {

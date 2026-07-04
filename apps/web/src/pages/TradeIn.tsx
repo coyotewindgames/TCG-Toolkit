@@ -2,10 +2,10 @@
  * Trade-In / Buy Intake form.
  *
  * Flow:
- *  1. Operator types the card name (debounced fuzzy search → /api/tcgapi/search,
+ *  1. Operator types the card name (debounced fuzzy search → /api/pkmnprices/search,
  *     proxied server-side so the store's API key never reaches the browser).
  *  2. They pick a card from the result grid. We then pull live per-printing
- *     market prices via /api/tcgapi/cards/:id/prices.
+ *     market prices via /api/pkmnprices/cards/:id/prices.
  *  3. They choose condition, printing, language, quantity, payout (cash vs.
  *     store credit) and optionally override the suggested unit value.
  *  4. "Add to inventory" submits a one-line trade-in to /api/tradeins. The
@@ -46,10 +46,15 @@ type SearchResponse = {
   total: number | null;
 };
 
-type GameRow = { id: string; name: string; slug: string };
-type GamesResponse = { results: GameRow[] };
 type SetRow = { id: string; name: string; slug?: string };
 type SetsResponse = { sets: SetRow[] };
+
+// Fixed language axis — PkmnPrices `language` accepts these string values.
+// English/Japanese only, plus a placeholder for future European additions.
+const LANGUAGE_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: 'english', label: 'English' },
+  { value: 'japanese', label: 'Japanese (Pro tier)' },
+];
 
 // Matches numeric and alphanumeric card numbers: "25", "025/189", "XY133", "SVP 075".
 // Requires at least one digit so ordinary name searches like "Charizard" stay name searches.
@@ -212,7 +217,9 @@ function sameQueuedItemIdentity(a: QueuedTradeItem, b: QueuedTradeItem): boolean
 export default function TradeInPage() {
   const session = useSession();
   const [q, setQ] = useState('');
-  const [game, setGame] = useState<string>('');
+  // Language replaces the old game selector — PkmnPrices is Pokémon-only, so
+  // the useful axis is which language of card to browse.
+  const [language, setLanguage] = useState<string>('english');
   const [setId, setSetId] = useState<string>('');
   const [rarity, setRarity] = useState<string>('');
   const [selected, setSelected] = useState<TcgapiCard | null>(null);
@@ -227,48 +234,50 @@ export default function TradeInPage() {
   const numberParam = looksLikeNumber ? debounced.trim() : '';
   const nameParam = looksLikeNumber ? '' : debounced.trim();
 
-  const games = useQuery<GamesResponse>({
-    queryKey: ['tcgapi.games'],
-    queryFn: () => api.get<GamesResponse>('/tcgapi/games'),
-    staleTime: 24 * 60 * 60_000,
-  });
-
   const sets = useQuery<SetsResponse>({
-    queryKey: ['tcgapi.sets', game],
-    queryFn: () => api.get<SetsResponse>(`/tcgapi/games/${encodeURIComponent(game)}/sets`),
-    enabled: !!game,
+    queryKey: ['pkmnprices.sets', language],
+    queryFn: () =>
+      api.get<SetsResponse>(`/pkmnprices/sets?language=${encodeURIComponent(language)}`),
+    enabled: !!language,
     staleTime: 24 * 60 * 60_000,
   });
 
-  // Reset the selected set when the game changes so we don't send a stale
-  // setId belonging to a different game.
-  const onGameChange = (next: string) => {
-    setGame(next);
+  // Reset selected set when language changes: set IDs are language-scoped upstream.
+  const onLanguageChange = (next: string) => {
+    setLanguage(next);
     setSetId('');
   };
 
   // Enabled when: name search ≥ 2 chars, OR a number is being searched
-  // (within a set or game), OR a set is selected (browse mode).
+  // (within a set), OR a set is selected (browse mode).
   const searchEnabled =
     nameParam.length >= 2 ||
-    (!!numberParam && (!!setId || !!game)) ||
+    (!!numberParam && !!setId) ||
     !!setId;
 
   const search = useQuery<SearchResponse>({
-    queryKey: ['tcgapi.search', { nameParam, numberParam, game, setId, debouncedRarity }],
-    queryFn: () => {
+    queryKey: ['pkmnprices.search', { nameParam, numberParam, language, setId, debouncedRarity }],
+    queryFn: ({ signal }) => {
       const params = new URLSearchParams();
       if (nameParam) params.set('q', nameParam);
       if (numberParam) params.set('number', numberParam);
-      if (game) params.set('game', game);
+      if (language) params.set('language', language);
       if (setId) params.set('setId', setId);
-      if (debouncedRarity.trim()) params.set('rarity', debouncedRarity.trim());
       params.set('perPage', '24');
-      return api.get<SearchResponse>(`/tcgapi/search?${params.toString()}`);
+      return api.get<SearchResponse>(`/pkmnprices/search?${params.toString()}`, { signal });
     },
     enabled: searchEnabled,
     staleTime: 60_000,
   });
+
+  // Client-side rarity filter — PkmnPrices doesn't accept `rarity` upstream,
+  // so post-filter on the returned page.
+  const filteredResults = useMemo(() => {
+    const all = search.data?.results ?? [];
+    if (!debouncedRarity.trim()) return all;
+    const needle = debouncedRarity.trim().toLowerCase();
+    return all.filter((c) => c.rarity?.toLowerCase().includes(needle));
+  }, [search.data, debouncedRarity]);
 
   // Collect unique rarities from the current result set for the dropdown.
   const rarityOptions = useMemo(() => {
@@ -279,14 +288,14 @@ export default function TradeInPage() {
     return Array.from(seen).sort();
   }, [search.data]);
 
-  const needsNumberScope = !!numberParam && !setId && !game;
+  const needsSetScope = !!numberParam && !setId;
 
   return (
     <div className="p-4 md:p-6 max-w-6xl mx-auto space-y-6">
       <header>
         <h1 className="text-2xl font-bold">Trade-In / Buy Intake</h1>
         <p className="text-sm text-slate-400">
-          Search the TCGapi.dev catalog by card name, by number (e.g.{' '}
+          Search the PkmnPrices.com catalog by card name, by number (e.g.{' '}
           <code className="px-1 rounded bg-slate-800">025/189</code> — pick a set first), or browse
           a set. Then choose a printing, payout, and add to inventory.
         </p>
@@ -301,19 +310,18 @@ export default function TradeInPage() {
           className="bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-base outline-none focus:border-emerald-500"
         />
         <SearchableSelect
-          value={game}
-          onChange={onGameChange}
-          placeholder={games.isLoading ? 'Loading games...' : 'Any game'}
-          searchPlaceholder="Search games"
-          disabled={games.isLoading || games.isError}
-          options={(games.data?.results ?? []).map((g) => ({ value: g.slug, label: g.name }))}
+          value={language}
+          onChange={onLanguageChange}
+          placeholder="Language"
+          searchPlaceholder="Search languages"
+          options={LANGUAGE_OPTIONS}
         />
         <SearchableSelect
           value={setId}
           onChange={setSetId}
-          placeholder={!game ? 'Pick a game first' : sets.isLoading ? 'Loading sets...' : 'Any set'}
+          placeholder={sets.isLoading ? 'Loading sets...' : 'Any set'}
           searchPlaceholder="Search sets"
-          disabled={!game || sets.isLoading}
+          disabled={sets.isLoading}
           options={(sets.data?.sets ?? []).map((s) => ({ value: s.id, label: s.name }))}
         />
         <SearchableSelect
@@ -328,14 +336,14 @@ export default function TradeInPage() {
         />
       </div>
 
-      {(game || setId || rarity || numberParam) && (
+      {(language !== 'english' || setId || rarity || numberParam) && (
         <div className="flex flex-wrap gap-2 text-xs">
           {numberParam && (
             <Chip onClear={() => setQ('')}>Number: {numberParam}</Chip>
           )}
-          {game && (
-            <Chip onClear={() => onGameChange('')}>
-              Game: {games.data?.results.find((g) => g.slug === game)?.name ?? game}
+          {language !== 'english' && (
+            <Chip onClear={() => onLanguageChange('english')}>
+              Language: {LANGUAGE_OPTIONS.find((l) => l.value === language)?.label ?? language}
             </Chip>
           )}
           {setId && (
@@ -350,17 +358,17 @@ export default function TradeInPage() {
       {search.isError && (
         <div className="bg-rose-950/40 border border-rose-800 rounded-lg p-3 text-sm text-rose-200">
           {(search.error as Error).message ||
-            'Search failed. Check TCGapi settings in Settings → Integrations.'}
+            'Search failed. Check PkmnPrices settings in Settings → Integrations.'}
         </div>
       )}
 
-      {needsNumberScope && (
+      {needsSetScope && (
         <div className="bg-amber-950/40 border border-amber-800 rounded-lg p-3 text-sm text-amber-200">
-          That looks like a card number. Pick a game (and ideally a set) so we know where to look.
+          That looks like a card number. Pick a set so we know where to look.
         </div>
       )}
 
-      {!searchEnabled && !needsNumberScope && (
+      {!searchEnabled && !needsSetScope && (
         <p className="text-sm text-slate-500">
           Start typing to search the catalog, or pick a set to browse it.
         </p>
@@ -370,13 +378,13 @@ export default function TradeInPage() {
         <p className="text-sm text-slate-500">Searching…</p>
       )}
 
-      {!search.isFetching && searchEnabled && (search.data?.results.length ?? 0) === 0 && (
+      {!search.isFetching && searchEnabled && filteredResults.length === 0 && (
         <p className="text-sm text-slate-500">No matches.</p>
       )}
 
-      {(search.data?.results.length ?? 0) > 0 && (
+      {filteredResults.length > 0 && (
         <ul className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-          {search.data!.results.map((card) => (
+          {filteredResults.map((card) => (
             <li key={card.id}>
               <button
                 type="button"
@@ -521,7 +529,7 @@ function IntakeDetailBody({
 
   const prices = useQuery<PricesResponse>({
     queryKey: ['tcgapi.prices', activeCard.id],
-    queryFn: () => api.get<PricesResponse>(`/tcgapi/cards/${encodeURIComponent(activeCard.id)}/prices`),
+    queryFn: () => api.get<PricesResponse>(`/pkmnprices/cards/${encodeURIComponent(activeCard.id)}/prices`),
     staleTime: 5 * 60_000,
   });
 
@@ -530,7 +538,7 @@ function IntakeDetailBody({
     queryFn: () => {
       const params = new URLSearchParams({ q: activeCard.name, perPage: '50' });
       if (activeCard.setId) params.set('setId', activeCard.setId);
-      return api.get<SearchResponse>(`/tcgapi/search?${params.toString()}`);
+      return api.get<SearchResponse>(`/pkmnprices/search?${params.toString()}`);
     },
     enabled: !!activeCard.setId,
     staleTime: 5 * 60_000,

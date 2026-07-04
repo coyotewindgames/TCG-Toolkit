@@ -18,9 +18,12 @@
     "backfill:sku-barcodes": "tsx --env-file=../../.env --env-file=.env src/scripts/backfill-sku-barcodes.ts",
     "seed:configs": "tsx --env-file=../../.env --env-file=.env src/scripts/seed-configs-from-env.ts",
     "bootstrap:owner": "tsx --env-file=../../.env --env-file=.env src/scripts/bootstrap-owner.ts",
-    "set:password": "tsx --env-file=../../.env --env-file=.env src/scripts/set-password.ts"
+    "set:password": "tsx --env-file=../../.env --env-file=.env src/scripts/set-password.ts",
+    "diagnose:card": "tsx --env-file=../../.env --env-file=.env src/scripts/diagnose-card.ts",
+    "backfill:pkmnprices": "tsx --env-file=../../.env --env-file=.env src/scripts/backfill-pkmnprices-ids.ts"
   },
   "dependencies": {
+    "@pkmnprices/sdk": "^1.0.3",
     "@socket.io/redis-adapter": "^8.3.0",
     "@tcg/shared": "*",
     "@types/bcryptjs": "^2.4.6",
@@ -49,7 +52,9 @@
     "helmet": "^7.1.0",
     "ioredis": "^5.4.1",
     "jsonwebtoken": "^9.0.2",
+    "lru-cache": "^10.4.3",
     "multer": "^2.1.1",
+    "p-limit": "^3.1.0",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "passport-local": "^1.0.0",

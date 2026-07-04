@@ -14,9 +14,19 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { asyncHandler } from '../../common/async-handler';
 import { BadRequest } from '../../common/http-errors';
+import { getLogger } from '../../common/logger';
 import { requireAuth } from '../auth/middleware';
 import type { Container } from '../container';
 import type { TcgapiCard } from '../../integrations/tcgapi/client';
+
+/**
+ * When neither the caller nor the store has picked a game, default to Pokémon.
+ * tcgapi.dev rejects `game=undefined` on the name search endpoint, which was
+ * causing empty result pages for anonymous multi-game queries (e.g. "Ash
+ * Greninja") until the operator picked something on either the Trade-In panel
+ * or in Settings → Trade-In search games.
+ */
+const DEFAULT_SEARCH_GAME_SLUG = 'pokemon';
 
 /**
  * Search params.
@@ -118,7 +128,22 @@ export function tcgapiRouter(c: Container): Router {
         );
       }
       const client = await c.tcgapiFor(req.user!.storeId);
-      const queryGameSlugs = game ? [game] : status.queryGameSlugs;
+      // Resolve which games to search:
+      //  - explicit query param wins
+      //  - otherwise use the store's saved Trade-In search games
+      //  - otherwise fall back to Pokémon (see comment on the constant)
+      let queryGameSlugs: string[];
+      if (game) {
+        queryGameSlugs = [game];
+      } else if (status.queryGameSlugs.length > 0) {
+        queryGameSlugs = status.queryGameSlugs;
+      } else {
+        queryGameSlugs = [DEFAULT_SEARCH_GAME_SLUG];
+        getLogger().info(
+          { storeId: req.user!.storeId, q, number, setId, fallback: DEFAULT_SEARCH_GAME_SLUG },
+          'tcgapi.search: no explicit or saved game — using default fallback',
+        );
+      }
 
       // Number search (or browsing a whole set): walk the set, then filter
       // locally. This is much friendlier on the free tier than firing one

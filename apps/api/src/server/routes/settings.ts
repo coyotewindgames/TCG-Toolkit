@@ -5,6 +5,7 @@ import { asyncHandler } from '../../common/async-handler';
 import { BadRequest, Forbidden, NotFound } from '../../common/http-errors';
 import { schema } from '../../db/client';
 import { CloverClient } from '../../integrations/pos/clover';
+import { PkmnPricesClient } from '../../integrations/pkmnprices/client';
 import { TcgapiClient } from '../../integrations/tcgapi/client';
 import { requireAuth, requireRole } from '../auth/middleware';
 import { verifyPassword } from '../auth/service';
@@ -34,6 +35,18 @@ const TcgapiQueryGamesUpsert = z.object({
 const TcgapiOnboardingUpsert = z.object({
   baseUrl: z.string().url().default('https://api.tcgapi.dev/v1'),
   apiKey: z.string().min(8).optional(),
+});
+
+const PkmnpricesTier = z.enum(['free', 'pro', 'business']);
+
+const PkmnpricesUpsert = StepUp.extend({
+  apiKey: z.string().trim().min(8).optional(),
+  tier: PkmnpricesTier.optional(),
+});
+
+const PkmnpricesOnboardingUpsert = z.object({
+  apiKey: z.string().trim().min(8).optional(),
+  tier: PkmnpricesTier.optional(),
 });
 
 const PosUpsert = StepUp.extend({
@@ -91,17 +104,20 @@ export function settingsRouter(c: Container): Router {
       const [countRow] = await c.db
         .select({ count: sql<number>`count(*)::int` })
         .from(schema.tcgapiConfigs);
-      const [tcgapi, pos] = await Promise.all([
+      const [tcgapi, pkmnprices, pos] = await Promise.all([
         c.configs.getTcgapiStatus(req.user!.storeId),
+        c.configs.getPkmnpricesStatus(req.user!.storeId),
         c.configs.getPosStatus(req.user!.storeId),
       ]);
       res.json({
         storeId: req.user!.storeId,
         tcgapi,
+        pkmnprices,
         pos,
         diagnostics: {
           tcgapiConfiguredStoreCount: countRow?.count ?? 0,
           tcgapiConfiguredForCurrentStore: tcgapi.configured,
+          pkmnpricesConfiguredForCurrentStore: pkmnprices.configured,
         },
       });
     }),
@@ -209,6 +225,92 @@ export function settingsRouter(c: Container): Router {
           configured: status.configured,
           hasKey: status.hasKey,
           baseUrl: status.baseUrl,
+          updatedAt: status.updatedAt,
+        },
+      });
+    }),
+  );
+
+  // ---- PkmnPrices ---------------------------------------------------------
+
+  r.put(
+    '/integrations/pkmnprices',
+    asyncHandler(async (req, res) => {
+      const body = PkmnpricesUpsert.parse(req.body ?? {});
+      await assertStepUp(c, req.user!.id, body.password);
+
+      const existing = await c.configs.getPkmnpricesStatus(req.user!.storeId);
+      if (!existing.configured && !body.apiKey) {
+        throw BadRequest('apiKey is required when configuring PkmnPrices for the first time');
+      }
+
+      await c.configs.upsertPkmnprices({
+        storeId: req.user!.storeId,
+        apiKey: body.apiKey,
+        tier: body.tier,
+        actorId: req.user!.id,
+        actorIp: req.ip,
+      });
+      const status = await c.configs.getPkmnpricesStatus(req.user!.storeId);
+      res.json({
+        ok: true,
+        storeId: req.user!.storeId,
+        pkmnprices: {
+          configured: status.configured,
+          hasKey: status.hasKey,
+          tier: status.tier,
+          updatedAt: status.updatedAt,
+        },
+      });
+    }),
+  );
+
+  r.post(
+    '/integrations/pkmnprices/verify',
+    asyncHandler(async (req, res) => {
+      try {
+        const creds = await c.configs.getPkmnprices(req.user!.storeId);
+        const client = new PkmnPricesClient({ apiKey: creds.apiKey });
+        // Cheapest authenticated call — one page of sets. Costs 1 credit.
+        await client.searchCards({ per_page: 1 });
+        await c.configs.markPkmnpricesVerified(req.user!.storeId, req.user!.id, req.ip);
+        res.json({ ok: true });
+      } catch (err) {
+        res.status(400).json({ ok: false, error: (err as Error).message });
+      }
+    }),
+  );
+
+  r.put(
+    '/integrations/pkmnprices/onboarding',
+    asyncHandler(async (req, res) => {
+      const body = PkmnpricesOnboardingUpsert.parse(req.body ?? {});
+
+      const onboarding = await getOnboardingStatus(c.db, req.user!.storeId);
+      if (onboarding.completedAt) {
+        throw Forbidden('onboarding already completed; use the regular settings endpoint');
+      }
+
+      const existing = await c.configs.getPkmnpricesStatus(req.user!.storeId);
+      if (!existing.configured && !body.apiKey) {
+        throw BadRequest('apiKey is required when configuring PkmnPrices for the first time');
+      }
+
+      await c.configs.upsertPkmnprices({
+        storeId: req.user!.storeId,
+        apiKey: body.apiKey,
+        tier: body.tier,
+        actorId: req.user!.id,
+        actorIp: req.ip,
+      });
+      const status = await c.configs.getPkmnpricesStatus(req.user!.storeId);
+      res.json({
+        ok: true,
+        storeId: req.user!.storeId,
+        pkmnprices: {
+          configured: status.configured,
+          hasKey: status.hasKey,
+          tier: status.tier,
           updatedAt: status.updatedAt,
         },
       });
