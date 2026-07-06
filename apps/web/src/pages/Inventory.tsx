@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api';
-import { useDebounced } from '../hooks/useBarcodeScanner';
+import { productsSearchQueryKey } from '../lib/searchQueryKeys';
+import { useProductSearchState } from '../hooks/useProductSearchState';
 import { useSession } from '../hooks/useSession';
 import SidePanel, { PanelSection } from '../components/SidePanel';
 import ImageBackfillPanel from '../components/ImageBackfillPanel';
@@ -32,6 +33,25 @@ type ProductSearchResponse = {
   filters: {
     sets: string[];
     rarities: string[];
+    games: string[];
+    languages: string[];
+  };
+  parse?: {
+    strategy: 'plain' | 'set_exact' | 'set_fuzzy';
+    originalQuery: string;
+    normalizedQuery: string;
+    inferred: {
+      setName: string | null;
+      nameQuery: string | null;
+    };
+    explicit: {
+      setName: string | null;
+      game: string | null;
+      language: string | null;
+      rarity: string | null;
+    };
+    conflicts: string[];
+    ambiguousSetCandidates: string[];
   };
 };
 type ProductSku = {
@@ -117,31 +137,56 @@ type ImportProgressState =
   | { phase: 'processing'; loaded: number; total: number | null; percent: number };
 
 export default function InventoryPage() {
-  const [q, setQ] = useState('');
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
-  const [sort, setSort] = useState<ProductSort>('name_asc');
-  const [setFilter, setSetFilter] = useState('');
-  const [rarityFilter, setRarityFilter] = useState('');
+  const {
+    query: q,
+    setQuery: setQ,
+    debouncedQuery: debounced,
+    page,
+    setPage,
+    pageSize,
+    setPageSize,
+    sort,
+    setSort,
+    gameFilter,
+    setGameFilter,
+    languageFilter,
+    setLanguageFilter,
+    setFilter,
+    setSetFilter,
+    rarityFilter,
+    setRarityFilter,
+    isEnabled,
+    buildParams,
+  } = useProductSearchState({
+    debounceMs: 250,
+    minQueryLength: 2,
+    allowEmptyQuery: true,
+    defaultPageSize: 25,
+    defaultSort: 'name_asc',
+    includeParseDebug: true,
+  });
   const [toolsOpen, setToolsOpen] = useState(false);
   const [expandedProductId, setExpandedProductId] = useState<string | null>(null);
   const [barcodeProduct, setBarcodeProduct] = useState<Product | null>(null);
   const [printingKey, setPrintingKey] = useState<string | null>(null);
   const [printErr, setPrintErr] = useState<string | null>(null);
-  const debounced = useDebounced(q, 250);
   const productsQuery = useQuery({
-    queryKey: ['products', debounced, page, pageSize, sort, setFilter, rarityFilter],
+    queryKey: productsSearchQueryKey('inventory', {
+      query: debounced,
+      page,
+      pageSize,
+      sort,
+      game: gameFilter,
+      language: languageFilter,
+      setName: setFilter,
+      rarity: rarityFilter,
+      includeParseDebug: true,
+    }),
     queryFn: () => {
-      const params = new URLSearchParams();
-      params.set('q', debounced);
-      params.set('page', String(page));
-      params.set('pageSize', String(pageSize));
-      params.set('sort', sort);
-      if (setFilter) params.set('set', setFilter);
-      if (rarityFilter) params.set('rarity', rarityFilter);
+      const params = buildParams();
       return api.get<ProductSearchResponse>(`/products/search?${params.toString()}`);
     },
-    enabled: debounced.length === 0 || debounced.length > 1,
+    enabled: isEnabled,
     placeholderData: (prev) => prev,
   });
   const { data, isLoading } = productsQuery;
@@ -167,10 +212,6 @@ export default function InventoryPage() {
       setExpandedProductId(null);
     }
   }, [data?.results, expandedProductId]);
-
-  useEffect(() => {
-    setPage(1);
-  }, [debounced, sort, setFilter, rarityFilter]);
 
   useEffect(() => {
     const totalPages = data?.pagination.totalPages ?? 1;
@@ -337,7 +378,7 @@ export default function InventoryPage() {
           placeholder="Search by name, set, or card number…"
           className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 outline-none focus:border-emerald-500"
         />
-        <div className="mt-3 grid gap-2 md:grid-cols-4">
+        <div className="mt-3 grid gap-2 md:grid-cols-6">
           <label className="text-xs text-slate-300">
             <span className="block mb-1">Sort</span>
             <select
@@ -350,6 +391,34 @@ export default function InventoryPage() {
               <option value="price_asc">Price: low to high</option>
             </select>
           </label>
+
+          <div className="text-xs text-slate-300">
+            <span className="block mb-1">Game</span>
+            <SearchableSelect
+              value={gameFilter}
+              onChange={setGameFilter}
+              placeholder="All games"
+              searchPlaceholder="Search games"
+              options={(data?.filters.games ?? []).map((game) => ({
+                value: game,
+                label: game.replace(/_/g, ' '),
+              }))}
+            />
+          </div>
+
+          <div className="text-xs text-slate-300">
+            <span className="block mb-1">Language</span>
+            <SearchableSelect
+              value={languageFilter}
+              onChange={setLanguageFilter}
+              placeholder="All languages"
+              searchPlaceholder="Search languages"
+              options={(data?.filters.languages ?? []).map((language) => ({
+                value: language,
+                label: language,
+              }))}
+            />
+          </div>
 
           <div className="text-xs text-slate-300">
             <span className="block mb-1">Set</span>
@@ -425,6 +494,64 @@ export default function InventoryPage() {
                 Next
               </button>
             </div>
+          </div>
+        )}
+        {!isLoading && data?.parse && (data.parse.originalQuery.length > 0 || data.parse.conflicts.length > 0) && (
+          <div className="mt-3 rounded-xl border border-sky-800/50 bg-sky-950/20 px-3 py-2 text-xs text-sky-100">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="uppercase tracking-wide text-sky-300/80">Search interpretation</span>
+              <span className="rounded-full border border-sky-700/60 bg-sky-900/40 px-2 py-0.5 text-[11px]">
+                {data.parse.strategy === 'plain'
+                  ? 'plain'
+                  : data.parse.strategy === 'set_exact'
+                    ? 'set exact'
+                    : 'set fuzzy'}
+              </span>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
+              {data.parse.inferred.setName && (
+                <span className="rounded-full border border-emerald-700/60 bg-emerald-950/40 px-2 py-0.5 text-emerald-200">
+                  Inferred set: {data.parse.inferred.setName}
+                </span>
+              )}
+              {data.parse.inferred.nameQuery && (
+                <span className="rounded-full border border-slate-600 bg-slate-900/80 px-2 py-0.5 text-slate-200">
+                  Name query: {data.parse.inferred.nameQuery}
+                </span>
+              )}
+              {data.parse.explicit.setName && (
+                <span className="rounded-full border border-slate-600 bg-slate-900/80 px-2 py-0.5 text-slate-200">
+                  Set filter: {data.parse.explicit.setName}
+                </span>
+              )}
+              {data.parse.explicit.game && (
+                <span className="rounded-full border border-slate-600 bg-slate-900/80 px-2 py-0.5 text-slate-200">
+                  Game: {data.parse.explicit.game}
+                </span>
+              )}
+              {data.parse.explicit.language && (
+                <span className="rounded-full border border-slate-600 bg-slate-900/80 px-2 py-0.5 text-slate-200">
+                  Language: {data.parse.explicit.language}
+                </span>
+              )}
+              {data.parse.explicit.rarity && (
+                <span className="rounded-full border border-slate-600 bg-slate-900/80 px-2 py-0.5 text-slate-200">
+                  Rarity: {data.parse.explicit.rarity}
+                </span>
+              )}
+            </div>
+            {data.parse.conflicts.length > 0 && (
+              <div className="mt-2 space-y-1 text-amber-200">
+                {data.parse.conflicts.map((conflict) => (
+                  <p key={conflict}>Conflict: {conflict}</p>
+                ))}
+              </div>
+            )}
+            {data.parse.ambiguousSetCandidates.length > 1 && (
+              <p className="mt-2 text-[11px] text-sky-200/90">
+                Ambiguous set matches: {data.parse.ambiguousSetCandidates.join(', ')}
+              </p>
+            )}
           </div>
         )}
         {isLoading && <p className="opacity-60 mt-4">Searching…</p>}

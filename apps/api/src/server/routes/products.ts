@@ -20,6 +20,11 @@ export function productsRouter(c: Container): Router {
           : 'name_asc';
       const setName = (req.query.set as string | undefined) ?? '';
       const rarity = (req.query.rarity as string | undefined) ?? '';
+      const game = (req.query.game as string | undefined) ?? '';
+      const language = (req.query.language as string | undefined) ?? '';
+      const includeParseDebugRaw = (req.query.includeParseDebug as string | undefined) ?? '';
+      const includeParseDebug =
+        includeParseDebugRaw === '1' || includeParseDebugRaw.toLowerCase() === 'true';
 
       const out = await c.products.search(req.user!.storeId, {
         query: q,
@@ -28,6 +33,9 @@ export function productsRouter(c: Container): Router {
         sort,
         setName,
         rarity,
+        game,
+        language,
+        includeParseDebug,
       });
       res.json(out);
     }),

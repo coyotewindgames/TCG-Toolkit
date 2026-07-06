@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import QRCode from 'qrcode';
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
+import { useProductSearchState } from '../hooks/useProductSearchState';
 import { useSession } from '../hooks/useSession';
 import { api } from '../lib/api';
 import { getSocket } from '../lib/socket';
+import { productsSearchQueryKey } from '../lib/searchQueryKeys';
 
 type Line = {
   id: string;
@@ -101,15 +104,46 @@ export default function RegisterPage() {
   const [status, setStatus] = useState<'idle' | 'scanning' | 'checkout' | 'paid'>('idle');
   const [lastError, setLastError] = useState<string | null>(null);
   const [remoteScanQr, setRemoteScanQr] = useState<string | null>(null);
-  const [cardQuery, setCardQuery] = useState('');
-  const [searchingCards, setSearchingCards] = useState(false);
-  const [cardSearchError, setCardSearchError] = useState<string | null>(null);
-  const [cardResults, setCardResults] = useState<ProductSearchItem[]>([]);
+  const {
+    query: cardQuery,
+    setQuery: setCardQuery,
+    isEnabled: isCardSearchEnabled,
+    buildParams: buildCardSearchParams,
+  } = useProductSearchState({
+    debounceMs: 300,
+    minQueryLength: 2,
+    allowEmptyQuery: false,
+    defaultPageSize: 8,
+    defaultSort: 'name_asc',
+  });
   const [selectedProduct, setSelectedProduct] = useState<ProductSearchItem | null>(null);
   const [selectedProductSkus, setSelectedProductSkus] = useState<ProductSkusResult['skus']>([]);
   const [loadingProductSkus, setLoadingProductSkus] = useState(false);
   const [productSkuError, setProductSkuError] = useState<string | null>(null);
   const [addingSkuId, setAddingSkuId] = useState<string | null>(null);
+
+  const cardSearch = useQuery<ProductSearchResult>({
+    queryKey: productsSearchQueryKey('register', {
+      query: cardQuery,
+      page: 1,
+      pageSize: 8,
+      sort: 'name_asc',
+      includeParseDebug: false,
+    }),
+    queryFn: ({ signal }) => {
+      const params = buildCardSearchParams({ page: 1, pageSize: 8, sort: 'name_asc' });
+      return api.get<ProductSearchResult>(`/products/search?${params.toString()}`, { signal });
+    },
+    enabled: isCardSearchEnabled,
+    placeholderData: (prev) => prev,
+  });
+  const cardResults = cardSearch.data?.results ?? [];
+  const searchingCards = cardSearch.isFetching;
+  const cardSearchError = cardSearch.isError
+    ? cardSearch.error instanceof Error
+      ? cardSearch.error.message
+      : String(cardSearch.error)
+    : null;
 
   const createOrder = useCallback(async () => {
     if (!session.locationId) return null;
@@ -184,47 +218,6 @@ export default function RegisterPage() {
       cancelled = true;
     };
   }, [remoteScanUrl]);
-
-  useEffect(() => {
-    const trimmed = cardQuery.trim();
-    if (trimmed.length < 2) {
-      setCardResults([]);
-      setSearchingCards(false);
-      setCardSearchError(null);
-      return;
-    }
-
-    let cancelled = false;
-    setSearchingCards(true);
-    setCardSearchError(null);
-    const timeout = window.setTimeout(() => {
-      const params = new URLSearchParams({
-        q: trimmed,
-        page: '1',
-        pageSize: '8',
-        sort: 'name_asc',
-      });
-      void api
-        .get<ProductSearchResult>(`/products/search?${params.toString()}`)
-        .then((data) => {
-          if (cancelled) return;
-          setCardResults(data.results ?? []);
-        })
-        .catch((err) => {
-          if (cancelled) return;
-          setCardSearchError(err instanceof Error ? err.message : String(err));
-          setCardResults([]);
-        })
-        .finally(() => {
-          if (!cancelled) setSearchingCards(false);
-        });
-    }, 300);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timeout);
-    };
-  }, [cardQuery]);
 
   // Ensure we have an order id
   useEffect(() => {
@@ -306,7 +299,6 @@ export default function RegisterPage() {
       setLines([]);
       setTotals({ subtotalCents: 0, taxCents: 0, totalCents: 0 });
       setCardQuery('');
-      setCardResults([]);
       setSelectedProduct(null);
       setSelectedProductSkus([]);
       setOrderId(null);

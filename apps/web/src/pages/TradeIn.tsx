@@ -22,8 +22,9 @@ import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { CardCondition, CardLanguage, CardPrinting, PayoutKind } from '@tcg/shared';
 import { api } from '../lib/api';
+import { pkmnPricesSearchQueryKey } from '../lib/searchQueryKeys';
 import { useSession } from '../hooks/useSession';
-import { useDebounced } from '../hooks/useBarcodeScanner';
+import { useProductSearchState } from '../hooks/useProductSearchState';
 import SearchableSelect from '../components/SearchableSelect';
 
 type TcgapiCard = {
@@ -216,16 +217,31 @@ function sameQueuedItemIdentity(a: QueuedTradeItem, b: QueuedTradeItem): boolean
 
 export default function TradeInPage() {
   const session = useSession();
-  const [q, setQ] = useState('');
+  const {
+    query: q,
+    setQuery: setQ,
+    debouncedQuery: debounced,
+    languageFilter: language,
+    setLanguageFilter: setLanguage,
+    setFilter: setId,
+    setSetFilter: setSetId,
+    rarityFilter: rarity,
+    setRarityFilter: setRarity,
+    debouncedRarityFilter: debouncedRarity,
+  } = useProductSearchState({
+    debounceMs: 300,
+    rarityDebounceMs: 300,
+    minQueryLength: 2,
+    allowEmptyQuery: false,
+    defaultPageSize: 24,
+    defaultSort: 'name_asc',
+    initialLanguageFilter: 'english',
+  });
+
   // Language replaces the old game selector — PkmnPrices is Pokémon-only, so
   // the useful axis is which language of card to browse.
-  const [language, setLanguage] = useState<string>('english');
-  const [setId, setSetId] = useState<string>('');
-  const [rarity, setRarity] = useState<string>('');
   const [selected, setSelected] = useState<TcgapiCard | null>(null);
   const [queuedItems, setQueuedItems] = useState<QueuedTradeItem[]>([]);
-  const debounced = useDebounced(q, 300);
-  const debouncedRarity = useDebounced(rarity, 300);
 
   // If the operator types something that looks like a card number
   // ("025", "025/189", "XY133"), use it as the `number` filter. Otherwise treat
@@ -256,7 +272,14 @@ export default function TradeInPage() {
     !!setId;
 
   const search = useQuery<SearchResponse>({
-    queryKey: ['pkmnprices.search', { nameParam, numberParam, language, setId, debouncedRarity }],
+    queryKey: pkmnPricesSearchQueryKey({
+      query: nameParam,
+      number: numberParam,
+      language,
+      setId,
+      rarity: debouncedRarity,
+      perPage: 24,
+    }),
     queryFn: ({ signal }) => {
       const params = new URLSearchParams();
       if (nameParam) params.set('q', nameParam);

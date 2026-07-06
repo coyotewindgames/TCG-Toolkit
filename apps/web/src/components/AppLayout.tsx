@@ -12,6 +12,16 @@ interface NavItem {
 
 const NAV: NavItem[] = [
   {
+    to: '/transactions',
+    label: 'Transactions',
+    icon: (
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M4 7h16M4 12h16M4 17h10" />
+        <path d="m17 14 3 3-3 3" />
+      </svg>
+    ),
+  },
+  {
     to: '/register',
     label: 'Register',
     icon: (
