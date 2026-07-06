@@ -22,30 +22,11 @@ const NAV: NavItem[] = [
     ),
   },
   {
-    to: '/register',
-    label: 'Register',
-    icon: (
-      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <rect x="3" y="6" width="18" height="13" rx="2" />
-        <path d="M3 10h18M8 14h2M14 14h2" />
-      </svg>
-    ),
-  },
-  {
     to: '/inventory',
     label: 'Inventory',
     icon: (
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M3 7h18M3 12h18M3 17h18" />
-      </svg>
-    ),
-  },
-  {
-    to: '/tradein',
-    label: 'Trade-In',
-    icon: (
-      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M7 7h11l-2-3M17 17H6l2 3" />
       </svg>
     ),
   },

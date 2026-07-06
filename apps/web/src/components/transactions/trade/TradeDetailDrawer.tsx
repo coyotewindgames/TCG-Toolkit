@@ -1,168 +1,277 @@
-import type { CardCondition, CardLanguage, CardPrinting, PayoutKind } from '@tcg/shared';
-import { centsToMoney } from '../../../lib/transactions';
+import { useEffect } from 'react';
 import type { TradeModeTransactionController } from '../../../hooks/transactions/useTradeTransaction';
 
 interface TradeDetailDrawerProps {
   trade: TradeModeTransactionController;
 }
 
+function formatCents(cents: number | null | undefined): string {
+  if (cents == null) return '—';
+  return `$${(cents / 100).toFixed(2)}`;
+}
+
+/**
+ * Full-screen (mobile) / side-sheet (desktop) card configuration drawer.
+ * Opens whenever the user selects a card in the search grid.
+ */
 export default function TradeDetailDrawer({ trade }: TradeDetailDrawerProps) {
-  const card = trade.selectedCard;
-  const open = !!card;
+  const open = !!trade.selectedCard;
+
+  // Escape closes the drawer for keyboard users
+  useEffect(() => {
+    if (!open) return;
+    function onKey(event: KeyboardEvent) {
+      if (event.key === 'Escape') trade.clearTradeSelection();
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, trade]);
 
   return (
     <>
       <div
         onClick={trade.clearTradeSelection}
-        className={`fixed inset-0 z-30 bg-slate-950/60 transition-opacity ${
+        aria-hidden={!open}
+        className={`fixed inset-0 z-40 bg-slate-950/70 transition-opacity ${
           open ? 'opacity-100' : 'pointer-events-none opacity-0'
         }`}
-        aria-hidden={!open}
       />
       <aside
-        role="dialog"
-        aria-modal="true"
-        aria-label="Trade intake detail"
-        className={`fixed inset-y-0 right-0 z-40 w-full border-l border-slate-800 bg-slate-900 shadow-2xl transition-transform sm:w-[480px] lg:w-[560px] ${
+        aria-label="Configure trade item"
+        aria-hidden={!open}
+        className={`fixed inset-y-0 right-0 z-50 flex w-full max-w-xl flex-col border-l border-slate-800 bg-slate-900 shadow-2xl transition-transform ${
           open ? 'translate-x-0' : 'translate-x-full'
         }`}
       >
-        {card && (
-          <div className="flex h-full flex-col">
-            <header className="flex items-start justify-between gap-2 border-b border-slate-800 p-4">
+        {trade.selectedCard && (
+          <>
+            <header className="flex items-start justify-between gap-3 border-b border-slate-800 px-4 py-3">
               <div className="min-w-0">
-                <h2 className="truncate text-lg font-bold" title={card.name}>
-                  {card.name}
-                </h2>
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-300">
+                  Configure line item
+                </p>
+                <h3 className="mt-0.5 truncate text-lg font-semibold" title={trade.selectedCard.name}>
+                  {trade.selectedCard.name}
+                </h3>
                 <p className="truncate text-xs text-slate-400">
-                  {[card.setName, card.number ? `#${card.number}` : null, card.rarity].filter(Boolean).join(' · ')}
+                  {trade.selectedCard.setName ?? ''}
+                  {trade.selectedCard.number ? ` • #${trade.selectedCard.number}` : ''}
+                  {trade.selectedCard.rarity ? ` • ${trade.selectedCard.rarity}` : ''}
                 </p>
               </div>
               <button
                 type="button"
                 onClick={trade.clearTradeSelection}
-                className="-m-1 shrink-0 p-1 text-slate-400 hover:text-slate-200"
                 aria-label="Close"
+                className="rounded p-1 text-slate-400 hover:bg-slate-800 hover:text-slate-100"
               >
                 ✕
               </button>
             </header>
 
-            <div className="flex-1 space-y-4 overflow-y-auto p-4">
-              <div className="flex items-center gap-3">
-                <div className="h-20 w-14 shrink-0 overflow-hidden rounded bg-slate-800">
-                  {card.imageUrl ? (
-                    <img src={card.imageUrl} alt={card.name} className="h-full w-full object-contain" />
-                  ) : null}
+            <div className="flex-1 overflow-y-auto px-4 py-4">
+              <div className="flex flex-col gap-4 sm:flex-row">
+                <div className="w-full sm:w-40">
+                  <div className="aspect-[3/4] overflow-hidden rounded-xl border border-slate-800 bg-slate-800">
+                    {trade.selectedCard.imageUrl && (
+                      <img
+                        src={trade.selectedCard.imageUrl}
+                        alt={trade.selectedCard.name}
+                        className="h-full w-full object-contain"
+                        loading="lazy"
+                      />
+                    )}
+                  </div>
+                  <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950/60 p-2 text-xs text-slate-300">
+                    <p>
+                      Market:{' '}
+                      <span className="font-mono">{formatCents(trade.selectedMarketPriceCents)}</span>
+                    </p>
+                    <p>
+                      Suggested:{' '}
+                      <span className="font-mono text-emerald-300">
+                        {formatCents(trade.suggestedTradeUnitCents)}
+                      </span>
+                    </p>
+                    <p>
+                      Line total:{' '}
+                      <span className="font-mono text-emerald-300">
+                        {formatCents(trade.pendingLineTotalCents)}
+                      </span>
+                    </p>
+                  </div>
                 </div>
-                <div className="min-w-0">
-                  <p className="truncate font-semibold" title={card.name}>
-                    {card.name}
-                  </p>
-                  <p className="text-xs text-slate-400">
-                    {[card.setName, card.number].filter(Boolean).join(' • ')}
-                  </p>
-                  <p className="text-xs text-slate-500">
-                    Market {trade.selectedMarketPriceCents == null ? '—' : centsToMoney(trade.selectedMarketPriceCents)}
-                  </p>
+
+                <div className="min-w-0 flex-1 space-y-3">
+                  <Row>
+                    <EnumSelect
+                      label="Condition"
+                      value={trade.condition}
+                      options={trade.conditionOptions}
+                      onChange={trade.setCondition}
+                    />
+                    <EnumSelect
+                      label="Printing"
+                      value={trade.printing}
+                      options={trade.printingOptions}
+                      onChange={trade.setPrinting}
+                    />
+                  </Row>
+                  <Row>
+                    <EnumSelect
+                      label="Language"
+                      value={trade.cardLanguage}
+                      options={trade.cardLanguageOptions}
+                      onChange={trade.setCardLanguage}
+                    />
+                    <NumberField
+                      label="Quantity"
+                      min={1}
+                      value={trade.quantity}
+                      onChange={(next) => trade.setQuantity(Math.max(1, next))}
+                    />
+                  </Row>
+                  <Row>
+                    <EnumSelect
+                      label="Payout"
+                      value={trade.payout}
+                      options={['cash', 'store_credit']}
+                      onChange={trade.setPayout}
+                    />
+                    <TextField
+                      label="Payout modifier %"
+                      value={trade.payoutModifierPercent}
+                      onChange={trade.setPayoutModifierPercent}
+                      placeholder="0"
+                      inputMode="decimal"
+                    />
+                  </Row>
+                  <TextField
+                    label="Override value ($)"
+                    value={trade.overrideValue}
+                    onChange={trade.setOverrideValue}
+                    placeholder="Leave blank to use suggested"
+                    inputMode="decimal"
+                  />
                 </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-                <EnumSelect<CardCondition>
-                  value={trade.condition}
-                  options={trade.conditionOptions}
-                  onChange={trade.setCondition}
-                />
-                <EnumSelect<CardPrinting>
-                  value={trade.printing}
-                  options={trade.printingOptions}
-                  onChange={trade.setPrinting}
-                />
-                <EnumSelect<CardLanguage>
-                  value={trade.cardLanguage}
-                  options={trade.cardLanguageOptions}
-                  onChange={trade.setCardLanguage}
-                />
-                <input
-                  type="number"
-                  min={1}
-                  step={1}
-                  value={trade.quantity}
-                  onChange={(event) =>
-                    trade.setQuantity(Math.max(1, Math.floor(Number(event.target.value) || 1)))
-                  }
-                  className="rounded-md border border-slate-700 bg-slate-900 px-2 py-2 text-xs"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
-                <EnumSelect<PayoutKind>
-                  value={trade.payout}
-                  options={['cash', 'store_credit']}
-                  onChange={trade.setPayout}
-                  labels={{ cash: 'Cash', store_credit: 'Store credit' }}
-                />
-                <input
-                  type="number"
-                  step="0.1"
-                  value={trade.payoutModifierPercent}
-                  onChange={(event) => trade.setPayoutModifierPercent(event.target.value)}
-                  placeholder="Modifier %"
-                  className="rounded-md border border-slate-700 bg-slate-900 px-2 py-2 text-xs"
-                />
-                <input
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  value={trade.overrideValue}
-                  onChange={(event) => trade.setOverrideValue(event.target.value)}
-                  placeholder="Override $"
-                  className="rounded-md border border-slate-700 bg-slate-900 px-2 py-2 text-xs"
-                />
               </div>
             </div>
 
-            <footer className="border-t border-slate-800 bg-slate-900 p-4">
-              <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-slate-700 bg-slate-950 p-2 text-xs">
-                <span>
-                  Suggested {centsToMoney(trade.suggestedTradeUnitCents)} • Line total {centsToMoney(trade.pendingLineTotalCents)}
-                </span>
+            <footer className="border-t border-slate-800 px-4 py-3">
+              <div className="flex items-center justify-between gap-2">
                 <button
                   type="button"
-                  onClick={trade.addTradeItemToQueue}
-                  className="rounded bg-emerald-500 px-2 py-1 font-semibold text-slate-900"
+                  onClick={trade.clearTradeSelection}
+                  className="min-h-11 rounded-lg border border-slate-700 bg-slate-900 px-4 text-sm font-semibold text-slate-200 transition hover:bg-slate-800"
                 >
-                  Add line item
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    trade.addTradeItemToQueue();
+                    trade.clearTradeSelection();
+                  }}
+                  className="min-h-11 rounded-lg bg-emerald-500 px-4 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400"
+                >
+                  Add to queue
                 </button>
               </div>
             </footer>
-          </div>
+          </>
         )}
       </aside>
     </>
   );
 }
 
-interface EnumSelectProps<T extends string> {
-  value: T;
-  options: T[];
-  onChange: (value: T) => void;
-  labels?: Partial<Record<T, string>>;
+function Row({ children }: { children: React.ReactNode }) {
+  return <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">{children}</div>;
 }
 
-function EnumSelect<T extends string>({ value, options, onChange, labels }: EnumSelectProps<T>) {
+function EnumSelect<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: T;
+  options: readonly T[];
+  onChange: (next: T) => void;
+}) {
   return (
-    <select
-      value={value}
-      onChange={(event) => onChange(event.target.value as T)}
-      className="rounded-md border border-slate-700 bg-slate-900 px-2 py-2 text-xs"
-    >
-      {options.map((option) => (
-        <option key={option} value={option}>
-          {labels?.[option] ?? option}
-        </option>
-      ))}
-    </select>
+    <label className="block text-xs">
+      <span className="mb-1 block font-medium uppercase tracking-wide text-slate-400">
+        {label}
+      </span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value as T)}
+        className="min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm outline-none focus:border-emerald-500"
+      >
+        {options.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function NumberField({
+  label,
+  value,
+  onChange,
+  min,
+}: {
+  label: string;
+  value: number;
+  onChange: (next: number) => void;
+  min?: number;
+}) {
+  return (
+    <label className="block text-xs">
+      <span className="mb-1 block font-medium uppercase tracking-wide text-slate-400">
+        {label}
+      </span>
+      <input
+        type="number"
+        min={min}
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value) || 0)}
+        className="min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm outline-none focus:border-emerald-500"
+      />
+    </label>
+  );
+}
+
+function TextField({
+  label,
+  value,
+  onChange,
+  placeholder,
+  inputMode,
+}: {
+  label: string;
+  value: string;
+  onChange: (next: string) => void;
+  placeholder?: string;
+  inputMode?: 'decimal' | 'numeric' | 'text';
+}) {
+  return (
+    <label className="block text-xs">
+      <span className="mb-1 block font-medium uppercase tracking-wide text-slate-400">
+        {label}
+      </span>
+      <input
+        value={value}
+        inputMode={inputMode}
+        placeholder={placeholder}
+        onChange={(event) => onChange(event.target.value)}
+        className="min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm outline-none focus:border-emerald-500"
+      />
+    </label>
   );
 }

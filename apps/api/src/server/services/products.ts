@@ -76,6 +76,14 @@ function removeFirstWholePhrase(source: string, phrase: string): string {
   return source;
 }
 
+function tokenVariants(token: string): string[] {
+  const normalized = normalizeForMatch(token);
+  if (!normalized) return [];
+  if (normalized === 'mega') return ['mega', 'm'];
+  if (normalized === 'm') return ['m', 'mega'];
+  return [normalized];
+}
+
 export class ProductsService {
   constructor(private readonly db: Database) {}
 
@@ -187,6 +195,34 @@ export class ProductsService {
     const effectiveSetFilter = explicitSetFilter || inferredSetFilter;
     const effectiveNameQuery = (parsed.inferredNameQuery || trimmed).trim();
     const pattern = `%${effectiveNameQuery}%`;
+    const normalizedTokens = normalizeForMatch(effectiveNameQuery)
+      .split(' ')
+      .map((token) => token.trim())
+      .filter((token) => token.length > 0);
+
+    const tokenSearchFilters = normalizedTokens.map((token) => {
+      const variants = tokenVariants(token);
+      return or(
+        ...variants.map((variant) => {
+          const tokenPattern = `%${variant}%`;
+          return or(
+            ilike(schema.products.name, tokenPattern),
+            ilike(schema.products.setName, tokenPattern),
+            ilike(schema.products.cardNumber, tokenPattern),
+          );
+        }),
+      );
+    });
+
+    const textSearchFilter =
+      effectiveNameQuery.length > 0
+        ? or(
+            ilike(schema.products.name, pattern),
+            ilike(schema.products.setName, pattern),
+            ilike(schema.products.cardNumber, pattern),
+            tokenSearchFilters.length > 0 ? and(...tokenSearchFilters) : undefined,
+          )
+        : undefined;
 
     const conflictNotes: string[] = [];
     if (explicitSetFilter && parsed.inferredSetName && explicitSetFilter !== parsed.inferredSetName) {
@@ -196,13 +232,7 @@ export class ProductsService {
     const baseSearchFilters = [
       eq(schema.products.storeId, storeId),
       eq(schema.locations.storeId, storeId),
-      effectiveNameQuery
-        ? or(
-            ilike(schema.products.name, pattern),
-            ilike(schema.products.setName, pattern),
-            ilike(schema.products.cardNumber, pattern),
-          )
-        : undefined,
+      textSearchFilter,
     ].filter(Boolean);
 
     const rowFilters = [

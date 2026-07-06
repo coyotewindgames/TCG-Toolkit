@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useTradeTransaction } from '../../hooks/transactions/useTradeTransaction';
 import type { TransactionMode } from '../../lib/transactions';
 import TradeSearchPanel from './trade/TradeSearchPanel';
@@ -10,28 +11,48 @@ interface TradeModeAdapterProps {
   mode: TransactionMode;
 }
 
+/**
+ * Buy / Trade UI.
+ *
+ * Layout:
+ *  - Mobile: single column, mode-specific action bar at the bottom,
+ *    cart opens as a slide-in sheet
+ *  - Desktop: two-column grid with a sticky queue sidebar
+ *
+ * The card configuration drawer is triggered by selecting a card and floats
+ * on top of both layouts.
+ */
 export default function TradeModeAdapter({ active, mode }: TradeModeAdapterProps) {
   const trade = useTradeTransaction(active, mode);
-  const title = mode === 'buy' ? 'Buy Intake' : 'Trade Intake';
-  const helper =
-    mode === 'buy'
-      ? 'Receive cards from customers, value them, and create a buy intake batch.'
-      : 'Collect cards, review value, and create a trade batch.';
+  const [queueOpen, setQueueOpen] = useState(false);
+
+  if (!active) return null;
+
   const commitLabel = mode === 'buy' ? 'Create buy intake' : 'Create trade batch';
 
   return (
-    <section hidden={!active} aria-hidden={!active} className="space-y-4">
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
-        <article className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 lg:col-span-8">
-          <h2 className="text-lg font-semibold">{title}</h2>
-          <p className="mt-1 text-sm text-slate-300">{helper}</p>
+    <>
+      <section className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+        <div className="lg:col-span-8">
           <TradeSearchPanel trade={trade} />
-        </article>
+        </div>
 
-        <TradeQueuePanel trade={trade} />
-      </div>
+        <TradeQueuePanel
+          trade={trade}
+          openOnMobile={queueOpen}
+          onCloseMobile={() => setQueueOpen(false)}
+        />
+      </section>
+
+      {/* Line-item configuration slides in when a card is selected */}
       <TradeDetailDrawer trade={trade} />
-      <TradeFooterBar trade={trade} commitLabel={commitLabel} />
-    </section>
+
+      {/* Sticky bottom bar: shows cart summary + primary commit action */}
+      <TradeFooterBar
+        trade={trade}
+        commitLabel={commitLabel}
+        onOpenQueue={() => setQueueOpen(true)}
+      />
+    </>
   );
 }

@@ -11,10 +11,8 @@ import ForgotPasswordPage from './pages/ForgotPassword';
 import ResetPasswordPage from './pages/ResetPassword';
 import OnboardingPage from './pages/Onboarding';
 import PickLocationPage from './pages/PickLocation';
-import RegisterPage from './pages/Register';
 import RemoteScanPage from './pages/RemoteScan';
 import InventoryPage from './pages/Inventory';
-import TradeInPage from './pages/TradeIn';
 import TransactionsPage from './pages/Transactions';
 import AnalyticsPage from './pages/Analytics';
 import SettingsIntegrationsPage from './pages/SettingsIntegrations';
@@ -104,9 +102,7 @@ createRoot(root).render(
           >
             <Route path="/" element={<RootRedirect />} />
             <Route path="/transactions" element={<TransactionsPage />} />
-            <Route path="/register" element={<RegisterPage />} />
             <Route path="/inventory" element={<InventoryPage />} />
-            <Route path="/tradein" element={<TradeInPage />} />
             <Route path="/analytics" element={<AnalyticsPage />} />
             <Route path="/settings/integrations" element={<SettingsIntegrationsPage />} />
           </Route>
