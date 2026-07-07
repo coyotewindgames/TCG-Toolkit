@@ -152,6 +152,8 @@ export interface TradeModeTransactionController {
   searchFetching: boolean;
   searchError: string | null;
   looksLikeNumber: boolean;
+  inferredSetId: string | null;
+  inferredSetName: string | null;
   selectedCardPrices: PriceRow[];
   selectedMarketPriceCents: number | null;
   suggestedTradeUnitCents: number;
@@ -235,17 +237,64 @@ export function useTradeTransaction(active: boolean, mode: TransactionMode): Tra
     staleTime: 24 * 60 * 60_000,
   });
 
+  // Infer a set from the free-text query. Example: typing
+  // "rayquaza evolving skies" splits into name="rayquaza" + setId=(Evolving Skies).
+  // The user's explicit set filter always wins.
+  const inferredSet = useMemo(() => {
+    if (setId) return null;
+    if (looksLikeNumber) return null;
+    const sets = setsQuery.data?.sets ?? [];
+    if (!sets.length || !nameParam) return null;
+    const haystack = nameParam.toLowerCase();
+    let best: { id: string; name: string; start: number; length: number } | null = null;
+    for (const set of sets) {
+      const needle = set.name.toLowerCase();
+      if (needle.length < 3) continue;
+      const idx = haystack.indexOf(needle);
+      if (idx === -1) continue;
+      if (!best || needle.length > best.length) {
+        best = { id: set.id, name: set.name, start: idx, length: needle.length };
+      }
+    }
+    return best;
+  }, [setId, looksLikeNumber, setsQuery.data, nameParam]);
+
+  const nameParamAfterSetStrip = useMemo(() => {
+    if (!inferredSet) return nameParam;
+    return (
+      nameParam.slice(0, inferredSet.start) +
+      nameParam.slice(inferredSet.start + inferredSet.length)
+    )
+      .replace(/\s+/g, ' ')
+      .trim();
+  }, [inferredSet, nameParam]);
+
+  const effectiveNameParam = inferredSet ? nameParamAfterSetStrip : nameParam;
+  const effectiveSetId = setId || inferredSet?.id || '';
+
   const searchEnabled =
-    active && (nameParam.length >= 2 || (!!numberParam && !!setId) || !!setId);
+    active && (effectiveNameParam.length >= 2 || (!!numberParam && !!effectiveSetId) || !!effectiveSetId);
 
   const searchQuery = useQuery<SearchResponse>({
-    queryKey: ['transactions.trade.search', { nameParam, numberParam, language, setId, debouncedRarity: raritySearch.normalizedQuery }],
+    queryKey: [
+      'transactions.trade.search',
+      {
+        nameParam: effectiveNameParam,
+        numberParam,
+        language,
+        setId: effectiveSetId,
+        debouncedRarity: raritySearch.normalizedQuery,
+      },
+    ],
     queryFn: ({ signal }) => {
       const params = new URLSearchParams();
-      if (nameParam) params.set('q', nameParam);
+      if (effectiveNameParam) params.set('q', effectiveNameParam);
       if (numberParam) params.set('number', numberParam);
-      if (language) params.set('language', language);
-      if (setId) params.set('setId', setId);
+      // pkmnprices treats missing language as "any"; English is the implicit
+      // default and the upstream API returns zero results when we pin it
+      // explicitly, so only send the param for non-default languages.
+      if (language && language !== 'english') params.set('language', language);
+      if (effectiveSetId) params.set('setId', effectiveSetId);
       params.set('perPage', '24');
       return api.get<SearchResponse>(`/pkmnprices/search?${params.toString()}`, { signal });
     },
@@ -457,6 +506,8 @@ export function useTradeTransaction(active: boolean, mode: TransactionMode): Tra
     searchFetching: searchQuery.isFetching,
     searchError: searchQuery.error ? (searchQuery.error as Error).message : null,
     looksLikeNumber,
+    inferredSetId: inferredSet?.id ?? null,
+    inferredSetName: inferredSet?.name ?? null,
     selectedCardPrices,
     selectedMarketPriceCents,
     suggestedTradeUnitCents,

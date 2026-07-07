@@ -83,7 +83,11 @@ export default function TradeSearchPanel({ trade }: TradeSearchPanelProps) {
 
 function ActiveFilterChips({ trade }: { trade: TradeModeTransactionController }) {
   const hasChips =
-    trade.language !== 'english' || trade.setId || trade.rarity || trade.looksLikeNumber;
+    trade.language !== 'english' ||
+    trade.setId ||
+    trade.rarity ||
+    trade.looksLikeNumber ||
+    !!trade.inferredSetName;
   if (!hasChips) return null;
   return (
     <div className="mt-3 flex flex-wrap gap-2 text-xs">
@@ -101,6 +105,13 @@ function ActiveFilterChips({ trade }: { trade: TradeModeTransactionController })
         <Chip onClear={() => trade.setSetId('')}>
           Set: {trade.sets.find((set) => set.id === trade.setId)?.name ?? trade.setId}
         </Chip>
+      )}
+      {!trade.setId && trade.inferredSetName && (
+        // Inferred set has no clear button — clearing would need the user to
+        // remove the set name from their query. The chip is informational.
+        <span className="inline-flex items-center gap-1 rounded-full border border-emerald-800/60 bg-emerald-950/50 px-2 py-1 text-emerald-200">
+          Detected set: {trade.inferredSetName}
+        </span>
       )}
       {trade.rarity && <Chip onClear={() => trade.setRarity('')}>Rarity: {trade.rarity}</Chip>}
     </div>
