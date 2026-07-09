@@ -170,6 +170,31 @@ export class PkmnPricesClient {
     }
   }
 
+  /**
+   * Fetch every set (across all pages). Used by the transactions UI so the
+   * client can offer inference like "Rayquaza Evolving Skies" → set = Evolving
+   * Skies even when the set isn't in the first page of results.
+   */
+  async listAllSets(params: ListSetsParams = {}): Promise<PkmnpricesSet[]> {
+    const started = Date.now();
+    try {
+      const rows = await this.sdk.sets.listAll(params);
+      this.log.debug(
+        {
+          source: 'pkmnprices',
+          endpoint: 'sets.listAll',
+          durationMs: Date.now() - started,
+          total: rows.length,
+        },
+        'pkmnprices sets all',
+      );
+      return rows.map(mapSet);
+    } catch (err) {
+      this.logError('sets.listAll', started, err);
+      throw err;
+    }
+  }
+
   // ---- Helpers ------------------------------------------------------------
 
   private logError(endpoint: string, started: number, err: unknown, extras: Record<string, unknown> = {}): void {

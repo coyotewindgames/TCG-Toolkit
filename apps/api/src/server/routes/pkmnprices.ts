@@ -112,7 +112,16 @@ export function pkmnpricesRouter(c: Container): Router {
         throw BadRequest('PkmnPrices.com is not configured for this store.');
       }
 
-      const cacheKey = `${req.user!.storeId}|sets|${parsed.data.language ?? ''}|${parsed.data.q ?? ''}`;
+      // pkmnprices treats missing language as "any" and returns zero sets
+      // when we explicitly pin the default 'english' value (English sets in
+      // the upstream catalog aren't tagged with a language string). Drop the
+      // filter for the default language so the operator gets every set.
+      const effectiveLanguage =
+        parsed.data.language && parsed.data.language.toLowerCase() !== 'english'
+          ? parsed.data.language
+          : undefined;
+
+      const cacheKey = `${req.user!.storeId}|sets|${effectiveLanguage ?? ''}|${parsed.data.q ?? ''}`;
       const cached = cacheGet<{ sets: Array<{ id: string; name: string }> }>(setsCache, cacheKey);
       if (cached) {
         res.json(cached);
@@ -120,13 +129,14 @@ export function pkmnpricesRouter(c: Container): Router {
       }
 
       const client = await c.pkmnpricesFor(req.user!.storeId);
-      const page = await client.listSets({
-        language: parsed.data.language,
+      // Fetch every set (paginated on the SDK side). The trade UI's set
+      // inference needs the full list — a 50-row cap silently breaks it.
+      const rows = await client.listAllSets({
+        language: effectiveLanguage,
         name: parsed.data.q,
-        per_page: 50,
       });
       const body = {
-        sets: page.results.map((s) => ({ id: String(s.id), name: s.name })),
+        sets: rows.map((s) => ({ id: String(s.id), name: s.name })),
       };
       cacheSet(setsCache, cacheKey, body, SETS_TTL_MS);
       res.json(body);
@@ -157,7 +167,13 @@ export function pkmnpricesRouter(c: Container): Router {
       // Pass currency filter to API; Free tier defaults to USD.
       const apiCurrency = status.tier === 'free' ? 'usd' : currency ?? undefined;
 
-      const cacheKey = `${req.user!.storeId}|search|${q ?? ''}|${setId ?? ''}|${number ?? ''}|${language ?? ''}|${apiCurrency ?? ''}|${page}|${perPage}`;
+      // pkmnprices returns zero results when we explicitly pin the default
+      // 'english' language, because English cards in the upstream catalog
+      // aren't tagged with a language string. Treat 'english' as "no filter".
+      const effectiveLanguage =
+        language && language.toLowerCase() !== 'english' ? language : undefined;
+
+      const cacheKey = `${req.user!.storeId}|search|${q ?? ''}|${setId ?? ''}|${number ?? ''}|${effectiveLanguage ?? ''}|${apiCurrency ?? ''}|${page}|${perPage}`;
       const cached = cacheGet<{ results: TcgapiCardShape[] }>(searchCache, cacheKey);
       if (cached) {
         res.json(cached);
@@ -169,7 +185,7 @@ export function pkmnpricesRouter(c: Container): Router {
         name: q,
         set_id: setId,
         number,
-        language,
+        language: effectiveLanguage,
         currency: apiCurrency as any,
         page,
         per_page: perPage,
