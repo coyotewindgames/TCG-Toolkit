@@ -113,6 +113,11 @@ function ActiveFilterChips({ trade }: { trade: TradeModeTransactionController })
           Detected set: {trade.inferredSetName}
         </span>
       )}
+      {trade.matchedByArtist && (
+        <span className="inline-flex items-center gap-1 rounded-full border border-sky-800/60 bg-sky-950/50 px-2 py-1 text-sky-200">
+          Matched by artist
+        </span>
+      )}
       {trade.rarity && <Chip onClear={() => trade.setRarity('')}>Rarity: {trade.rarity}</Chip>}
     </div>
   );
@@ -166,6 +171,11 @@ function SearchResults({ trade }: { trade: TradeModeTransactionController }) {
                 {card.number ? ` • #${card.number}` : ''}
               </p>
               {card.rarity && <p className="truncate text-[11px] text-slate-500">{card.rarity}</p>}
+              {card.artist && (
+                <p className="truncate text-[11px] text-slate-500" title={card.artist}>
+                  Art: {card.artist}
+                </p>
+              )}
             </div>
           </button>
         </li>

@@ -36,6 +36,7 @@ interface TcgapiCardShape {
   imageUrl: string | null;
   setId: string | null;
   setName: string | null;
+  artist: string | null;
   gameSlug: 'pokemon';
   gameName: 'Pokémon';
 }
@@ -57,6 +58,7 @@ const SearchQuery = z.object({
   setId: z.coerce.number().int().positive().optional(),
   number: z.string().trim().min(1).max(32).optional(),
   language: z.string().trim().min(1).max(32).optional(),
+  artist: z.string().trim().min(1).max(120).optional(),
   currency: z.string().trim().toLowerCase().optional(),
   page: z.coerce.number().int().positive().max(50).optional(),
   perPage: z.coerce.number().int().positive().max(100).optional(),
@@ -121,7 +123,7 @@ export function pkmnpricesRouter(c: Container): Router {
           ? parsed.data.language
           : undefined;
 
-      const cacheKey = `${req.user!.storeId}|sets|${effectiveLanguage ?? ''}|${parsed.data.q ?? ''}`;
+      const cacheKey = `${req.user!.storeId}|sets_v2|${effectiveLanguage ?? ''}|${parsed.data.q ?? ''}`;
       const cached = cacheGet<{ sets: Array<{ id: string; name: string }> }>(setsCache, cacheKey);
       if (cached) {
         res.json(cached);
@@ -148,12 +150,12 @@ export function pkmnpricesRouter(c: Container): Router {
     asyncHandler(async (req, res) => {
       const parsed = SearchQuery.safeParse(req.query);
       if (!parsed.success) throw BadRequest('invalid search params', parsed.error.flatten());
-      const { q, setId, number, language, currency } = parsed.data;
+      const { q, setId, number, language, currency, artist } = parsed.data;
       const perPage = parsed.data.perPage ?? 24;
       const page = parsed.data.page ?? 1;
 
-      if (!q && !setId && !number) {
-        throw BadRequest('Provide a search term, a set, or a card number.');
+      if (!q && !setId && !number && !artist) {
+        throw BadRequest('Provide a search term, a set, a card number, or an artist.');
       }
 
       const status = await c.configs.getPkmnpricesStatus(req.user!.storeId);
@@ -173,23 +175,45 @@ export function pkmnpricesRouter(c: Container): Router {
       const effectiveLanguage =
         language && language.toLowerCase() !== 'english' ? language : undefined;
 
-      const cacheKey = `${req.user!.storeId}|search|${q ?? ''}|${setId ?? ''}|${number ?? ''}|${effectiveLanguage ?? ''}|${apiCurrency ?? ''}|${page}|${perPage}`;
-      const cached = cacheGet<{ results: TcgapiCardShape[] }>(searchCache, cacheKey);
+      const cacheKey = `${req.user!.storeId}|search_v2|${q ?? ''}|${setId ?? ''}|${number ?? ''}|${effectiveLanguage ?? ''}|${artist ?? ''}|${apiCurrency ?? ''}|${page}|${perPage}`;
+      const cached = cacheGet<{ results: TcgapiCardShape[]; matchedBy?: 'name' | 'artist' }>(searchCache, cacheKey);
       if (cached) {
         res.json(cached);
         return;
       }
 
       const client = await c.pkmnpricesFor(req.user!.storeId);
-      const apiPage = await client.searchCards({
-        name: q,
+      const baseParams = {
         set_id: setId,
         number,
         language: effectiveLanguage,
         currency: apiCurrency as any,
         page,
         per_page: perPage,
+      };
+
+      // Primary search: explicit artist filter wins over free-text q.
+      let apiPage = await client.searchCards({
+        ...baseParams,
+        name: artist ? undefined : q,
+        artist,
       });
+      let matchedBy: 'name' | 'artist' = artist ? 'artist' : 'name';
+
+      // Transparent fallback: if a free-text query yielded no name hits and
+      // the operator didn't already specify artist, try the same string as
+      // an artist search. Handles "mitsuhiro arita" typed into the main
+      // search box without a separate artist field.
+      if (!artist && q && apiPage.results.length === 0) {
+        const fallback = await client.searchCards({
+          ...baseParams,
+          artist: q,
+        });
+        if (fallback.results.length > 0) {
+          apiPage = fallback;
+          matchedBy = 'artist';
+        }
+      }
 
       const results = apiPage.results.map(mapCardToTcgapiShape);
       const body = {
@@ -198,6 +222,7 @@ export function pkmnpricesRouter(c: Container): Router {
         perPage: apiPage.perPage,
         hasMore: apiPage.page * apiPage.perPage < apiPage.total,
         total: apiPage.total,
+        matchedBy,
       };
       cacheSet(searchCache, cacheKey, body, SEARCH_TTL_MS);
       res.json(body);
@@ -247,6 +272,7 @@ function mapCardToTcgapiShape(c: PkmnpricesCardSummary): TcgapiCardShape {
     imageUrl: c.imageUrl,
     setId: c.setId != null ? String(c.setId) : null,
     setName: c.setName,
+    artist: c.artist ?? null,
     gameSlug: 'pokemon',
     gameName: 'Pokémon',
   };

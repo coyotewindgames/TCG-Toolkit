@@ -17,6 +17,7 @@ type TcgapiCard = {
   setName: string | null;
   gameSlug: string | null;
   gameName: string | null;
+  artist?: string | null;
 };
 
 type SearchResponse = {
@@ -25,6 +26,7 @@ type SearchResponse = {
   perPage: number;
   hasMore: boolean;
   total: number | null;
+  matchedBy?: 'name' | 'artist';
 };
 
 type SetRow = { id: string; name: string; slug?: string };
@@ -154,6 +156,7 @@ export interface TradeModeTransactionController {
   looksLikeNumber: boolean;
   inferredSetId: string | null;
   inferredSetName: string | null;
+  matchedByArtist: boolean;
   selectedCardPrices: PriceRow[];
   selectedMarketPriceCents: number | null;
   suggestedTradeUnitCents: number;
@@ -231,7 +234,10 @@ export function useTradeTransaction(active: boolean, mode: TransactionMode): Tra
   const nameParam = looksLikeNumber ? '' : mainSearch.normalizedQuery;
 
   const setsQuery = useQuery<SetsResponse>({
-    queryKey: ['transactions.trade.sets', language],
+    // Cache key bumped to v2 after the API started returning the full set list
+    // (previously capped at 50 rows). Bumping the key forces a refetch so
+    // operators don't need to clear browser storage to pick up the new data.
+    queryKey: ['transactions.trade.sets.v2', language],
     queryFn: () => api.get<SetsResponse>(`/pkmnprices/sets?language=${encodeURIComponent(language)}`),
     enabled: active,
     staleTime: 24 * 60 * 60_000,
@@ -508,6 +514,7 @@ export function useTradeTransaction(active: boolean, mode: TransactionMode): Tra
     looksLikeNumber,
     inferredSetId: inferredSet?.id ?? null,
     inferredSetName: inferredSet?.name ?? null,
+    matchedByArtist: searchQuery.data?.matchedBy === 'artist',
     selectedCardPrices,
     selectedMarketPriceCents,
     suggestedTradeUnitCents,

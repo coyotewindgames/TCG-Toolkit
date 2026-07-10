@@ -35,6 +35,7 @@ export interface PkmnpricesCardSummary {
   setId: number | null;
   setName: string | null;
   language?: string | null;
+  artist?: string | null;
 }
 
 export interface PkmnpricesPrice {
@@ -88,16 +89,26 @@ export class PkmnPricesClient {
 
   // ---- Cards --------------------------------------------------------------
 
-  async searchCards(params: ListCardsParams): Promise<PkmnpricesPage<PkmnpricesCardSummary>> {
+  async searchCards(
+    params: ListCardsParams & { artist?: string },
+  ): Promise<PkmnpricesPage<PkmnpricesCardSummary>> {
     const started = Date.now();
     try {
-      const res = await this.sdk.cards.list(params);
+      // Artist is not in the SDK's typed param list, but the underlying HTTP
+      // client forwards unknown keys as query params. Cast so TS doesn't
+      // complain.
+      const res = await this.sdk.cards.list(params as ListCardsParams);
       this.log.info(
         {
           source: 'pkmnprices',
           endpoint: 'cards.list',
           durationMs: Date.now() - started,
-          params: { name: params.name, language: params.language, set_id: params.set_id },
+          params: {
+            name: params.name,
+            language: params.language,
+            set_id: params.set_id,
+            artist: params.artist,
+          },
           total: res.pagination.total,
         },
         'pkmnprices search',
@@ -234,6 +245,9 @@ function mapSummary(s: SdkCardSummary): PkmnpricesCardSummary {
     tcgplayerId: s.tcg_player_id ?? null,
     setId: s.set?.id ?? null,
     setName: s.set?.name ?? null,
+    // Not in the SDK type; the upstream API returns it on card summaries and
+    // we forward it for artist search + display.
+    artist: (s as unknown as { artist?: string | null }).artist ?? null,
   };
 }
 
