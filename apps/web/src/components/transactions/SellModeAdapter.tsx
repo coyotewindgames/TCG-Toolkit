@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { centsToMoney } from '../../lib/transactions';
 import { useSellTransaction } from '../../hooks/transactions/useSellTransaction';
+import CardImage from './CardImage';
 
 interface SellModeAdapterProps {
   active: boolean;
@@ -67,16 +68,7 @@ export default function SellModeAdapter({ active }: SellModeAdapterProps) {
                     }`}
                   >
                     <div className="flex aspect-[3/4] items-center justify-center bg-slate-800">
-                      {product.imageSourceUrl ? (
-                        <img
-                          src={product.imageSourceUrl}
-                          alt={product.name}
-                          loading="lazy"
-                          className="h-full w-full object-contain p-1"
-                        />
-                      ) : (
-                        <span className="text-xs text-slate-500">No image</span>
-                      )}
+                      <CardImage src={product.imageSourceUrl} alt={product.name} />
                     </div>
                     <div className="space-y-0.5 p-2 text-xs">
                       <p className="truncate font-semibold text-slate-100" title={product.name}>

@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import type { TradeModeTransactionController } from '../../../hooks/transactions/useTradeTransaction';
+import CardImage from '../CardImage';
 
 interface TradeDetailDrawerProps {
   trade: TradeModeTransactionController;
@@ -73,14 +74,10 @@ export default function TradeDetailDrawer({ trade }: TradeDetailDrawerProps) {
               <div className="flex flex-col gap-4 sm:flex-row">
                 <div className="w-full sm:w-40">
                   <div className="aspect-[3/4] overflow-hidden rounded-xl border border-slate-800 bg-slate-800">
-                    {trade.selectedCard.imageUrl && (
-                      <img
-                        src={trade.selectedCard.imageUrl}
-                        alt={trade.selectedCard.name}
-                        className="h-full w-full object-contain"
-                        loading="lazy"
-                      />
-                    )}
+                    <CardImage
+                      src={trade.selectedCard.imageUrl}
+                      alt={trade.selectedCard.name}
+                    />
                   </div>
                   <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950/60 p-2 text-xs text-slate-300">
                     <p>

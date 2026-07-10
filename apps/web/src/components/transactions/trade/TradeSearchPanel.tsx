@@ -1,5 +1,6 @@
 import type { TradeModeTransactionController } from '../../../hooks/transactions/useTradeTransaction';
 import SearchableSelect from '../../SearchableSelect';
+import CardImage from '../CardImage';
 
 interface TradeSearchPanelProps {
   trade: TradeModeTransactionController;
@@ -153,14 +154,7 @@ function SearchResults({ trade }: { trade: TradeModeTransactionController }) {
             }`}
           >
             <div className="aspect-[3/4] bg-slate-800">
-              {card.imageUrl ? (
-                <img
-                  src={card.imageUrl}
-                  alt={card.name}
-                  loading="lazy"
-                  className="h-full w-full object-contain"
-                />
-              ) : null}
+              <CardImage src={card.imageUrl} alt={card.name} />
             </div>
             <div className="p-2">
               <p className="truncate text-sm font-semibold" title={card.name}>
