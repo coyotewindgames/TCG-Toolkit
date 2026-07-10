@@ -105,6 +105,19 @@ function formatCents(cents: number | null | undefined): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
+/**
+ * Break a string into significant tokens for set-name matching. We drop
+ * tokens shorter than 3 characters (roman numerals, joiners like "of"/"to"
+ * that would over-match) so that partial queries like "evolving skies"
+ * still line up cleanly with set names that carry decorations.
+ */
+function tokenize(input: string): string[] {
+  return input
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((token) => token.length >= 3);
+}
+
 async function printQrLabels(
   skuIds: { skuId: string; quantity: number }[],
   cardName: string,
@@ -243,26 +256,85 @@ export function useTradeTransaction(active: boolean, mode: TransactionMode): Tra
     staleTime: 24 * 60 * 60_000,
   });
 
-  // Infer a set from the free-text query. Example: typing
-  // "rayquaza evolving skies" splits into name="rayquaza" + setId=(Evolving Skies).
+  // Infer a set from the free-text query. Two strategies, in order of
+  // confidence:
+  //   1. The set name appears verbatim as a substring in the query
+  //      (e.g. query "rayquaza evolving skies" contains "evolving skies").
+  //   2. Every significant token of the set name appears as a whole word in
+  //      the query. This handles upstream set names that carry prefixes or
+  //      punctuation (e.g. "SWSH — Evolving Skies" or "Sword & Shield:
+  //      Evolving Skies") which fail a strict substring match.
   // The user's explicit set filter always wins.
   const inferredSet = useMemo(() => {
     if (setId) return null;
     if (looksLikeNumber) return null;
     const sets = setsQuery.data?.sets ?? [];
     if (!sets.length || !nameParam) return null;
+
     const haystack = nameParam.toLowerCase();
-    let best: { id: string; name: string; start: number; length: number } | null = null;
+    const queryTokens = new Set(tokenize(haystack));
+    if (!queryTokens.size) return null;
+
+    let bestSubstring: {
+      id: string;
+      name: string;
+      start: number;
+      length: number;
+      score: number;
+    } | null = null;
+    let bestTokenMatch: {
+      id: string;
+      name: string;
+      start: number;
+      length: number;
+      score: number;
+    } | null = null;
+
     for (const set of sets) {
       const needle = set.name.toLowerCase();
       if (needle.length < 3) continue;
+
+      // Strategy 1: exact substring
       const idx = haystack.indexOf(needle);
-      if (idx === -1) continue;
-      if (!best || needle.length > best.length) {
-        best = { id: set.id, name: set.name, start: idx, length: needle.length };
+      if (idx !== -1) {
+        const score = needle.length;
+        if (!bestSubstring || score > bestSubstring.score) {
+          bestSubstring = { id: set.id, name: set.name, start: idx, length: needle.length, score };
+        }
+        continue;
+      }
+
+      // Strategy 2: every significant token of the set appears in the query
+      const setTokens = tokenize(needle);
+      if (setTokens.length < 1) continue;
+      const allMatch = setTokens.every((token) => queryTokens.has(token));
+      if (!allMatch) continue;
+
+      // Score by total matched-token length so multi-word sets like
+      // "Evolving Skies" beat single-word matches like "Base" on a query
+      // that mentions both.
+      const score = setTokens.reduce((sum, token) => sum + token.length, 0);
+      // Approximate strip range: from the first matched token to the last
+      // matched token in the query.
+      const firstToken = setTokens[0];
+      const lastToken = setTokens[setTokens.length - 1];
+      const start = haystack.indexOf(firstToken);
+      const endIdx = haystack.lastIndexOf(lastToken);
+      const length = endIdx >= 0 ? endIdx + lastToken.length - start : firstToken.length;
+
+      if (!bestTokenMatch || score > bestTokenMatch.score) {
+        bestTokenMatch = {
+          id: set.id,
+          name: set.name,
+          start: Math.max(0, start),
+          length: Math.max(firstToken.length, length),
+          score,
+        };
       }
     }
-    return best;
+
+    // Substring matches always win over token matches.
+    return bestSubstring ?? bestTokenMatch;
   }, [setId, looksLikeNumber, setsQuery.data, nameParam]);
 
   const nameParamAfterSetStrip = useMemo(() => {
