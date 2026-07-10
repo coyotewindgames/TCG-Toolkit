@@ -14,10 +14,13 @@ type Product = {
   setName: string | null;
   cardNumber: string | null;
   rarity: string | null;
+  artist: string | null;
   imageSourceUrl?: string | null;
   availableQty: number;
   minSellPriceCents: number | null;
   maxSellPriceCents: number | null;
+  totalCostBasisCents: number | null;
+  avgCostCents: number | null;
 };
 
 type ProductSort = 'name_asc' | 'price_desc' | 'price_asc';
@@ -35,6 +38,7 @@ type ProductSearchResponse = {
     rarities: string[];
     games: string[];
     languages: string[];
+    artists: string[];
   };
   parse?: {
     strategy: 'plain' | 'set_exact' | 'set_fuzzy';
@@ -49,6 +53,7 @@ type ProductSearchResponse = {
       game: string | null;
       language: string | null;
       rarity: string | null;
+      artist: string | null;
     };
     conflicts: string[];
     ambiguousSetCandidates: string[];
@@ -63,10 +68,15 @@ type ProductSku = {
   marketPriceCents: number | null;
   sellPriceCents: number | null;
   availableQty: number;
+  avgCostCents: number | null;
+  totalCostBasisCents: number | null;
 };
 type ProductSkusResponse = { skus: ProductSku[] };
 type InventorySummary = {
+  /** DEPRECATED — same value as `totalMarketValueCents`. Kept while API rolls out. */
   estimatedCostCents: number;
+  totalMarketValueCents?: number;
+  totalCostBasisCents?: number;
   qtyOnHand: number;
   skuCount: number;
 };
@@ -155,6 +165,8 @@ export default function InventoryPage() {
     setSetFilter,
     rarityFilter,
     setRarityFilter,
+    artistFilter,
+    setArtistFilter,
     isEnabled,
     buildParams,
   } = useProductSearchState({
@@ -180,6 +192,7 @@ export default function InventoryPage() {
       language: languageFilter,
       setName: setFilter,
       rarity: rarityFilter,
+      artist: artistFilter,
       includeParseDebug: true,
     }),
     queryFn: () => {
@@ -312,6 +325,42 @@ export default function InventoryPage() {
     return `$${(min / 100).toFixed(2)} - $${(max / 100).toFixed(2)}`;
   }
 
+  function renderCostSummary(product: Product) {
+    if (!product.avgCostCents || product.avgCostCents <= 0) return null;
+    return `$${(product.avgCostCents / 100).toFixed(2)} / unit`;
+  }
+
+  /**
+   * Estimate profit margin from cost basis vs. the mid-market price the tile
+   * already displays. Returns null when either side is missing.
+   */
+  function computeMargin(product: Product): { percent: number; profitCents: number } | null {
+    const cost = product.avgCostCents;
+    if (!cost || cost <= 0) return null;
+    const marketMax = product.maxSellPriceCents;
+    const marketMin = product.minSellPriceCents;
+    const market = marketMax ?? marketMin;
+    if (market == null || market <= 0) return null;
+    const profit = market - cost;
+    const percent = (profit / market) * 100;
+    return { percent, profitCents: profit };
+  }
+
+  function renderMarginBadge(product: Product) {
+    const m = computeMargin(product);
+    if (!m) return null;
+    const positive = m.profitCents >= 0;
+    const cls = positive
+      ? 'border-emerald-600/60 bg-emerald-950/40 text-emerald-200'
+      : 'border-rose-600/60 bg-rose-950/40 text-rose-200';
+    const sign = positive ? '+' : '';
+    return (
+      <span className={`rounded-full border px-2 py-1 ${cls}`}>
+        Margin: {sign}${(m.profitCents / 100).toFixed(2)} ({m.percent.toFixed(0)}%)
+      </span>
+    );
+  }
+
   return (
     <div className="p-4 md:p-6 max-w-5xl mx-auto space-y-6">
       <header className="flex items-center justify-between gap-3 flex-wrap">
@@ -344,41 +393,81 @@ export default function InventoryPage() {
 
       <section>
         <div className="mb-4 rounded-2xl border border-emerald-900/50 bg-emerald-950/20 px-4 py-3">
-          <div className="text-xs uppercase tracking-wide text-emerald-300/80">
-            Total estimated inventory market value
-          </div>
-          <div className="mt-1 flex flex-wrap items-end justify-between gap-3">
-            <div>
-              {summaryQuery.isLoading ? (
-                <p className="text-2xl font-semibold text-emerald-100">Loading…</p>
-              ) : summaryQuery.isError ? (
-                <p className="text-sm text-rose-300">Could not load inventory summary.</p>
-              ) : (
-                <p className="text-2xl font-semibold text-emerald-100">
-                  ${(summaryQuery.data!.estimatedCostCents / 100).toLocaleString(undefined, {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  })}
-                </p>
-              )}
-            </div>
-            {!summaryQuery.isLoading && !summaryQuery.isError && summaryQuery.data && (
-              <div className="text-sm text-emerald-200/80">
-                {summaryQuery.data.qtyOnHand.toLocaleString()} items on hand across{' '}
-                {summaryQuery.data.skuCount.toLocaleString()} inventory rows
-              </div>
-            )}
-          </div>
+          {summaryQuery.isLoading ? (
+            <p className="text-2xl font-semibold text-emerald-100">Loading…</p>
+          ) : summaryQuery.isError ? (
+            <p className="text-sm text-rose-300">Could not load inventory summary.</p>
+          ) : (
+            (() => {
+              const s = summaryQuery.data!;
+              const marketCents = s.totalMarketValueCents ?? s.estimatedCostCents ?? 0;
+              const costCents = s.totalCostBasisCents ?? 0;
+              const profitCents = marketCents - costCents;
+              const positive = profitCents >= 0;
+              const dollars = (cents: number) =>
+                `$${(cents / 100).toLocaleString(undefined, {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}`;
+              return (
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div>
+                    <div className="text-xs uppercase tracking-wide text-emerald-300/80">
+                      Estimated market value
+                    </div>
+                    <div className="mt-1 text-2xl font-semibold text-emerald-100">
+                      {dollars(marketCents)}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs uppercase tracking-wide text-sky-300/80">
+                      Total cost basis (what we paid)
+                    </div>
+                    <div className="mt-1 text-2xl font-semibold text-sky-100">
+                      {costCents > 0 ? dollars(costCents) : '—'}
+                    </div>
+                  </div>
+                  <div>
+                    <div
+                      className={`text-xs uppercase tracking-wide ${
+                        positive ? 'text-amber-300/80' : 'text-rose-300/80'
+                      }`}
+                    >
+                      Profit potential
+                    </div>
+                    <div
+                      className={`mt-1 text-2xl font-semibold ${
+                        positive ? 'text-amber-100' : 'text-rose-100'
+                      }`}
+                    >
+                      {costCents > 0
+                        ? `${positive ? '+' : ''}${dollars(profitCents)}`
+                        : '—'}
+                    </div>
+                    {costCents > 0 && marketCents > 0 && (
+                      <div className="text-xs text-slate-400 mt-0.5">
+                        {((profitCents / marketCents) * 100).toFixed(1)}% margin
+                      </div>
+                    )}
+                  </div>
+                  <div className="sm:col-span-3 text-sm text-emerald-200/80 -mt-1">
+                    {s.qtyOnHand.toLocaleString()} items on hand across{' '}
+                    {s.skuCount.toLocaleString()} inventory rows
+                  </div>
+                </div>
+              );
+            })()
+          )}
         </div>
 
         <input
           autoFocus
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Search by name, set, or card number…"
+          placeholder="Search by name, set, card number, or artist…"
           className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 outline-none focus:border-emerald-500"
         />
-        <div className="mt-3 grid gap-2 md:grid-cols-6">
+        <div className="mt-3 grid gap-2 md:grid-cols-6 xl:grid-cols-7">
           <label className="text-xs text-slate-300">
             <span className="block mb-1">Sort</span>
             <select
@@ -444,6 +533,20 @@ export default function InventoryPage() {
               options={(data?.filters.rarities ?? []).map((rarity) => ({
                 value: rarity,
                 label: rarity,
+              }))}
+            />
+          </div>
+
+          <div className="text-xs text-slate-300">
+            <span className="block mb-1">Artist</span>
+            <SearchableSelect
+              value={artistFilter}
+              onChange={setArtistFilter}
+              placeholder="All artists"
+              searchPlaceholder="Search artists"
+              options={(data?.filters.artists ?? []).map((artist) => ({
+                value: artist,
+                label: artist,
               }))}
             />
           </div>
@@ -539,6 +642,11 @@ export default function InventoryPage() {
                   Rarity: {data.parse.explicit.rarity}
                 </span>
               )}
+              {data.parse.explicit.artist && (
+                <span className="rounded-full border border-slate-600 bg-slate-900/80 px-2 py-0.5 text-slate-200">
+                  Artist: {data.parse.explicit.artist}
+                </span>
+              )}
             </div>
             {data.parse.conflicts.length > 0 && (
               <div className="mt-2 space-y-1 text-amber-200">
@@ -595,9 +703,20 @@ export default function InventoryPage() {
                         <span className="rounded-full border border-emerald-700/60 px-2 py-1 bg-emerald-950/40 text-emerald-200">
                           Price: {renderPriceSummary(p)}
                         </span>
+                        {renderCostSummary(p) && (
+                          <span className="rounded-full border border-sky-700/60 px-2 py-1 bg-sky-950/40 text-sky-200">
+                            Cost: {renderCostSummary(p)}
+                          </span>
+                        )}
+                        {renderMarginBadge(p)}
                         {p.rarity && (
                           <span className="rounded-full border border-slate-700 px-2 py-1 bg-slate-950/80">
                             {p.rarity}
+                          </span>
+                        )}
+                        {p.artist && (
+                          <span className="rounded-full border border-fuchsia-700/60 px-2 py-1 bg-fuchsia-950/40 text-fuchsia-200">
+                            Art: {p.artist}
                           </span>
                         )}
                       </div>
@@ -621,6 +740,12 @@ export default function InventoryPage() {
                     <span>Available: {p.availableQty.toLocaleString()}</span>
                     <span>•</span>
                     <span>Price: {renderPriceSummary(p)}</span>
+                    {p.artist && (
+                      <>
+                        <span>•</span>
+                        <span>Artist: {p.artist}</span>
+                      </>
+                    )}
                   </div>
 
                   <div className="flex flex-wrap gap-2">
@@ -659,8 +784,33 @@ export default function InventoryPage() {
                                 <span>• {sku.language}</span>
                                 <span>• Available: {sku.availableQty.toLocaleString()}</span>
                                 {typeof sku.sellPriceCents === 'number' && (
-                                  <span>• ${(sku.sellPriceCents / 100).toFixed(2)}</span>
+                                  <span>• Sell ${(sku.sellPriceCents / 100).toFixed(2)}</span>
                                 )}
+                                {typeof sku.avgCostCents === 'number' && sku.avgCostCents > 0 && (
+                                  <span className="text-sky-300">
+                                    • Cost ${(sku.avgCostCents / 100).toFixed(2)}
+                                  </span>
+                                )}
+                                {typeof sku.avgCostCents === 'number' &&
+                                  sku.avgCostCents > 0 &&
+                                  typeof sku.sellPriceCents === 'number' &&
+                                  sku.sellPriceCents > 0 && (
+                                    <span
+                                      className={
+                                        sku.sellPriceCents - sku.avgCostCents >= 0
+                                          ? 'text-emerald-300'
+                                          : 'text-rose-300'
+                                      }
+                                    >
+                                      • Margin{' '}
+                                      {(
+                                        ((sku.sellPriceCents - sku.avgCostCents) /
+                                          sku.sellPriceCents) *
+                                        100
+                                      ).toFixed(0)}
+                                      %
+                                    </span>
+                                  )}
                               </div>
                               <p className="mt-1 text-xs text-slate-400 break-all">
                                 Barcode: {sku.barcode}
@@ -729,6 +879,11 @@ export default function InventoryPage() {
                     <span>• Available: {sku.availableQty.toLocaleString()}</span>
                     {typeof (sku.marketPriceCents ?? sku.sellPriceCents) === 'number' && (
                       <span>• ${((sku.marketPriceCents ?? sku.sellPriceCents ?? 0) / 100).toFixed(2)}</span>
+                    )}
+                    {typeof sku.avgCostCents === 'number' && sku.avgCostCents > 0 && (
+                      <span className="text-sky-300">
+                        • Cost ${(sku.avgCostCents / 100).toFixed(2)}
+                      </span>
                     )}
                   </div>
                   <QrImage skuId={sku.id} label={`QR code for ${barcodeProduct.name}`} />

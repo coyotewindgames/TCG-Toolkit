@@ -13,6 +13,7 @@ interface SearchInventoryArgs {
   rarity?: string;
   game?: string;
   language?: string;
+  artist?: string;
   includeParseDebug?: boolean;
 }
 
@@ -189,6 +190,7 @@ export class ProductsService {
     const rarityFilter = args.rarity?.trim() ?? '';
     const gameFilter = args.game?.trim() ?? '';
     const languageFilter = args.language?.trim() ?? '';
+    const artistFilter = args.artist?.trim() ?? '';
     const includeParseDebug = !!args.includeParseDebug;
     const parsed = await this.parseSearchIntent(storeId, trimmed, args);
     const inferredSetFilter = explicitSetFilter ? '' : parsed.inferredSetName ?? '';
@@ -209,6 +211,7 @@ export class ProductsService {
             ilike(schema.products.name, tokenPattern),
             ilike(schema.products.setName, tokenPattern),
             ilike(schema.products.cardNumber, tokenPattern),
+            ilike(schema.products.artist, tokenPattern),
           );
         }),
       );
@@ -220,6 +223,7 @@ export class ProductsService {
             ilike(schema.products.name, pattern),
             ilike(schema.products.setName, pattern),
             ilike(schema.products.cardNumber, pattern),
+            ilike(schema.products.artist, pattern),
             tokenSearchFilters.length > 0 ? and(...tokenSearchFilters) : undefined,
           )
         : undefined;
@@ -241,6 +245,7 @@ export class ProductsService {
       rarityFilter ? eq(schema.products.rarity, rarityFilter) : undefined,
       gameFilter ? sql`${schema.products.game}::text = ${gameFilter}` : undefined,
       languageFilter ? sql`${schema.skus.language}::text = ${languageFilter}` : undefined,
+      artistFilter ? eq(schema.products.artist, artistFilter) : undefined,
     ].filter(Boolean);
 
     const rankExpr = sql<number>`(
@@ -257,6 +262,7 @@ export class ProductsService {
         setName: schema.products.setName,
         cardNumber: schema.products.cardNumber,
         rarity: schema.products.rarity,
+        artist: schema.products.artist,
         imageSourceUrl: schema.products.imageSourceUrl,
         availableQty:
           sql<number>`coalesce(sum(${schema.inventory.qtyOnHand}), 0)::int`.as('available_qty'),
@@ -264,6 +270,17 @@ export class ProductsService {
           sql<number | null>`min(coalesce(${schema.currentPrices.marketPriceCents}, ${schema.currentPrices.sellPriceCents}))`.as('min_sell_price_cents'),
         maxSellPriceCents:
           sql<number | null>`max(coalesce(${schema.currentPrices.marketPriceCents}, ${schema.currentPrices.sellPriceCents}))`.as('max_sell_price_cents'),
+        // Total dollars we paid for the units currently on hand:
+        //   sum(qty_on_hand * cost_avg_cents)
+        totalCostBasisCents:
+          sql<number>`coalesce(sum(${schema.inventory.qtyOnHand} * ${schema.inventory.costAvgCents}), 0)::int`.as(
+            'total_cost_basis_cents',
+          ),
+        // Weighted-average cost per unit across all on-hand inventory rows.
+        avgCostCents:
+          sql<number | null>`case when sum(${schema.inventory.qtyOnHand}) > 0
+            then (sum(${schema.inventory.qtyOnHand} * ${schema.inventory.costAvgCents})::float / nullif(sum(${schema.inventory.qtyOnHand}), 0))::int
+            else null end`.as('avg_cost_cents'),
         rankScore: rankExpr.as('rank_score'),
       })
       .from(schema.products)
@@ -278,6 +295,7 @@ export class ProductsService {
         schema.products.setName,
         schema.products.cardNumber,
         schema.products.rarity,
+        schema.products.artist,
         schema.products.imageSourceUrl,
       )
       .having(sql`sum(${schema.inventory.qtyOnHand}) > 0`)
@@ -357,6 +375,20 @@ export class ProductsService {
       .having(sql`sum(${schema.inventory.qtyOnHand}) > 0`)
       .orderBy(asc(schema.skus.language));
 
+    // Distinct artists with at least one on-hand unit matching the current
+    // filters. Facet is capped so we don't ship 5k+ names to the client.
+    const artistRows = await this.db
+      .select({ value: schema.products.artist })
+      .from(schema.products)
+      .leftJoin(schema.skus, eq(schema.skus.productId, schema.products.id))
+      .leftJoin(schema.inventory, eq(schema.inventory.skuId, schema.skus.id))
+      .innerJoin(schema.locations, eq(schema.locations.id, schema.inventory.locationId))
+      .where(and(...rowFilters, sql`${schema.products.artist} is not null`))
+      .groupBy(schema.products.artist)
+      .having(sql`sum(${schema.inventory.qtyOnHand}) > 0`)
+      .orderBy(asc(schema.products.artist))
+      .limit(500);
+
     const out = {
       results,
       pagination: {
@@ -376,6 +408,9 @@ export class ProductsService {
         languages: languageRows
           .map((r) => String(r.value))
           .filter((v) => v.trim().length > 0),
+        artists: artistRows
+          .map((r) => r.value)
+          .filter((v): v is string => !!v && v.trim().length > 0),
       },
     };
 
@@ -395,6 +430,7 @@ export class ProductsService {
             game: gameFilter || null,
             language: languageFilter || null,
             rarity: rarityFilter || null,
+            artist: artistFilter || null,
           },
           conflicts: conflictNotes,
           ambiguousSetCandidates: parsed.ambiguousSetCandidates,
@@ -427,6 +463,15 @@ export class ProductsService {
         sellPriceCents: schema.currentPrices.sellPriceCents,
         availableQty:
           sql<number>`coalesce(sum(${schema.inventory.qtyOnHand}), 0)::int`.as('available_qty'),
+        // Weighted-average cost across all locations that hold this SKU.
+        avgCostCents:
+          sql<number | null>`case when sum(${schema.inventory.qtyOnHand}) > 0
+            then (sum(${schema.inventory.qtyOnHand} * ${schema.inventory.costAvgCents})::float / nullif(sum(${schema.inventory.qtyOnHand}), 0))::int
+            else null end`.as('avg_cost_cents'),
+        totalCostBasisCents:
+          sql<number>`coalesce(sum(${schema.inventory.qtyOnHand} * ${schema.inventory.costAvgCents}), 0)::int`.as(
+            'total_cost_basis_cents',
+          ),
       })
       .from(schema.skus)
       .leftJoin(schema.currentPrices, eq(schema.currentPrices.skuId, schema.skus.id))

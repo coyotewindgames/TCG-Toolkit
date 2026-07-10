@@ -22,6 +22,7 @@ export function productsRouter(c: Container): Router {
       const rarity = (req.query.rarity as string | undefined) ?? '';
       const game = (req.query.game as string | undefined) ?? '';
       const language = (req.query.language as string | undefined) ?? '';
+      const artist = (req.query.artist as string | undefined) ?? '';
       const includeParseDebugRaw = (req.query.includeParseDebug as string | undefined) ?? '';
       const includeParseDebug =
         includeParseDebugRaw === '1' || includeParseDebugRaw.toLowerCase() === 'true';
@@ -35,6 +36,7 @@ export function productsRouter(c: Container): Router {
         rarity,
         game,
         language,
+        artist,
         includeParseDebug,
       });
       res.json(out);

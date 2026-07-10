@@ -173,6 +173,8 @@ export const products = pgTable(
     cardNumber: text('card_number'),
     rarity: text('rarity'),
     type: text('type'),
+    /** Card illustrator. Populated from pkmnprices for Pokemon products. */
+    artist: text('artist'),
     imageSourceUrl: text('image_source_url'),
     attributes: jsonb('attributes').$type<Record<string, unknown>>().notNull().default({}),
     searchTsv: text('search_tsv'), // generated tsvector; actual GENERATED column added in migration

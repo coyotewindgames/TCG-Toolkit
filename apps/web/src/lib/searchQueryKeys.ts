@@ -13,6 +13,7 @@ interface ProductsSearchKeyInput {
   language?: string;
   setName?: string;
   rarity?: string;
+  artist?: string;
   includeParseDebug?: boolean;
 }
 
@@ -30,6 +31,7 @@ export function productsSearchQueryKey(scope: 'inventory' | 'register', input: P
       language: clean(input.language),
       setName: clean(input.setName),
       rarity: clean(input.rarity),
+      artist: clean(input.artist),
       includeParseDebug: !!input.includeParseDebug,
     },
   ] as const;

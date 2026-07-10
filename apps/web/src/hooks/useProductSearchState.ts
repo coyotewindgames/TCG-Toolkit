@@ -16,6 +16,7 @@ interface UseProductSearchStateOptions {
   initialLanguageFilter?: string;
   initialSetFilter?: string;
   initialRarityFilter?: string;
+  initialArtistFilter?: string;
 }
 
 interface BuildParamsOverrides {
@@ -39,6 +40,7 @@ export function useProductSearchState(options: UseProductSearchStateOptions = {}
     initialLanguageFilter = '',
     initialSetFilter = '',
     initialRarityFilter = '',
+    initialArtistFilter = '',
   } = options;
 
   const [query, setQuery] = useState(initialQuery);
@@ -49,6 +51,7 @@ export function useProductSearchState(options: UseProductSearchStateOptions = {}
   const [languageFilter, setLanguageFilter] = useState(initialLanguageFilter);
   const [setFilter, setSetFilter] = useState(initialSetFilter);
   const [rarityFilter, setRarityFilter] = useState(initialRarityFilter);
+  const [artistFilter, setArtistFilter] = useState(initialArtistFilter);
 
   const debouncedQuery = useDebounced(query, debounceMs);
   const trimmedDebouncedQuery = debouncedQuery.trim();
@@ -57,7 +60,7 @@ export function useProductSearchState(options: UseProductSearchStateOptions = {}
 
   useEffect(() => {
     setPage(1);
-  }, [trimmedDebouncedQuery, sort, gameFilter, languageFilter, setFilter, rarityFilter]);
+  }, [trimmedDebouncedQuery, sort, gameFilter, languageFilter, setFilter, rarityFilter, artistFilter]);
 
   const isEnabled = useMemo(
     () =>
@@ -78,6 +81,7 @@ export function useProductSearchState(options: UseProductSearchStateOptions = {}
     if (languageFilter) params.set('language', languageFilter);
     if (setFilter) params.set('set', setFilter);
     if (rarityFilter) params.set('rarity', rarityFilter);
+    if (artistFilter) params.set('artist', artistFilter);
 
     const useParseDebug = overrides.includeParseDebug ?? includeParseDebug;
     if (useParseDebug) params.set('includeParseDebug', '1');
@@ -92,6 +96,7 @@ export function useProductSearchState(options: UseProductSearchStateOptions = {}
     languageFilter,
     setFilter,
     rarityFilter,
+    artistFilter,
     includeParseDebug,
   ]);
 
@@ -116,6 +121,8 @@ export function useProductSearchState(options: UseProductSearchStateOptions = {}
     setSetFilter,
     rarityFilter,
     setRarityFilter,
+    artistFilter,
+    setArtistFilter,
     isEnabled,
     buildParams,
   };

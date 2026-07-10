@@ -174,13 +174,18 @@ export class InventoryService {
   }
 
     async summary(storeId: string): Promise<{
+      /** DEPRECATED name — kept for back-compat. Same value as `totalMarketValueCents`. */
       estimatedCostCents: number;
+      /** Retail market value of everything on hand (what we could sell it for). */
+      totalMarketValueCents: number;
+      /** Actual dollars paid to acquire everything on hand. */
+      totalCostBasisCents: number;
       qtyOnHand: number;
       skuCount: number;
     }> {
       const [row] = await this.db
         .select({
-          estimatedCostCents:
+          totalMarketValueCents:
             sql<number>`coalesce(sum(
               ${schema.inventory.qtyOnHand} * coalesce(
                 ${schema.currentPrices.marketPriceCents},
@@ -189,7 +194,11 @@ export class InventoryService {
                 0
               )
             ), 0)`.as(
-              'estimated_cost_cents',
+              'total_market_value_cents',
+            ),
+          totalCostBasisCents:
+            sql<number>`coalesce(sum(${schema.inventory.qtyOnHand} * ${schema.inventory.costAvgCents}), 0)`.as(
+              'total_cost_basis_cents',
             ),
           qtyOnHand: sql<number>`coalesce(sum(${schema.inventory.qtyOnHand}), 0)`.as('qty_on_hand'),
           skuCount: sql<number>`count(*)::int`.as('sku_count'),
@@ -199,8 +208,12 @@ export class InventoryService {
         .leftJoin(schema.currentPrices, eq(schema.currentPrices.skuId, schema.inventory.skuId))
         .where(eq(schema.locations.storeId, storeId));
 
+      const totalMarketValueCents = Number(row?.totalMarketValueCents ?? 0);
+      const totalCostBasisCents = Number(row?.totalCostBasisCents ?? 0);
       return {
-        estimatedCostCents: Number(row?.estimatedCostCents ?? 0),
+        estimatedCostCents: totalMarketValueCents,
+        totalMarketValueCents,
+        totalCostBasisCents,
         qtyOnHand: Number(row?.qtyOnHand ?? 0),
         skuCount: Number(row?.skuCount ?? 0),
       };
