@@ -7,6 +7,7 @@ import { useSession } from '../hooks/useSession';
 import SidePanel, { PanelSection } from '../components/SidePanel';
 import ImageBackfillPanel from '../components/ImageBackfillPanel';
 import SearchableSelect from '../components/SearchableSelect';
+import ProductImageEditor from '../components/ProductImageEditor';
 
 type Product = {
   id: string;
@@ -16,6 +17,7 @@ type Product = {
   rarity: string | null;
   artist: string | null;
   imageSourceUrl?: string | null;
+  imageLocked?: boolean;
   availableQty: number;
   minSellPriceCents: number | null;
   maxSellPriceCents: number | null;
@@ -180,8 +182,10 @@ export default function InventoryPage() {
   const [toolsOpen, setToolsOpen] = useState(false);
   const [expandedProductId, setExpandedProductId] = useState<string | null>(null);
   const [barcodeProduct, setBarcodeProduct] = useState<Product | null>(null);
+  const [imageEditorProduct, setImageEditorProduct] = useState<Product | null>(null);
   const [printingKey, setPrintingKey] = useState<string | null>(null);
   const [printErr, setPrintErr] = useState<string | null>(null);
+  const qc = useQueryClient();
   const productsQuery = useQuery({
     queryKey: productsSearchQueryKey('inventory', {
       query: debounced,
@@ -670,23 +674,39 @@ export default function InventoryPage() {
         <ul className="mt-4 space-y-2">
           {data?.results.map((p) => (
             <li key={p.id} className="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden">
-              <button
-                type="button"
-                className="w-full p-3 flex gap-4 text-left hover:bg-slate-900/80"
-                onClick={() => setExpandedProductId((current) => (current === p.id ? null : p.id))}
-                aria-expanded={expandedProductId === p.id}
-              >
-                {p.imageSourceUrl ? (
-                  <img
-                    src={p.imageSourceUrl}
-                    alt={p.name}
-                    className="w-16 h-24 rounded object-cover bg-slate-800"
-                    loading="lazy"
-                  />
-                ) : (
-                  <div className="w-16 h-24 rounded bg-slate-800 border border-dashed border-slate-700" />
-                )}
-                <div className="flex-1 min-w-0">
+              <div className="p-3 flex gap-4">
+                <div className="relative w-16 h-24 shrink-0 group">
+                  {p.imageSourceUrl ? (
+                    <img
+                      src={p.imageSourceUrl}
+                      alt={p.name}
+                      className="w-16 h-24 rounded object-cover bg-slate-800"
+                      loading="lazy"
+                    />
+                  ) : (
+                    <div className="w-16 h-24 rounded bg-slate-800 border border-dashed border-slate-700 flex items-center justify-center text-[10px] text-slate-500 text-center px-1">
+                      No image
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setImageEditorProduct(p);
+                    }}
+                    className="absolute inset-x-0 bottom-0 rounded-b bg-slate-950/80 py-0.5 text-[10px] text-slate-200 opacity-100 md:opacity-0 md:group-hover:opacity-100 focus:opacity-100 transition"
+                    title="Edit image"
+                    aria-label={`Edit image for ${p.name}`}
+                  >
+                    Edit
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  className="flex-1 min-w-0 text-left"
+                  onClick={() => setExpandedProductId((current) => (current === p.id ? null : p.id))}
+                  aria-expanded={expandedProductId === p.id}
+                >
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <div className="font-semibold text-base leading-tight">{p.name}</div>
@@ -725,8 +745,8 @@ export default function InventoryPage() {
                       {expandedProductId === p.id ? 'Hide details' : 'Show details'}
                     </span>
                   </div>
-                </div>
-              </button>
+                </button>
+              </div>
 
               {expandedProductId === p.id && (
                 <div className="border-t border-slate-800 bg-slate-950/50 px-4 py-3 space-y-3">
@@ -921,6 +941,33 @@ export default function InventoryPage() {
           <WipeInventoryPanel />
         </PanelSection>
       </SidePanel>
+
+      {imageEditorProduct && (
+        <ProductImageEditor
+          product={imageEditorProduct}
+          onClose={() => setImageEditorProduct(null)}
+          onSaved={(next) => {
+            // Optimistically patch every products.search cache entry so the
+            // tile updates immediately, then refetch to pull imageLocked etc.
+            qc.setQueriesData<ProductSearchResponse | undefined>(
+              { queryKey: ['search', 'products', 'inventory'] },
+              (prev) => {
+                if (!prev) return prev;
+                return {
+                  ...prev,
+                  results: prev.results.map((row) =>
+                    row.id === imageEditorProduct.id
+                      ? { ...row, imageSourceUrl: next, imageLocked: true }
+                      : row,
+                  ),
+                };
+              },
+            );
+            void qc.invalidateQueries({ queryKey: ['search', 'products', 'inventory'] });
+            setImageEditorProduct(null);
+          }}
+        />
+      )}
     </div>
   );
 }

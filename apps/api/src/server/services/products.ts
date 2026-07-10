@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, ilike, or, sql } from 'drizzle-orm';
 import { schema, type Database } from '../../db/client';
-import { NotFound } from '../../common/http-errors';
+import { BadRequest, NotFound } from '../../common/http-errors';
 
 type ProductSort = 'name_asc' | 'price_desc' | 'price_asc';
 
@@ -264,6 +264,7 @@ export class ProductsService {
         rarity: schema.products.rarity,
         artist: schema.products.artist,
         imageSourceUrl: schema.products.imageSourceUrl,
+        imageLocked: schema.products.imageLocked,
         availableQty:
           sql<number>`coalesce(sum(${schema.inventory.qtyOnHand}), 0)::int`.as('available_qty'),
         minSellPriceCents:
@@ -297,6 +298,7 @@ export class ProductsService {
         schema.products.rarity,
         schema.products.artist,
         schema.products.imageSourceUrl,
+        schema.products.imageLocked,
       )
       .having(sql`sum(${schema.inventory.qtyOnHand}) > 0`)
       .as('grouped_products');
@@ -495,5 +497,49 @@ export class ProductsService {
       );
 
     return rows;
+  }
+
+  /**
+   * Replace the product's image with a caller-supplied data URL and lock the
+   * row against automatic re-enrichment. The data URL is stored inline in
+   * `image_source_url` (which every read path already handles) so no new
+   * serving route is needed.
+   */
+  async setImageDataUrl(
+    storeId: string,
+    productId: string,
+    dataUrl: string,
+  ): Promise<{ imageSourceUrl: string; imageLocked: true }> {
+    if (!dataUrl.startsWith('data:image/')) {
+      throw BadRequest('Image must be provided as a data:image/... URL.');
+    }
+    // Data URL bytes ≈ base64 chars × 3/4. Cap at ~750KB decoded (~1MB encoded).
+    if (dataUrl.length > 1_050_000) {
+      throw BadRequest('Image too large. Please pick something under ~750 KB.');
+    }
+    const result = await this.db
+      .update(schema.products)
+      .set({ imageSourceUrl: dataUrl, imageLocked: true, updatedAt: new Date() })
+      .where(and(eq(schema.products.storeId, storeId), eq(schema.products.id, productId)))
+      .returning({ id: schema.products.id });
+    if (result.length === 0) throw NotFound(`product ${productId} not found`);
+    return { imageSourceUrl: dataUrl, imageLocked: true };
+  }
+
+  /**
+   * Clear the product's image and lock the row so the enrichment job doesn't
+   * immediately re-populate it with the same (presumably wrong) source URL.
+   */
+  async clearImage(
+    storeId: string,
+    productId: string,
+  ): Promise<{ imageSourceUrl: null; imageLocked: true }> {
+    const result = await this.db
+      .update(schema.products)
+      .set({ imageSourceUrl: null, imageLocked: true, updatedAt: new Date() })
+      .where(and(eq(schema.products.storeId, storeId), eq(schema.products.id, productId)))
+      .returning({ id: schema.products.id });
+    if (result.length === 0) throw NotFound(`product ${productId} not found`);
+    return { imageSourceUrl: null, imageLocked: true };
   }
 }

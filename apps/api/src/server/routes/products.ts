@@ -1,7 +1,13 @@
 import { Router } from 'express';
+import { z } from 'zod';
 import { asyncHandler } from '../../common/async-handler';
+import { BadRequest } from '../../common/http-errors';
 import type { Container } from '../container';
 import { requireAuth } from '../auth/middleware';
+
+const ImageBody = z.object({
+  dataUrl: z.string().trim().min(1).max(1_050_000),
+});
 
 export function productsRouter(c: Container): Router {
   const r = Router();
@@ -56,6 +62,30 @@ export function productsRouter(c: Container): Router {
     asyncHandler(async (req, res) => {
       const rows = await c.products.listSkus(req.user!.storeId, req.params.id);
       res.json({ skus: rows });
+    }),
+  );
+
+  r.put(
+    '/:id/image',
+    asyncHandler(async (req, res) => {
+      const parsed = ImageBody.safeParse(req.body);
+      if (!parsed.success) {
+        throw BadRequest('Invalid image payload.', parsed.error.flatten());
+      }
+      const out = await c.products.setImageDataUrl(
+        req.user!.storeId,
+        req.params.id,
+        parsed.data.dataUrl,
+      );
+      res.json(out);
+    }),
+  );
+
+  r.delete(
+    '/:id/image',
+    asyncHandler(async (req, res) => {
+      const out = await c.products.clearImage(req.user!.storeId, req.params.id);
+      res.json(out);
     }),
   );
 

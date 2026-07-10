@@ -122,6 +122,13 @@
       "when": 1782777600000,
       "tag": "0016_products_artist",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1782864000000,
+      "tag": "0017_products_image_locked",
+      "breakpoints": true
     }
   ]
 }

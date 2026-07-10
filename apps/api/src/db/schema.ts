@@ -176,6 +176,12 @@ export const products = pgTable(
     /** Card illustrator. Populated from pkmnprices for Pokemon products. */
     artist: text('artist'),
     imageSourceUrl: text('image_source_url'),
+    /**
+     * When true, the automated image-enrichment job leaves this row alone.
+     * Flipped by the manual "Edit image" flow so a user-uploaded (or
+     * user-cleared) image isn't overwritten by the next enrichment pass.
+     */
+    imageLocked: boolean('image_locked').notNull().default(false),
     attributes: jsonb('attributes').$type<Record<string, unknown>>().notNull().default({}),
     searchTsv: text('search_tsv'), // generated tsvector; actual GENERATED column added in migration
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

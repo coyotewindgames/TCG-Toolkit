@@ -67,9 +67,12 @@ export class CatalogEnrichmentService {
     const limit = ENRICH_BATCH_SIZE;
 
     // Pick only Pokemon products missing images. Image backfill is PkmnCards-only.
+    // Skip rows the user has explicitly touched (imageLocked) so a manual
+    // upload — or an intentional clear — isn't overwritten by the next pass.
     const where = and(
       eq(schema.products.storeId, args.storeId),
       eq(schema.products.game, 'pokemon'),
+      eq(schema.products.imageLocked, false),
       or(
         isNull(schema.products.imageSourceUrl),
         eq(schema.products.imageSourceUrl, ''),
