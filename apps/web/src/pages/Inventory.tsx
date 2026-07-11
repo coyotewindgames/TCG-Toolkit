@@ -8,6 +8,7 @@ import SidePanel, { PanelSection } from '../components/SidePanel';
 import ImageBackfillPanel from '../components/ImageBackfillPanel';
 import SearchableSelect from '../components/SearchableSelect';
 import ProductImageEditor from '../components/ProductImageEditor';
+import SkuCostEditor from '../components/SkuCostEditor';
 
 type Product = {
   id: string;
@@ -183,6 +184,18 @@ export default function InventoryPage() {
   const [expandedProductId, setExpandedProductId] = useState<string | null>(null);
   const [barcodeProduct, setBarcodeProduct] = useState<Product | null>(null);
   const [imageEditorProduct, setImageEditorProduct] = useState<Product | null>(null);
+  /**
+   * When set, opens the cost editor for the given SKU. Carries the parent
+   * product name so the modal can show a readable header without an extra
+   * fetch. Owner/manager-only — non-privileged operators can view cost
+   * on the SKU row but not edit it.
+   */
+  const [costEditorTarget, setCostEditorTarget] = useState<{
+    sku: ProductSku;
+    productName: string;
+  } | null>(null);
+  const session = useSession();
+  const canEditCost = session.user?.role === 'owner' || session.user?.role === 'manager';
   const [printingKey, setPrintingKey] = useState<string | null>(null);
   const [printErr, setPrintErr] = useState<string | null>(null);
   const qc = useQueryClient();
@@ -806,10 +819,12 @@ export default function InventoryPage() {
                                 {typeof sku.sellPriceCents === 'number' && (
                                   <span>• Sell ${(sku.sellPriceCents / 100).toFixed(2)}</span>
                                 )}
-                                {typeof sku.avgCostCents === 'number' && sku.avgCostCents > 0 && (
+                                {typeof sku.avgCostCents === 'number' && sku.avgCostCents > 0 ? (
                                   <span className="text-sky-300">
-                                    • Cost ${(sku.avgCostCents / 100).toFixed(2)}
+                                    • Purchased at ${(sku.avgCostCents / 100).toFixed(2)}
                                   </span>
+                                ) : (
+                                  <span className="text-slate-500">• Purchased at —</span>
                                 )}
                                 {typeof sku.avgCostCents === 'number' &&
                                   sku.avgCostCents > 0 &&
@@ -831,6 +846,18 @@ export default function InventoryPage() {
                                       %
                                     </span>
                                   )}
+                                {canEditCost && (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setCostEditorTarget({ sku, productName: p.name })
+                                    }
+                                    className="ml-auto rounded-md border border-slate-700 bg-slate-900 px-2 py-0.5 text-xs text-slate-300 hover:border-emerald-500 hover:text-emerald-200"
+                                    title="Correct the purchased-at (cost basis) price for this SKU"
+                                  >
+                                    Edit cost
+                                  </button>
+                                )}
                               </div>
                               <p className="mt-1 text-xs text-slate-400 break-all">
                                 Barcode: {sku.barcode}
@@ -902,7 +929,7 @@ export default function InventoryPage() {
                     )}
                     {typeof sku.avgCostCents === 'number' && sku.avgCostCents > 0 && (
                       <span className="text-sky-300">
-                        • Cost ${(sku.avgCostCents / 100).toFixed(2)}
+                        • Purchased at ${(sku.avgCostCents / 100).toFixed(2)}
                       </span>
                     )}
                   </div>
@@ -965,6 +992,36 @@ export default function InventoryPage() {
             );
             void qc.invalidateQueries({ queryKey: ['search', 'products', 'inventory'] });
             setImageEditorProduct(null);
+          }}
+        />
+      )}
+
+      {costEditorTarget && (
+        <SkuCostEditor
+          sku={costEditorTarget.sku}
+          productName={costEditorTarget.productName}
+          onClose={() => setCostEditorTarget(null)}
+          onSaved={(costCents) => {
+            // Patch the SKU list caches (both the expanded-in-row query and
+            // the barcode-popup query use the same key) so the tile
+            // reflects the new cost without waiting for a refetch.
+            qc.setQueriesData<ProductSkusResponse | undefined>(
+              { queryKey: ['product-skus'] },
+              (prev) => {
+                if (!prev) return prev;
+                return {
+                  ...prev,
+                  skus: prev.skus.map((s) =>
+                    s.id === costEditorTarget.sku.id ? { ...s, avgCostCents: costCents } : s,
+                  ),
+                };
+              },
+            );
+            // Product-level aggregates (avgCostCents / totalCostBasisCents)
+            // change too \u2014 easier to invalidate than recompute in-place.
+            void qc.invalidateQueries({ queryKey: ['search', 'products', 'inventory'] });
+            void qc.invalidateQueries({ queryKey: ['inventory-summary'] });
+            setCostEditorTarget(null);
           }}
         />
       )}

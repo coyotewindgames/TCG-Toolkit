@@ -30,7 +30,7 @@ export default function TradeSearchPanel({ trade }: TradeSearchPanelProps) {
 
       {/* Fluid filter bar. min-w-0 so children can shrink; basis controls preferred width per breakpoint */}
       <div className="mt-3 flex flex-wrap gap-2">
-        <div className="min-w-0 flex-1 basis-full sm:basis-[calc(50%-0.25rem)] lg:basis-[calc(33.333%-0.375rem)]">
+        <div className="min-w-0 flex-1 basis-full sm:basis-[calc(50%-0.25rem)] lg:basis-[calc(25%-0.375rem)]">
           <SearchableSelect
             value={trade.language}
             onChange={trade.handleLanguageChange}
@@ -39,7 +39,7 @@ export default function TradeSearchPanel({ trade }: TradeSearchPanelProps) {
             options={trade.languageOptions}
           />
         </div>
-        <div className="min-w-0 flex-1 basis-full sm:basis-[calc(50%-0.25rem)] lg:basis-[calc(33.333%-0.375rem)]">
+        <div className="min-w-0 flex-1 basis-full sm:basis-[calc(50%-0.25rem)] lg:basis-[calc(25%-0.375rem)]">
           <SearchableSelect
             value={trade.setId}
             onChange={trade.setSetId}
@@ -49,7 +49,7 @@ export default function TradeSearchPanel({ trade }: TradeSearchPanelProps) {
             options={trade.sets.map((set) => ({ value: set.id, label: set.name }))}
           />
         </div>
-        <div className="min-w-0 flex-1 basis-full sm:basis-full lg:basis-[calc(33.333%-0.375rem)]">
+        <div className="min-w-0 flex-1 basis-full sm:basis-[calc(50%-0.25rem)] lg:basis-[calc(25%-0.375rem)]">
           <SearchableSelect
             value={trade.rarity}
             onChange={trade.setRarity}
@@ -58,6 +58,19 @@ export default function TradeSearchPanel({ trade }: TradeSearchPanelProps) {
             options={Array.from(
               new Set([...trade.rarityOptions, trade.rarity].filter(Boolean)),
             ).map((rarity) => ({ value: rarity, label: rarity }))}
+          />
+        </div>
+        <div className="min-w-0 flex-1 basis-full sm:basis-[calc(50%-0.25rem)] lg:basis-[calc(25%-0.375rem)]">
+          {/* Free-text artist filter — hits /pkmncards/artist-search, which
+              scrapes pkmncards' artist indexes and hydrates back through
+              pkmnprices. Distinct from the main search because pkmnprices
+              itself has no artist parameter. */}
+          <input
+            type="text"
+            value={trade.artistFilter}
+            onChange={(event) => trade.setArtistFilter(event.target.value)}
+            placeholder="Artist (e.g. Ken Sugimori)"
+            className="min-h-11 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 text-sm outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/40"
           />
         </div>
       </div>
@@ -87,8 +100,10 @@ function ActiveFilterChips({ trade }: { trade: TradeModeTransactionController })
     trade.language !== 'english' ||
     trade.setId ||
     trade.rarity ||
+    trade.artistFilter ||
     trade.looksLikeNumber ||
-    !!trade.inferredSetName;
+    !!trade.inferredSetName ||
+    !!trade.resolvedArtistName;
   if (!hasChips) return null;
   return (
     <div className="mt-3 flex flex-wrap gap-2 text-xs">
@@ -114,9 +129,12 @@ function ActiveFilterChips({ trade }: { trade: TradeModeTransactionController })
           Detected set: {trade.inferredSetName}
         </span>
       )}
-      {trade.matchedByArtist && (
+      {trade.artistFilter && (
+        <Chip onClear={() => trade.setArtistFilter('')}>Artist: {trade.artistFilter}</Chip>
+      )}
+      {!trade.artistFilter && trade.resolvedArtistName && trade.matchedByArtist && (
         <span className="inline-flex items-center gap-1 rounded-full border border-sky-800/60 bg-sky-950/50 px-2 py-1 text-sky-200">
-          Matched by artist
+          Matched by artist: {trade.resolvedArtistName}
         </span>
       )}
       {trade.rarity && <Chip onClear={() => trade.setRarity('')}>Rarity: {trade.rarity}</Chip>}
@@ -125,20 +143,20 @@ function ActiveFilterChips({ trade }: { trade: TradeModeTransactionController })
 }
 
 function SearchResults({ trade }: { trade: TradeModeTransactionController }) {
-  if (!trade.searchEnabled && !trade.looksLikeNumber) {
+  const artistOnlySearch = !!trade.artistFilter;
+  if (!trade.searchEnabled && !trade.looksLikeNumber && !artistOnlySearch) {
     return (
       <div className="mt-4 rounded-xl border border-dashed border-slate-700 bg-slate-950/50 p-6 text-center text-sm text-slate-400">
         Start typing to search the catalog, or pick a set to browse it.
       </div>
     );
   }
-  if (trade.searchFetching && trade.searchEnabled) {
+  if (trade.searchFetching) {
     return <p className="mt-4 text-sm text-slate-400">Searching…</p>;
   }
-  if (!trade.searchFetching && trade.searchEnabled && trade.searchResults.length === 0) {
+  if (trade.searchResults.length === 0) {
     return <p className="mt-4 text-sm text-slate-400">No matches.</p>;
   }
-  if (trade.searchResults.length === 0) return null;
   return (
     <ul className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5">
       {trade.searchResults.map((card) => (

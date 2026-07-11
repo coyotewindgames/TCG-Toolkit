@@ -8,6 +8,7 @@
  */
 import { getDb, type Database } from '../db/client';
 import { CloverClient } from '../integrations/pos/clover';
+import { PkmnCardsClient } from '../integrations/pkmncards/client';
 import { PkmnPricesClient } from '../integrations/pkmnprices/client';
 import { TcgapiClient } from '../integrations/tcgapi/client';
 import { BarcodeService } from './services/barcode';
@@ -31,6 +32,12 @@ export interface Container {
   tradeins: TradeinsService;
   barcode: BarcodeService;
   configs: ConfigService;
+  /**
+   * Shared unauthenticated pkmncards.com scraper — used for artist / set
+   * discovery. It has no per-store credentials so a single module-scoped
+   * instance is safe and preserves its LRU caches across requests.
+   */
+  pkmncardsClient: PkmnCardsClient;
   /** Build a Clover client for the given store, using its encrypted creds. */
   posFor(storeId: string): Promise<CloverClient>;
   /** Build a TCGapi client for the given store, using its encrypted creds. */
@@ -53,6 +60,7 @@ export function buildContainer(): Container {
   const pricing = new PricingService(db);
   const tradeins = new TradeinsService(db, inventory);
   const barcode = new BarcodeService();
+  const pkmncardsClient = new PkmnCardsClient();
 
   async function posFor(storeId: string): Promise<CloverClient> {
     const creds = await configs.getPos(storeId);
@@ -89,6 +97,7 @@ export function buildContainer(): Container {
     tradeins,
     barcode,
     configs,
+    pkmncardsClient,
     posFor,
     tcgapiFor,
     pkmnpricesFor,

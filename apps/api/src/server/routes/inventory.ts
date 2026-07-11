@@ -33,6 +33,20 @@ const EnrichBody = z.object({
 });
 
 /**
+ * Body for `POST /inventory/skus/:skuId/cost`. Accepts either the direct
+ * integer cent value or a dollar amount (float or numeric string) that we
+ * round to the nearest cent — the web form ships whichever is more natural.
+ */
+const SetCostBody = z
+  .object({
+    costCents: z.number().int().min(0).max(100_000_00).optional(),
+    costDollars: z.union([z.number(), z.string()]).optional(),
+  })
+  .refine((v) => v.costCents != null || v.costDollars != null, {
+    message: 'Provide costCents or costDollars.',
+  });
+
+/**
  * The wipe endpoint is destructive enough that we want a typed phrase as a
  * dead-man's switch — accidental fetch() calls or replayed requests should
  * not nuke a store's inventory.
@@ -378,6 +392,36 @@ export function inventoryRouter(c: Container): Router {
     asyncHandler(async (req, res) => {
       const result = await c.inventory.summary(req.user!.storeId);
       res.json(result);
+    }),
+  );
+
+  /**
+   * Overwrite the "picked up at" / cost basis for a SKU. The Inventory page
+   * uses this when an operator needs to correct the auto-computed weighted
+   * average — e.g. an off-flow cash purchase, or a mistyped trade-in value
+   * that skewed the running average.
+   *
+   * Owner/manager-only because cost basis feeds directly into the store's
+   * P&L reporting.
+   */
+  r.post(
+    '/skus/:skuId/cost',
+    requireRole('owner', 'manager'),
+    asyncHandler(async (req, res) => {
+      const skuId = req.params.skuId;
+      if (!skuId || !/^[0-9a-f-]{36}$/i.test(skuId)) throw BadRequest('invalid sku id');
+      const body = SetCostBody.parse(req.body ?? {});
+      const costCents =
+        body.costCents ?? Math.round(Number(body.costDollars) * 100);
+      if (!Number.isFinite(costCents) || costCents < 0) {
+        throw BadRequest('cost must be a non-negative number');
+      }
+      await c.inventory.setSkuCost({
+        storeId: req.user!.storeId,
+        skuId,
+        costCents,
+      });
+      res.json({ ok: true, skuId, costCents });
     }),
   );
 

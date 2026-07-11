@@ -58,6 +58,10 @@ const SearchQuery = z.object({
   setId: z.coerce.number().int().positive().optional(),
   number: z.string().trim().min(1).max(32).optional(),
   language: z.string().trim().min(1).max(32).optional(),
+  // `artist` is accepted for backwards compatibility with older web builds but
+  // is a no-op: pkmnprices upstream ignores the field. Real artist search is
+  // served by `/pkmncards/artist-search` which scrapes pkmncards' first-class
+  // artist indexes and hydrates back through pkmnprices for pricing.
   artist: z.string().trim().min(1).max(120).optional(),
   currency: z.string().trim().toLowerCase().optional(),
   page: z.coerce.number().int().positive().max(50).optional(),
@@ -150,12 +154,12 @@ export function pkmnpricesRouter(c: Container): Router {
     asyncHandler(async (req, res) => {
       const parsed = SearchQuery.safeParse(req.query);
       if (!parsed.success) throw BadRequest('invalid search params', parsed.error.flatten());
-      const { q, setId, number, language, currency, artist } = parsed.data;
+      const { q, setId, number, language, currency } = parsed.data;
       const perPage = parsed.data.perPage ?? 24;
       const page = parsed.data.page ?? 1;
 
-      if (!q && !setId && !number && !artist) {
-        throw BadRequest('Provide a search term, a set, a card number, or an artist.');
+      if (!q && !setId && !number) {
+        throw BadRequest('Provide a search term, a set, or a card number.');
       }
 
       const status = await c.configs.getPkmnpricesStatus(req.user!.storeId);
@@ -175,45 +179,23 @@ export function pkmnpricesRouter(c: Container): Router {
       const effectiveLanguage =
         language && language.toLowerCase() !== 'english' ? language : undefined;
 
-      const cacheKey = `${req.user!.storeId}|search_v2|${q ?? ''}|${setId ?? ''}|${number ?? ''}|${effectiveLanguage ?? ''}|${artist ?? ''}|${apiCurrency ?? ''}|${page}|${perPage}`;
-      const cached = cacheGet<{ results: TcgapiCardShape[]; matchedBy?: 'name' | 'artist' }>(searchCache, cacheKey);
+      const cacheKey = `${req.user!.storeId}|search_v3|${q ?? ''}|${setId ?? ''}|${number ?? ''}|${effectiveLanguage ?? ''}|${apiCurrency ?? ''}|${page}|${perPage}`;
+      const cached = cacheGet<{ results: TcgapiCardShape[] }>(searchCache, cacheKey);
       if (cached) {
         res.json(cached);
         return;
       }
 
       const client = await c.pkmnpricesFor(req.user!.storeId);
-      const baseParams = {
+      const apiPage = await client.searchCards({
         set_id: setId,
         number,
         language: effectiveLanguage,
         currency: apiCurrency as any,
         page,
         per_page: perPage,
-      };
-
-      // Primary search: explicit artist filter wins over free-text q.
-      let apiPage = await client.searchCards({
-        ...baseParams,
-        name: artist ? undefined : q,
-        artist,
+        name: q,
       });
-      let matchedBy: 'name' | 'artist' = artist ? 'artist' : 'name';
-
-      // Transparent fallback: if a free-text query yielded no name hits and
-      // the operator didn't already specify artist, try the same string as
-      // an artist search. Handles "mitsuhiro arita" typed into the main
-      // search box without a separate artist field.
-      if (!artist && q && apiPage.results.length === 0) {
-        const fallback = await client.searchCards({
-          ...baseParams,
-          artist: q,
-        });
-        if (fallback.results.length > 0) {
-          apiPage = fallback;
-          matchedBy = 'artist';
-        }
-      }
 
       const results = apiPage.results.map(mapCardToTcgapiShape);
       const body = {
@@ -222,7 +204,6 @@ export function pkmnpricesRouter(c: Container): Router {
         perPage: apiPage.perPage,
         hasMore: apiPage.page * apiPage.perPage < apiPage.total,
         total: apiPage.total,
-        matchedBy,
       };
       cacheSet(searchCache, cacheKey, body, SEARCH_TTL_MS);
       res.json(body);

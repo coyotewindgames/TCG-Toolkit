@@ -17,10 +17,48 @@ interface SetMeta {
   code: string;
 }
 
+/** Directory entry pulled from `pkmn_artist-sitemap.xml`. */
+export interface ArtistDirectoryEntry {
+  slug: string;
+  /** Slug rewritten as a display label, e.g. `yuka-morii` → `Yuka Morii`. */
+  displayName: string;
+}
+
+/** Card URL parsed from an artist index page, e.g. `/card/aipom-paradox-rift-par-211/`. */
+export interface ParsedCardUrl {
+  cardUrl: string;
+  /** Best-guess slug for the card name (may include hyphens). */
+  nameSlug: string;
+  /** Set slug (may be null if we can't align with the known set directory). */
+  setSlug: string | null;
+  /** Set code (2–5 alpha chars) — the reliable join key. */
+  setCode: string;
+  /** Card number as it appears on the printed card. */
+  number: string;
+}
+
+/** A single hit returned by {@link PkmnCardsClient.searchByArtistSlug}. */
+export interface ArtistCardHit extends ParsedCardUrl {
+  /** Best-effort display name from the slug (Title Case). */
+  displayName: string;
+}
+
+/** Result of {@link PkmnCardsClient.resolveArtistSlug}. */
+export interface ResolvedArtist {
+  slug: string;
+  displayName: string;
+  /** How we found the slug — used only for logging/analytics. */
+  method: 'direct' | 'exact' | 'substring' | 'tokens' | 'lastname' | 'levenshtein';
+}
+
 const BASE_URL = 'https://pkmncards.com';
+const ARTIST_SITEMAP_URL = `${BASE_URL}/pkmn_artist-sitemap.xml`;
 const CARD_HREF_RE = /href=["']([^"']*\/card\/[^"']+)["']/gi;
 const SET_HREF_RE = /href=["']([^"']*\/set\/[^"']+\/)["'][^>]*>([^<]+)<\/a>/gi;
 const IMAGE_RE = /(?:https?:\/\/pkmncards\.com)?\/wp-content\/uploads\/[^"'\s<>]+\.(?:jpg|jpeg|png)/gi;
+const ARTIST_URL_RE = /<loc>\s*(https?:\/\/pkmncards\.com\/artist\/([^/<]+)\/)\s*<\/loc>/gi;
+/** `{name-slug}-{set-slug}-{set-code}-{number}` — code is 1–5 lowercase alpha. */
+const CARD_URL_TAIL_RE = /^(?<head>.+)-(?<code>[a-z]{1,5})-(?<number>[a-z0-9]+)$/i;
 
 const REQUEST_HEADERS: Record<string, string> = {
   accept: 'text/html,application/xhtml+xml',
@@ -42,6 +80,14 @@ export class PkmnCardsClient {
   private readonly setByCode = new Map<string, SetMeta>();
   private readonly cardLinksBySetSlug = new Map<string, string[]>();
   private setsLoaded = false;
+
+  // --- Artist directory + search (see `listArtists` / `searchByArtistSlug`) ---
+  private artistDirectory: ArtistDirectoryEntry[] | null = null;
+  private artistDirectoryLoadedAt = 0;
+  private artistDirectoryPromise: Promise<ArtistDirectoryEntry[]> | null = null;
+  private readonly artistLookup = new Map<string, ResolvedArtist | null>();
+  private readonly artistCardLinksByKey = new Map<string, string[]>();
+  private static readonly ARTIST_DIRECTORY_TTL_MS = 24 * 60 * 60_000;
 
   async lookup(input: PkmnCardsLookupInput): Promise<PkmnCardsLookupResult | null> {
     const lookupKey = buildLookupCacheKey(input);
@@ -325,6 +371,293 @@ export class PkmnCardsClient {
     this.existsByUrl.set(url, exists);
     return exists;
   }
+
+  // ---------------------------------------------------------------------------
+  // Artist directory + search
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Load and cache the full artist directory (sourced from
+   * `pkmn_artist-sitemap.xml`). Cached in-process for 24 h — the sitemap is
+   * only ~30 KB so a full refresh is cheap.
+   */
+  async listArtists(): Promise<ArtistDirectoryEntry[]> {
+    const fresh =
+      this.artistDirectory &&
+      Date.now() - this.artistDirectoryLoadedAt < PkmnCardsClient.ARTIST_DIRECTORY_TTL_MS;
+    if (fresh && this.artistDirectory) return this.artistDirectory;
+    if (this.artistDirectoryPromise) return this.artistDirectoryPromise;
+
+    this.artistDirectoryPromise = (async () => {
+      const xml = await this.fetchHtml(ARTIST_SITEMAP_URL);
+      const entries: ArtistDirectoryEntry[] = [];
+      const seen = new Set<string>();
+      let match: RegExpExecArray | null;
+      const re = new RegExp(ARTIST_URL_RE.source, 'gi');
+      while ((match = re.exec(xml)) !== null) {
+        const slug = match[2]?.toLowerCase();
+        if (!slug || seen.has(slug)) continue;
+        seen.add(slug);
+        entries.push({ slug, displayName: slugToDisplayName(slug) });
+      }
+      entries.sort((a, b) => a.slug.localeCompare(b.slug));
+      this.artistDirectory = entries;
+      this.artistDirectoryLoadedAt = Date.now();
+      return entries;
+    })().finally(() => {
+      this.artistDirectoryPromise = null;
+    });
+
+    return this.artistDirectoryPromise;
+  }
+
+  /**
+   * Best-effort resolution of a free-text artist name (e.g. `"yuka mori"`) to a
+   * canonical pkmncards slug. Tries:
+   *   1. Direct URL probe with a naïve slugified input (fast, no directory fetch).
+   *   2. Exact / substring / all-token match against the directory.
+   *   3. Last-name substring — handles typed `"himeno"` → `kagemaru-himeno`.
+   *   4. Levenshtein ≤ 2 on the slug or its last token — handles typos like
+   *      `"yuka mori"` → `yuka-morii` and `"yuki morii"` → `yuka-morii`.
+   *
+   * Returns `null` when no match is confident enough.
+   */
+  async resolveArtistSlug(freeText: string): Promise<ResolvedArtist | null> {
+    const trimmed = freeText.trim();
+    if (!trimmed) return null;
+    const key = normalizeArtistText(trimmed);
+    if (!key) return null;
+    if (this.artistLookup.has(key)) return this.artistLookup.get(key) ?? null;
+
+    // 1. Naïve slug probe. If pkmncards has that exact slug we're done without
+    //    loading the directory. Skip when the input already contains characters
+    //    that would slugify away (would produce spurious 404s).
+    const naiveSlug = slugifyArtist(trimmed);
+    if (naiveSlug) {
+      const exists = await this.urlExists(`${BASE_URL}/artist/${naiveSlug}/`);
+      if (exists) {
+        const hit: ResolvedArtist = {
+          slug: naiveSlug,
+          displayName: slugToDisplayName(naiveSlug),
+          method: 'direct',
+        };
+        this.artistLookup.set(key, hit);
+        return hit;
+      }
+    }
+
+    const directory = await this.listArtists().catch(() => [] as ArtistDirectoryEntry[]);
+    if (directory.length === 0) {
+      this.artistLookup.set(key, null);
+      return null;
+    }
+
+    const queryTokens = key.split(' ').filter(Boolean);
+    const queryLast = queryTokens[queryTokens.length - 1] ?? key;
+
+    // 2. Exact slug or normalized-display equality.
+    for (const entry of directory) {
+      if (entry.slug === naiveSlug || normalizeArtistText(entry.displayName) === key) {
+        const hit: ResolvedArtist = { ...entry, method: 'exact' };
+        this.artistLookup.set(key, hit);
+        return hit;
+      }
+    }
+
+    // 3. Substring / all-tokens-present.
+    let substringHit: ResolvedArtist | null = null;
+    let tokenHit: ResolvedArtist | null = null;
+    let lastnameHit: ResolvedArtist | null = null;
+    for (const entry of directory) {
+      const normDisplay = normalizeArtistText(entry.displayName);
+      const normTokens = normDisplay.split(' ').filter(Boolean);
+      if (!substringHit && (normDisplay.includes(key) || key.includes(normDisplay))) {
+        substringHit = { ...entry, method: 'substring' };
+      }
+      if (!tokenHit && queryTokens.length > 0 && queryTokens.every((t) => normDisplay.includes(t))) {
+        tokenHit = { ...entry, method: 'tokens' };
+      }
+      if (!lastnameHit && normTokens.length > 0) {
+        const entryLast = normTokens[normTokens.length - 1];
+        if (entryLast === queryLast || entryLast.startsWith(queryLast) || queryLast.startsWith(entryLast)) {
+          lastnameHit = { ...entry, method: 'lastname' };
+        }
+      }
+    }
+    const priority = substringHit ?? tokenHit ?? lastnameHit;
+    if (priority) {
+      this.artistLookup.set(key, priority);
+      return priority;
+    }
+
+    // 4. Levenshtein ≤ 2 on the full display name or its last token.
+    let best: { entry: ArtistDirectoryEntry; distance: number } | null = null;
+    for (const entry of directory) {
+      const normDisplay = normalizeArtistText(entry.displayName);
+      const distanceFull = boundedLevenshtein(normDisplay, key, 2);
+      const entryTokens = normDisplay.split(' ').filter(Boolean);
+      const entryLast = entryTokens[entryTokens.length - 1] ?? normDisplay;
+      const distanceLast = boundedLevenshtein(entryLast, queryLast, 2);
+      const distance = Math.min(distanceFull, distanceLast);
+      if (distance <= 2 && (!best || distance < best.distance)) {
+        best = { entry, distance };
+      }
+    }
+    if (best) {
+      const hit: ResolvedArtist = { ...best.entry, method: 'levenshtein' };
+      this.artistLookup.set(key, hit);
+      return hit;
+    }
+
+    this.artistLookup.set(key, null);
+    return null;
+  }
+
+  /**
+   * Fetch a page of card URLs for a given artist slug. `page` is 1-based to
+   * match pkmncards' own pagination (`/artist/<slug>/page/2/`). Results are
+   * cached per (slug, page).
+   */
+  async searchByArtistSlug(slug: string, page = 1): Promise<ArtistCardHit[]> {
+    const normSlug = slug.trim().toLowerCase();
+    if (!normSlug) return [];
+    const key = `${normSlug}|${page}`;
+    if (this.artistCardLinksByKey.has(key)) {
+      const cached = this.artistCardLinksByKey.get(key) ?? [];
+      return cached.map((url) => this.buildArtistHit(url)).filter((h): h is ArtistCardHit => h !== null);
+    }
+
+    const url =
+      page <= 1
+        ? `${BASE_URL}/artist/${normSlug}/`
+        : `${BASE_URL}/artist/${normSlug}/page/${page}/`;
+
+    let html: string;
+    try {
+      html = await this.fetchHtml(url);
+    } catch {
+      this.artistCardLinksByKey.set(key, []);
+      return [];
+    }
+
+    const links = extractCardLinks(html);
+    this.artistCardLinksByKey.set(key, links);
+    return links.map((u) => this.buildArtistHit(u)).filter((h): h is ArtistCardHit => h !== null);
+  }
+
+  private buildArtistHit(url: string): ArtistCardHit | null {
+    const parsed = parseCardUrl(url);
+    if (!parsed) return null;
+    return { ...parsed, displayName: slugToDisplayName(parsed.nameSlug) };
+  }
+
+  /**
+   * Public accessor for the set directory keyed by pkmncards set code (e.g.
+   * `par` → { slug: 'paradox-rift', name: 'Paradox Rift', code: 'par' }).
+   * Used by the artist-search hydration path to translate a parsed card URL
+   * into a pkmnprices set id.
+   */
+  async getSetMetaByCode(code: string): Promise<{ slug: string; name: string; code: string } | null> {
+    const norm = normalizeSetCode(code);
+    if (!norm) return null;
+    await this.ensureSetDirectory();
+    return this.setByCode.get(norm) ?? null;
+  }
+}
+
+/**
+ * Parse a pkmncards card URL into its structured pieces. Returns `null` for
+ * URLs that don't match the standard `{name}-{set}-{code}-{number}` shape.
+ *
+ * Exported for use by the pkmnprices hydration path and for unit testing.
+ */
+export function parseCardUrl(input: string): ParsedCardUrl | null {
+  if (!input) return null;
+  const trimmed = input.trim();
+  const absolute = trimmed.startsWith('http')
+    ? trimmed
+    : trimmed.startsWith('/')
+      ? `${BASE_URL}${trimmed}`
+      : `${BASE_URL}/${trimmed}`;
+  const withoutQuery = absolute.split('#')[0].split('?')[0];
+  const noTrailing = withoutQuery.replace(/\/+$/, '');
+  const idx = noTrailing.indexOf('/card/');
+  if (idx === -1) return null;
+  const tail = noTrailing.slice(idx + '/card/'.length);
+  if (!tail) return null;
+  const match = CARD_URL_TAIL_RE.exec(tail);
+  if (!match || !match.groups) return null;
+  const { head, code, number } = match.groups as { head: string; code: string; number: string };
+  return {
+    cardUrl: `${noTrailing}/`,
+    nameSlug: head,
+    setSlug: null,
+    setCode: code.toLowerCase(),
+    number: number.toLowerCase(),
+  };
+}
+
+/** Slugify a free-text artist name into pkmncards' URL segment format. */
+function slugifyArtist(input: string): string {
+  return input
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+/**
+ * Normalize an artist name / slug so equality checks are diacritic- and
+ * punctuation-insensitive.
+ */
+function normalizeArtistText(input: string): string {
+  return input
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+/** Convert `yuka-morii` → `Yuka Morii` for display. */
+function slugToDisplayName(slug: string): string {
+  return slug
+    .split('-')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+/**
+ * Levenshtein with an early-exit ceiling. Returns `max + 1` if the true
+ * distance exceeds `max`, which lets callers reject quickly without paying the
+ * full O(m·n) cost on wildly different strings.
+ */
+function boundedLevenshtein(a: string, b: string, max: number): number {
+  if (a === b) return 0;
+  if (Math.abs(a.length - b.length) > max) return max + 1;
+  if (a.length === 0) return b.length;
+  if (b.length === 0) return a.length;
+
+  const prev = new Array<number>(b.length + 1);
+  const curr = new Array<number>(b.length + 1);
+  for (let j = 0; j <= b.length; j++) prev[j] = j;
+
+  for (let i = 1; i <= a.length; i++) {
+    curr[0] = i;
+    let rowMin = curr[0];
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a.charCodeAt(i - 1) === b.charCodeAt(j - 1) ? 0 : 1;
+      curr[j] = Math.min(curr[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost);
+      if (curr[j] < rowMin) rowMin = curr[j];
+    }
+    if (rowMin > max) return max + 1;
+    for (let j = 0; j <= b.length; j++) prev[j] = curr[j];
+  }
+  return prev[b.length];
 }
 
 function normalizeSetCode(setCode: string | null | undefined): string {

@@ -244,4 +244,42 @@ export class InventoryService {
   async emitUpdatedForSku(args: { storeId: string; skuId: string }): Promise<void> {
     await this.emitUpdated(args.storeId, args.skuId);
   }
+
+  /**
+   * Overwrite the "picked up at" (cost basis) for a SKU across every location
+   * in the given store. Used by the manual inventory editor when the
+   * calculated weighted-average price is off — e.g. an operator paid a
+   * one-off premium in cash that never made it through the trade-in flow.
+   *
+   * Cost is stored per-location because we may hold the same SKU in
+   * multiple bins acquired at different prices; the manual editor treats
+   * cost as a single per-SKU value for simplicity and writes the same
+   * number to every row so the aggregated view (weighted average across
+   * locations) stays consistent with what the operator typed.
+   */
+  async setSkuCost(args: { storeId: string; skuId: string; costCents: number }): Promise<void> {
+    if (!Number.isInteger(args.costCents) || args.costCents < 0) {
+      throw Conflict('costCents must be a non-negative integer');
+    }
+    // Scope the update to inventory rows whose location belongs to this
+    // store, so a caller from store A can never accidentally rewrite the
+    // cost of store B's SKU (should never happen if the SKU itself is
+    // store-scoped, but the extra join is cheap defence-in-depth).
+    const result = await this.db.execute(sql`
+      update inventory
+      set cost_avg_cents = ${args.costCents},
+          updated_at = now()
+      from locations
+      where inventory.location_id = locations.id
+        and inventory.sku_id = ${args.skuId}
+        and locations.store_id = ${args.storeId}
+    `);
+    // Postgres returns rowCount; if nothing was updated we treat it as a
+    // 404 so the caller can tell the operator they picked a stale SKU.
+    const rowCount = (result as { rowCount?: number }).rowCount ?? 0;
+    if (rowCount === 0) {
+      throw NotFound(`sku ${args.skuId} has no inventory rows in this store`);
+    }
+    await this.emitUpdated(args.storeId, args.skuId);
+  }
 }

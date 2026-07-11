@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { CardCondition, CardLanguage, CardPrinting, PayoutKind } from '@tcg/shared';
 import { useSession } from '../useSession';
 import { api } from '../../lib/api';
+import { detectSet, normalizeSet } from '../../lib/pokemonSets';
 import type { TransactionMode } from '../../lib/transactions';
 import { useTransactionSearchController } from './useTransactionSearchController';
 import { useTradeQueueState, type TradeQueueItem } from './useTradeQueueState';
@@ -28,6 +29,34 @@ type SearchResponse = {
   total: number | null;
   matchedBy?: 'name' | 'artist';
 };
+
+type ArtistSearchResponse = {
+  results: TcgapiCard[];
+  page: number;
+  perPage: number;
+  hasMore: boolean;
+  total: number;
+  resolvedArtist: { slug: string; displayName: string; method: string } | null;
+};
+
+/**
+ * Heuristic: does this free-text query look like a person's name? Used to
+ * trigger a transparent secondary artist search when the main pkmnprices
+ * name-search returns nothing (e.g. operator types "yuka morii" into the
+ * general search box instead of the dedicated artist field).
+ *
+ * Matches two-to-four space-separated tokens starting with a letter and made
+ * of letters, apostrophes, hyphens, or dots. Deliberately conservative so we
+ * don't fire artist searches for things like "charizard vmax" or "moltres ex".
+ */
+function looksLikePersonName(input: string): boolean {
+  const trimmed = input.trim();
+  if (!trimmed || trimmed.length > 60) return false;
+  if (/\d/.test(trimmed)) return false;
+  const tokens = trimmed.split(/\s+/);
+  if (tokens.length < 2 || tokens.length > 4) return false;
+  return tokens.every((t) => /^[A-Za-z][A-Za-z'.-]{1,20}$/.test(t));
+}
 
 type SetRow = { id: string; name: string; slug?: string };
 type SetsResponse = { sets: SetRow[] };
@@ -170,6 +199,15 @@ export interface TradeModeTransactionController {
   inferredSetId: string | null;
   inferredSetName: string | null;
   matchedByArtist: boolean;
+  /** Free-text artist filter (dedicated input in the Trade/Buy filter row). */
+  artistFilter: string;
+  setArtistFilter: (value: string) => void;
+  /**
+   * Canonical artist name resolved by the pkmncards artist-search endpoint
+   * (either from `artistFilter` or from the auto-fallback trigger). Shown as
+   * a chip so operators can see how their query was interpreted.
+   */
+  resolvedArtistName: string | null;
   selectedCardPrices: PriceRow[];
   selectedMarketPriceCents: number | null;
   suggestedTradeUnitCents: number;
@@ -223,6 +261,13 @@ export function useTradeTransaction(active: boolean, mode: TransactionMode): Tra
   const [labelInfo, setLabelInfo] = useState<{ skuIds: { skuId: string; quantity: number }[]; cardName: string } | null>(null);
   const [labelErr, setLabelErr] = useState<string | null>(null);
   const [printingLabels, setPrintingLabels] = useState(false);
+  /**
+   * Dedicated artist filter. When set, the search results come from
+   * `/pkmncards/artist-search` instead of pkmnprices — pkmnprices' upstream
+   * `/v1/cards` endpoint has no artist parameter, so this is the only way to
+   * reliably surface e.g. every card illustrated by "kagemaru himeno".
+   */
+  const [artistFilter, setArtistFilter] = useState<string>('');
 
   const mainSearch = useTransactionSearchController({
     initialQuery: '',
@@ -256,66 +301,54 @@ export function useTradeTransaction(active: boolean, mode: TransactionMode): Tra
     staleTime: 24 * 60 * 60_000,
   });
 
-  // Infer a set from the free-text query. Two strategies, in order of
-  // confidence:
-  //   1. The set name appears verbatim as a substring in the query
-  //      (e.g. query "rayquaza evolving skies" contains "evolving skies").
-  //   2. Every significant token of the set name appears as a whole word in
-  //      the query. This handles upstream set names that carry prefixes or
-  //      punctuation (e.g. "SWSH — Evolving Skies" or "Sword & Shield:
-  //      Evolving Skies") which fail a strict substring match.
-  // The user's explicit set filter always wins.
+  // Infer a set from the free-text query. We try two sources of truth in
+  // priority order and pick the more confident hit:
+  //   1. The canonical Pokémon set bundle (`lib/pokemonSets`) — recognizes
+  //      shorthand codes (`PRE`, `SVI`) and common typos (`sword and shield`)
+  //      that pkmnprices' catalog doesn't cover verbatim.
+  //   2. Every significant token of a pkmnprices set name appears in the
+  //      query — catches sets that pkmnprices names differently than the
+  //      canonical bundle (e.g. localized suffixes) and picks up brand-new
+  //      sets before we've added them to the canonical list.
+  // The operator's explicit set filter always wins over inference.
   const inferredSet = useMemo(() => {
     if (setId) return null;
     if (looksLikeNumber) return null;
+    if (!nameParam) return null;
     const sets = setsQuery.data?.sets ?? [];
-    if (!sets.length || !nameParam) return null;
 
+    // Strategy 1: canonical bundle.
+    const canonical = detectSet(nameParam);
+    if (canonical) {
+      // Look up the id from pkmnprices' set list. Normalize both sides so
+      // "Pokémon GO" and "Pokemon GO" match without a bespoke unicode dance.
+      const target = normalizeSet(canonical.name);
+      const pricedMatch = sets.find((s) => normalizeSet(s.name) === target);
+      // Fall back to id='' if the canonical hit isn't in pkmnprices yet — the
+      // UI still gets to strip the set substring from the outgoing query.
+      return {
+        id: pricedMatch?.id ?? '',
+        name: canonical.name,
+        start: canonical.start,
+        length: canonical.length,
+      };
+    }
+
+    // Strategy 2: token match against the pkmnprices set list directly.
+    if (!sets.length) return null;
     const haystack = nameParam.toLowerCase();
     const queryTokens = new Set(tokenize(haystack));
     if (!queryTokens.size) return null;
 
-    let bestSubstring: {
-      id: string;
-      name: string;
-      start: number;
-      length: number;
-      score: number;
-    } | null = null;
-    let bestTokenMatch: {
-      id: string;
-      name: string;
-      start: number;
-      length: number;
-      score: number;
-    } | null = null;
-
+    let bestTokenMatch: { id: string; name: string; start: number; length: number; score: number } | null = null;
     for (const set of sets) {
       const needle = set.name.toLowerCase();
       if (needle.length < 3) continue;
-
-      // Strategy 1: exact substring
-      const idx = haystack.indexOf(needle);
-      if (idx !== -1) {
-        const score = needle.length;
-        if (!bestSubstring || score > bestSubstring.score) {
-          bestSubstring = { id: set.id, name: set.name, start: idx, length: needle.length, score };
-        }
-        continue;
-      }
-
-      // Strategy 2: every significant token of the set appears in the query
       const setTokens = tokenize(needle);
       if (setTokens.length < 1) continue;
       const allMatch = setTokens.every((token) => queryTokens.has(token));
       if (!allMatch) continue;
-
-      // Score by total matched-token length so multi-word sets like
-      // "Evolving Skies" beat single-word matches like "Base" on a query
-      // that mentions both.
       const score = setTokens.reduce((sum, token) => sum + token.length, 0);
-      // Approximate strip range: from the first matched token to the last
-      // matched token in the query.
       const firstToken = setTokens[0];
       const lastToken = setTokens[setTokens.length - 1];
       const start = haystack.indexOf(firstToken);
@@ -332,9 +365,7 @@ export function useTradeTransaction(active: boolean, mode: TransactionMode): Tra
         };
       }
     }
-
-    // Substring matches always win over token matches.
-    return bestSubstring ?? bestTokenMatch;
+    return bestTokenMatch;
   }, [setId, looksLikeNumber, setsQuery.data, nameParam]);
 
   const nameParamAfterSetStrip = useMemo(() => {
@@ -351,7 +382,9 @@ export function useTradeTransaction(active: boolean, mode: TransactionMode): Tra
   const effectiveSetId = setId || inferredSet?.id || '';
 
   const searchEnabled =
-    active && (effectiveNameParam.length >= 2 || (!!numberParam && !!effectiveSetId) || !!effectiveSetId);
+    active &&
+    !artistFilter &&
+    (effectiveNameParam.length >= 2 || (!!numberParam && !!effectiveSetId) || !!effectiveSetId);
 
   const searchQuery = useQuery<SearchResponse>({
     queryKey: [
@@ -380,12 +413,57 @@ export function useTradeTransaction(active: boolean, mode: TransactionMode): Tra
     staleTime: 60_000,
   });
 
+  // Artist search — two triggers:
+  //   1. Dedicated `artistFilter` input (explicit intent). Runs even when
+  //      the main name search is disabled.
+  //   2. Auto-fallback: main search settled with zero results AND the free
+  //      text looks like a person's name AND no manual artist. Handles the
+  //      common case of an operator typing "yuka morii" in the main box.
+  const shouldAutoFallbackArtist =
+    !artistFilter &&
+    searchEnabled &&
+    !searchQuery.isFetching &&
+    (searchQuery.data?.results.length ?? 0) === 0 &&
+    looksLikePersonName(effectiveNameParam);
+  const artistSearchTerm = artistFilter.trim() || (shouldAutoFallbackArtist ? effectiveNameParam : '');
+
+  const artistSearchQuery = useQuery<ArtistSearchResponse>({
+    queryKey: ['transactions.trade.artistSearch', artistSearchTerm],
+    queryFn: ({ signal }) => {
+      const params = new URLSearchParams();
+      params.set('name', artistSearchTerm);
+      params.set('perPage', '24');
+      return api.get<ArtistSearchResponse>(`/pkmncards/artist-search?${params.toString()}`, { signal });
+    },
+    enabled: active && artistSearchTerm.length >= 2,
+    staleTime: 5 * 60_000,
+  });
+
   const searchResults = useMemo(() => {
-    const all = searchQuery.data?.results ?? [];
-    if (!raritySearch.normalizedQuery) return all;
+    // When the operator typed an explicit artist filter, artist results are
+    // the source of truth. When the auto-fallback triggered we merge: main
+    // (empty) results ++ artist results so the UI stays consistent even if
+    // the main query recovers between renders.
+    const primary = searchQuery.data?.results ?? [];
+    const artist = artistSearchQuery.data?.results ?? [];
+    const combined = artistFilter
+      ? artist
+      : primary.length > 0
+        ? primary
+        : artist;
+    // Drop cards without a hydrated pkmnprices id — the queue add path needs
+    // it for the /prices lookup. Degraded (id === '') hits from the artist
+    // endpoint would otherwise blow up on selection.
+    const usable = combined.filter((card) => card.id);
+    if (!raritySearch.normalizedQuery) return usable;
     const needle = raritySearch.normalizedQuery.toLowerCase();
-    return all.filter((card) => card.rarity?.toLowerCase().includes(needle));
-  }, [searchQuery.data, raritySearch.normalizedQuery]);
+    return usable.filter((card) => card.rarity?.toLowerCase().includes(needle));
+  }, [
+    searchQuery.data,
+    artistSearchQuery.data,
+    artistFilter,
+    raritySearch.normalizedQuery,
+  ]);
 
   const rarityOptions = useMemo(() => {
     const seen = new Set<string>();
@@ -581,12 +659,21 @@ export function useTradeTransaction(active: boolean, mode: TransactionMode): Tra
     setsLoading: setsQuery.isLoading,
     searchEnabled,
     searchResults,
-    searchFetching: searchQuery.isFetching,
-    searchError: searchQuery.error ? (searchQuery.error as Error).message : null,
+    searchFetching: searchQuery.isFetching || artistSearchQuery.isFetching,
+    searchError:
+      (searchQuery.error ? (searchQuery.error as Error).message : null) ??
+      (artistSearchQuery.error ? (artistSearchQuery.error as Error).message : null),
     looksLikeNumber,
     inferredSetId: inferredSet?.id ?? null,
     inferredSetName: inferredSet?.name ?? null,
-    matchedByArtist: searchQuery.data?.matchedBy === 'artist',
+    matchedByArtist:
+      !!artistFilter ||
+      (artistSearchQuery.data?.resolvedArtist != null &&
+        (artistSearchQuery.data?.results.length ?? 0) > 0 &&
+        (searchQuery.data?.results.length ?? 0) === 0),
+    artistFilter,
+    setArtistFilter,
+    resolvedArtistName: artistSearchQuery.data?.resolvedArtist?.displayName ?? null,
     selectedCardPrices,
     selectedMarketPriceCents,
     suggestedTradeUnitCents,
