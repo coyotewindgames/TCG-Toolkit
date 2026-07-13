@@ -231,7 +231,7 @@ export class PkmnPricesClient {
         `pkmnprices error: ${err.message}`,
       );
       if (err.status === 429) {
-        throw TooManyRequests(err.message ?? 'per-minute rate limit exceeded', err.retryAfterMs);
+        throw TooManyRequests(err.message ?? 'per-minute rate limit exceeded', err.retryAfterMs ?? undefined);
       }
     } else {
       this.log.error(
