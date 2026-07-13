@@ -31,6 +31,24 @@ export const errorHandler: ErrorRequestHandler = (
     return;
   }
 
+  // Third-party SDK rate-limit errors (e.g. PkmnPricesError with status 429).
+  // Duck-type the check so we don't import the SDK class here.
+  const sdkStatus = (err as { status?: number } | null)?.status;
+  if (sdkStatus === 429) {
+    const retryAfterMs = (err as { retryAfterMs?: number } | null)?.retryAfterMs;
+    const headers: Record<string, string> = { 'Retry-After': '60' };
+    if (retryAfterMs != null && retryAfterMs > 0) {
+      headers['Retry-After'] = String(Math.ceil(retryAfterMs / 1000));
+    }
+    res.set(headers).status(429).json({
+      error: 'rate_limit_exceeded',
+      message: err instanceof Error ? err.message : 'rate limit exceeded',
+      retryAfterMs: retryAfterMs ?? 60_000,
+      requestId: reqId,
+    });
+    return;
+  }
+
   // eslint-disable-next-line no-console
   console.error('[unhandled]', err);
   const message = err instanceof Error ? err.message : 'internal error';

@@ -22,6 +22,7 @@ import {
   type Set as SdkSet,
 } from '@pkmnprices/sdk';
 import { getLogger } from '../../common/logger';
+import { TooManyRequests } from '../../common/http-errors';
 
 // ---- Domain types (money in cents) ----------------------------------------
 
@@ -121,8 +122,7 @@ export class PkmnPricesClient {
         totalPages: res.pagination.total_pages,
       };
     } catch (err) {
-      this.logError('cards.list', started, err);
-      throw err;
+      this.rethrowSdkError('cards.list', started, err);
     }
   }
 
@@ -142,8 +142,7 @@ export class PkmnPricesClient {
       );
       return mapCard(card);
     } catch (err) {
-      this.logError('cards.get', started, err, { cardId: id });
-      throw err;
+      this.rethrowSdkError('cards.get', started, err, { cardId: id });
     }
   }
 
@@ -176,8 +175,7 @@ export class PkmnPricesClient {
         totalPages: res.pagination.total_pages,
       };
     } catch (err) {
-      this.logError('sets.list', started, err);
-      throw err;
+      this.rethrowSdkError('sets.list', started, err);
     }
   }
 
@@ -201,14 +199,22 @@ export class PkmnPricesClient {
       );
       return rows.map(mapSet);
     } catch (err) {
-      this.logError('sets.listAll', started, err);
-      throw err;
+      this.rethrowSdkError('sets.listAll', started, err);
     }
   }
 
   // ---- Helpers ------------------------------------------------------------
 
-  private logError(endpoint: string, started: number, err: unknown, extras: Record<string, unknown> = {}): void {
+  /**
+   * Log the SDK error and return a well-typed error to throw.
+   *
+   * 429 rate-limit responses are converted to `HttpError(429)` so the global
+   * error middleware returns a proper `Retry-After` response instead of a
+   * generic 500. All other SDK errors are re-thrown as-is (the middleware
+   * duck-types any `.status === 429` fallback, but converting here gives us
+   * the `retryAfterMs` detail we already have in scope).
+   */
+  private rethrowSdkError(endpoint: string, started: number, err: unknown, extras: Record<string, unknown> = {}): never {
     const durationMs = Date.now() - started;
     if (err instanceof PkmnPricesError) {
       this.log.warn(
@@ -224,12 +230,16 @@ export class PkmnPricesClient {
         },
         `pkmnprices error: ${err.message}`,
       );
+      if (err.status === 429) {
+        throw TooManyRequests(err.message ?? 'per-minute rate limit exceeded', err.retryAfterMs);
+      }
     } else {
       this.log.error(
         { source: 'pkmnprices', endpoint, durationMs, err: (err as Error)?.message, ...extras },
         'pkmnprices unknown error',
       );
     }
+    throw err;
   }
 }
 

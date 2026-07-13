@@ -18,3 +18,5 @@ export const Unauthorized = (m = 'unauthorized') => new HttpError(401, m);
 export const Forbidden = (m = 'forbidden') => new HttpError(403, m);
 export const NotFound = (m = 'not found') => new HttpError(404, m);
 export const Conflict = (m: string, details?: unknown) => new HttpError(409, m, details);
+export const TooManyRequests = (m = 'rate limit exceeded', retryAfterMs?: number) =>
+  new HttpError(429, m, retryAfterMs != null ? { retryAfterMs } : undefined);
