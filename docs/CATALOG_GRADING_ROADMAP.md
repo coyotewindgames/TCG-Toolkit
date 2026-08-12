@@ -70,14 +70,14 @@ Every subsystem that currently touches TCGapi, and how far each one already is f
 |---|---|---|
 | Trade-in card search (sets, name search, prices) | **Done** | `routes/pkmnprices.ts`, `useTradeTransaction.ts`, `TradeIn.tsx` |
 | Price refresh (nightly bulk + on-scan) | **Partial** — done for matched Pokémon SKUs; TCGapi is the live fallback for everything else | `pricing-router.ts`, `worker.ts` (bulkRefresh) |
-| Product → provider identity backfill | **Done**, one-off, Pokémon only | `scripts/backfill-pkmnprices-ids.ts` |
+| Product → provider identity backfill | **Done**, one-off, Pokémon only | `scripts/one-off/backfill-pkmnprices-ids.ts` |
 | Catalog metadata refresh (name/set/number/rarity) | **Not started** — 100% TCGapi, no PkmnPrices branch exists | `worker.ts` (syncCatalog), `jobs/cron/catalog-sync.ts` |
 | Analytics "Top Movers" widget | **Not started** — no PkmnPrices equivalent exists at all | `pages/Analytics.tsx`, `routes/tcgapi.ts` |
 | Onboarding "connect a catalog provider" step | **Not started** — hard-required gate is TCGapi-only | `pages/Onboarding.tsx` |
 | Settings → "Trade-In search games" selector | **Dead config** — nothing reads `queryGameSlugs` anymore now that trade-in search is PkmnPrices-only | `SettingsIntegrations.tsx` |
 | `/tcgapi/search`, `/games/:slug/sets`, `/cards/:id/prices` | **Apparently dead** — no caller found anywhere in `apps/web`; confirm before deleting (Phase A0) | `routes/tcgapi.ts` |
-| Non-Pokémon catalog (mtg, yugioh, lorcana, one_piece, flesh_and_blood, sealed, supplies, other) | **Structural** — search, identity, and pricing all depend on TCGapi by definition | `db/schema.ts` (gameEnum) |
-| SKU identity hashing | **Needs rework** — shared helper is keyed on `tcgapiProductId`; a second, differently-keyed implementation lives locally in the import service | `packages/shared/src/index.ts`, `inventory-import.ts:238` |
+| Non-Pokémon catalog (mtg, yugioh, lorcana, one_piece, flesh_and_blood, sealed, supplies, other) | **Structural** — search, identity, and pricing all depend on TCGapi by definition | `db/schema/enums.ts` (gameEnum) |
+| SKU identity hashing | **Needs rework** — shared helper is keyed on `tcgapiProductId`; a second, differently-keyed implementation lives locally in the import service | `packages/shared/src/index.ts`, `inventory-import/service.ts` |
 
 ## A.2 TCGapi vs. PkmnPrices
 
@@ -167,7 +167,7 @@ that flow.
   a live table is a one-way door this project doesn't need to walk through.
 - **`skuIdentityKey`** (`packages/shared/src/index.ts`) — today's signature is `{ tcgapiProductId, condition,
   printing, language }`. It needs to become provider-agnostic: key off `products.id` the way the second,
-  locally-duplicated implementation in `inventory-import.ts:238` already does. Worth reconciling both in the same
+  locally-duplicated implementation in `inventory-import/service.ts` already does. Worth reconciling both in the same
   pass — they've drifted, and having one canonical version removes the risk of the CSV-import path and the
   trade-in path de-duping SKUs differently.
 - **Credentials** — `tcgapi_configs` and its vault-encrypted columns drop only after Phase A5.
@@ -218,7 +218,7 @@ verified against the current code, not assumed.
 ## B.1 Four verified findings
 
 **Finding 1 — No schema for grading, anywhere.**
-`apps/api/src/db/schema.ts` — `cardConditionEnum` is `['NM','LP','MP','HP','DMG']` and nothing else.
+`apps/api/src/db/schema/enums.ts` — `cardConditionEnum` is `['NM','LP','MP','HP','DMG']` and nothing else.
 `skus_identity_uq` is a four-column unique constraint (`productId, condition, printing, language`) with no grade
 dimension. `trade_items` and `order_items` carry no grading columns either. A graded card has nowhere to live
 except inside a `condition` value that doesn't describe it.
@@ -419,7 +419,7 @@ Every file either initiative touches, for a working checklist during implementat
 `integrations/tcgapi/client.ts` · `integrations/pkmnprices/client.ts` · `server/routes/tcgapi.ts` ·
 `server/routes/pkmnprices.ts` · `server/routes/settings.ts` · `server/services/config-service.ts` ·
 `server/services/pricing-router.ts` · `server/services/pricing.ts` · `server/container.ts` · `jobs/worker.ts` ·
-`jobs/cron/catalog-sync.ts` · `scripts/backfill-pkmnprices-ids.ts` · `security/vault.ts` · `db/schema.ts` ·
+`jobs/cron/catalog-sync.ts` · `scripts/one-off/backfill-pkmnprices-ids.ts` · `security/vault.ts` · `db/schema/` ·
 `packages/shared/src/index.ts`
 
 **Part A — Web**
@@ -432,7 +432,7 @@ Every file either initiative touches, for a working checklist during implementat
 
 **Part B — API**
 `integrations/pkmnprices/client.ts` · `server/services/pricing-router.ts` · `server/services/pricing.ts` ·
-`server/services/tradeins.ts` · `server/services/inventory-import.ts` · `db/schema.ts` ·
+`server/services/tradeins.ts` · `server/services/inventory-import/` · `db/schema/` ·
 `packages/shared/src/index.ts`
 
 **Part B — Web**

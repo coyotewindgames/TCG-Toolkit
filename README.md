@@ -25,7 +25,14 @@ for in-store checkout.
 ```
 apps/
   api/           Express API + WebSocket server + BullMQ worker
+    src/db/schema/           Drizzle tables split by domain, re-exported from index.ts
+    src/server/routes/       HTTP handlers: validate -> call a service -> shape the response
+    src/server/services/     Business logic (inventory-import/ and product-search/ are packages)
+    src/integrations/        Outbound clients (pkmncards/ splits transport, parsing, matching)
+    src/scripts/one-off/     Completed backfills kept for new environments; not runtime code
   web/           React register / inventory / trade-in UI
+    src/hooks/               Data-access hooks owning their TanStack Query keys
+    src/lib/                 Pure helpers (formatting, query keys, payout/search math)
 packages/
   shared/        Zod schemas, enums, socket event names, shared DTO types
 render.yaml      Render blueprint: web + worker + cron + static + Postgres + Redis
@@ -69,8 +76,9 @@ npm run build --workspace=@tcg/shared
 npm run build --workspace=@tcg/api
 npm run build --workspace=@tcg/web
 
-npm run typecheck --workspace=@tcg/api
-npm run typecheck --workspace=@tcg/web
+npm run typecheck   # all workspaces
+npm run lint        # eslint; CI fails on any error
+npm test            # vitest, api + web
 ```
 
 ## Deploying to Render

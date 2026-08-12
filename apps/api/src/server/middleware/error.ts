@@ -1,5 +1,6 @@
 import type { ErrorRequestHandler, NextFunction, Request, Response } from 'express';
 import { HttpError } from '../../common/http-errors';
+import { requestLogger } from '../../common/logger';
 
 /** 404 fallback — only reached when nothing else matched. */
 export function notFound(_req: Request, res: Response): void {
@@ -49,8 +50,7 @@ export const errorHandler: ErrorRequestHandler = (
     return;
   }
 
-  // eslint-disable-next-line no-console
-  console.error('[unhandled]', err);
+  requestLogger(req).error({ err }, 'unhandled error');
   const message = err instanceof Error ? err.message : 'internal error';
   res.status(500).json({ error: 'internal_error', message, requestId: reqId });
 };

@@ -1,11 +1,11 @@
 import { Router } from 'express';
-import { eq, inArray } from 'drizzle-orm';
 import multer from 'multer';
-import * as XLSX from 'xlsx';
 import { z } from 'zod';
+import type { Logger } from 'pino';
 import { asyncHandler } from '../../common/async-handler';
+import { requestLogger } from '../../common/logger';
 import { BadRequest } from '../../common/http-errors';
-import { schema } from '../../db/client';
+import { parseImportUpload } from './import-upload';
 import type { Container } from '../container';
 import { requireAuth, requireRole } from '../auth/middleware';
 import { InventoryImportService, type ImportResult } from '../services/inventory-import';
@@ -56,142 +56,6 @@ const WipeBody = z.object({
   confirm: z.literal(WIPE_CONFIRM_PHRASE),
 });
 
-function hasZipSignature(buf: Buffer): boolean {
-  return (
-    buf.length >= 4 &&
-    buf[0] === 0x50 &&
-    buf[1] === 0x4b &&
-    buf[2] === 0x03 &&
-    buf[3] === 0x04
-  );
-}
-
-function hasNulByte(buf: Buffer): boolean {
-  const sample = Math.min(buf.length, 2048);
-  for (let i = 0; i < sample; i++) {
-    if (buf[i] === 0x00) return true;
-  }
-  return false;
-}
-
-function parseImportUpload(file: Express.Multer.File): string {
-  const originalName = (file.originalname ?? '').toLowerCase();
-  const mime = (file.mimetype ?? '').toLowerCase();
-  
-  console.info('[csv-import] parseImportUpload called', {
-    filename: file.originalname,
-    size: file.size,
-    mimetype: file.mimetype,
-  });
-
-  const isSpreadsheet =
-    originalName.endsWith('.xlsx') ||
-    originalName.endsWith('.xls') ||
-    originalName.endsWith('.xlsm') ||
-    mime.includes('spreadsheetml') ||
-    mime === 'application/vnd.ms-excel' ||
-    hasZipSignature(file.buffer);
-
-  if (isSpreadsheet) {
-    console.info('[csv-import] Spreadsheet upload detected', {
-      filename: file.originalname,
-      mimetype: file.mimetype,
-      hasZipSignature: hasZipSignature(file.buffer),
-    });
-
-    try {
-      const workbook = XLSX.read(file.buffer, { type: 'buffer' });
-      const firstSheetName = workbook.SheetNames[0];
-      const firstSheet = firstSheetName ? workbook.Sheets[firstSheetName] : undefined;
-
-      if (!firstSheet) {
-        throw BadRequest('Spreadsheet file does not contain any sheets.');
-      }
-
-      const csvText = XLSX.utils.sheet_to_csv(firstSheet, { blankrows: false });
-      console.info('[csv-import] Spreadsheet converted to CSV', {
-        filename: file.originalname,
-        sheetName: firstSheetName,
-        textLength: csvText.length,
-      });
-      return csvText;
-    } catch (err) {
-      if (err instanceof Error && err.message === 'Spreadsheet file does not contain any sheets.') {
-        throw err;
-      }
-
-      console.error('[csv-import] Failed to parse spreadsheet upload', {
-        filename: file.originalname,
-        mimetype: file.mimetype,
-        error: err instanceof Error ? err.message : String(err),
-      });
-      throw BadRequest('Unsupported spreadsheet file. Please upload a valid CSV, XLSX, or XLS file.');
-    }
-  }
-
-  if (hasNulByte(file.buffer)) {
-    console.error('[csv-import] REJECTED: Binary file with null bytes', {
-      filename: file.originalname,
-      mimetype: file.mimetype,
-    });
-    throw BadRequest('Unsupported file type. Only plain CSV text files are accepted.');
-  }
-
-  const csvText = file.buffer.toString('utf8');
-  console.info('[csv-import] CSV text extracted', {
-    filename: file.originalname,
-    textLength: csvText.length,
-    preview: csvText.slice(0, 200),
-  });
-  
-  return csvText;
-}
-
-async function resolveImportLocationId(args: {
-  db: Container['db'];
-  storeId: string;
-  requestedLocationId?: string;
-}): Promise<string> {
-  const { db, storeId, requestedLocationId } = args;
-
-  const locations = await db
-    .select({ id: schema.locations.id })
-    .from(schema.locations)
-    .where(eq(schema.locations.storeId, storeId));
-
-  if (requestedLocationId) {
-    const belongsToStore = locations.some((location) => location.id === requestedLocationId);
-    if (belongsToStore) {
-      return requestedLocationId;
-    }
-
-    // Stale client location can happen after tenant/location switching.
-    // If there is only one valid location, recover automatically.
-    if (locations.length === 1) {
-      console.warn('[csv-import] requested locationId not in store; using only store location', {
-        storeId,
-        requestedLocationId,
-        resolvedLocationId: locations[0].id,
-      });
-      return locations[0].id;
-    }
-
-    throw BadRequest('locationId not found in this store. Select a valid location and retry.');
-  }
-
-  if (locations.length === 1) {
-    return locations[0].id;
-  }
-
-  if (locations.length === 0) {
-    throw BadRequest('No locations exist for this store. Create a location first.');
-  }
-
-  throw BadRequest(
-    'locationId is required when the store has multiple locations. Include form field locationId.',
-  );
-}
-
 function shouldScheduleAutoEnrichment(result: ImportResult): boolean {
   if (result.dryRun) return false;
   const wroteInventory = result.inventoryCreated > 0 || result.inventoryUpdated > 0;
@@ -203,27 +67,15 @@ function scheduleAutoEnrichmentAfterImport(args: {
   enricher: CatalogEnrichmentService;
   storeId: string;
   result: ImportResult;
+  log: Logger;
 }): void {
-  const { enricher, storeId, result } = args;
+  const { enricher, storeId, result, log } = args;
   if (!shouldScheduleAutoEnrichment(result)) {
-    console.info('[enrichment] auto-backfill skipped after import', {
-      storeId,
-      dryRun: result.dryRun,
-      productsCreated: result.productsCreated,
-      skusCreated: result.skusCreated,
-      inventoryCreated: result.inventoryCreated,
-      inventoryUpdated: result.inventoryUpdated,
-    });
+    log.debug({ storeId, dryRun: result.dryRun }, 'auto-backfill skipped after import');
     return;
   }
 
-  console.info('[enrichment] auto-backfill scheduled after import', {
-    storeId,
-    productsCreated: result.productsCreated,
-    skusCreated: result.skusCreated,
-    inventoryCreated: result.inventoryCreated,
-    inventoryUpdated: result.inventoryUpdated,
-  });
+  log.info({ storeId }, 'auto-backfill scheduled after import');
   // Non-blocking: import response should not wait on enrichment lookups.
   enricher.runInBackground({ storeId, onlyMissingImage: true });
 }
@@ -232,15 +84,13 @@ function scheduleAutoEnrichmentDeferred(args: {
   enricher: CatalogEnrichmentService;
   storeId: string;
   result: ImportResult;
+  log: Logger;
 }): void {
   setImmediate(() => {
     try {
       scheduleAutoEnrichmentAfterImport(args);
     } catch (err) {
-      console.error('[enrichment] auto-backfill scheduling failed', {
-        storeId: args.storeId,
-        err: err instanceof Error ? err.message : String(err),
-      });
+      args.log.error({ storeId: args.storeId, err }, 'auto-backfill scheduling failed');
     }
   });
 }
@@ -253,20 +103,20 @@ export function inventoryRouter(c: Container): Router {
     limits: { fileSize: 50 * 1024 * 1024 },
   });
 
-  const importer = new InventoryImportService(c.db);
-  const enricher = new CatalogEnrichmentService(c.db, c.configs);
+  const enricher = new CatalogEnrichmentService(c.db, c.configs, c.pkmncardsClient);
 
   r.post(
     '/import',
     requireRole('owner', 'manager'),
     asyncHandler(async (req, res) => {
+      const log = requestLogger(req);
       const body = ImportBody.parse(req.body ?? {});
-      const locationId = await resolveImportLocationId({
-        db: c.db,
+      const locationId = await c.inventory.resolveImportLocationId({
         storeId: req.user!.storeId,
         requestedLocationId: body.locationId,
+        log,
       });
-      const result = await importer.import({
+      const result = await new InventoryImportService(c.db, log).import({
         storeId: req.user!.storeId,
         req: {
           ...body,
@@ -278,6 +128,7 @@ export function inventoryRouter(c: Container): Router {
         enricher,
         storeId: req.user!.storeId,
         result,
+        log,
       });
     }),
   );
@@ -287,17 +138,8 @@ export function inventoryRouter(c: Container): Router {
     requireRole('owner', 'manager'),
     upload.single('file'),
     asyncHandler(async (req, res) => {
-      console.info('[csv-import] /import/file request received', {
-        storeId: req.user!.storeId,
-        hasFile: !!req.file,
-        fileName: req.file?.originalname,
-        fileSize: req.file?.size,
-        mimetype: req.file?.mimetype,
-        bodyKeys: Object.keys(req.body ?? {}),
-      });
-
+      const log = requestLogger(req);
       if (!req.file?.buffer) {
-        console.error('[csv-import] No file in request');
         throw BadRequest(
           'CSV file is required. Send multipart/form-data with a file field named "file".',
         );
@@ -316,35 +158,15 @@ export function inventoryRouter(c: Container): Router {
               : undefined,
       });
 
-      console.info('[csv-import] Parsed request body', {
-        locationId: body.locationId,
-        location_id: body.location_id,
-        locationID: body.locationID,
-        defaultCondition: body.defaultCondition,
-        defaultPrinting: body.defaultPrinting,
-        dryRun: body.dryRun,
-      });
-
-      const resolvedLocationId = await resolveImportLocationId({
-        db: c.db,
+      const resolvedLocationId = await c.inventory.resolveImportLocationId({
         storeId: req.user!.storeId,
         requestedLocationId: body.locationId ?? body.location_id ?? body.locationID,
+        log,
       });
 
-      console.info('[csv-import] Resolved location', {
-        locationId: resolvedLocationId,
-      });
+      const csv = parseImportUpload(req.file, log);
 
-      const csv = parseImportUpload(req.file);
-      
-      console.info('[csv-import] Calling import service', {
-        storeId: req.user!.storeId,
-        locationId: resolvedLocationId,
-        csvLength: csv.length,
-        dryRun: body.dryRun,
-      });
-
-      const result = await importer.import({
+      const result = await new InventoryImportService(c.db, log).import({
         storeId: req.user!.storeId,
         req: {
           csv,
@@ -355,21 +177,12 @@ export function inventoryRouter(c: Container): Router {
         },
       });
 
-      console.info('[csv-import] Import completed', {
-        storeId: req.user!.storeId,
-        totalRows: result.totalRows,
-        productsCreated: result.productsCreated,
-        skusCreated: result.skusCreated,
-        inventoryCreated: result.inventoryCreated,
-        inventoryUpdated: result.inventoryUpdated,
-        errors: result.errors.length,
-        dryRun: result.dryRun,
-      });
       res.json(result);
       scheduleAutoEnrichmentDeferred({
         enricher,
         storeId: req.user!.storeId,
         result,
+        log,
       });
     }),
   );
@@ -430,17 +243,19 @@ export function inventoryRouter(c: Container): Router {
     requireRole('owner', 'manager'),
     asyncHandler(async (req, res) => {
       const storeId = req.user!.storeId;
-      console.info('[enrichment] backfill request start', { storeId });
       // Manual mode: one click == one batch.
       const result = await enricher.enrichStore({ storeId, onlyMissingImage: true });
-      console.info('[enrichment] backfill request complete', {
-        storeId,
-        scanned: result.scanned,
-        matched: result.matched,
-        imagesUpdated: result.imagesUpdated,
-        unmatched: result.unmatched.length,
-        remaining: result.remaining,
-      });
+      requestLogger(req).info(
+        {
+          storeId,
+          scanned: result.scanned,
+          matched: result.matched,
+          imagesUpdated: result.imagesUpdated,
+          unmatched: result.unmatched.length,
+          remaining: result.remaining,
+        },
+        'enrichment backfill batch complete',
+      );
       res.json(result);
     }),
   );
@@ -475,24 +290,7 @@ export function inventoryRouter(c: Container): Router {
       // Belt-and-braces: zod literal already enforces this, but be loud.
       if (body.confirm !== WIPE_CONFIRM_PHRASE) throw BadRequest('confirmation phrase mismatch');
 
-      const storeId = req.user!.storeId;
-      const locs = await c.db
-        .select({ id: schema.locations.id })
-        .from(schema.locations)
-        .where(eq(schema.locations.storeId, storeId));
-      const locationIds = locs.map((l) => l.id);
-
-      if (locationIds.length === 0) {
-        res.json({ deleted: 0, locations: 0 });
-        return;
-      }
-
-      const result = await c.db
-        .delete(schema.inventory)
-        .where(inArray(schema.inventory.locationId, locationIds))
-        .returning({ skuId: schema.inventory.skuId });
-
-      res.json({ deleted: result.length, locations: locationIds.length });
+      res.json(await c.inventory.wipeOnHandQuantities(req.user!.storeId));
     }),
   );
 

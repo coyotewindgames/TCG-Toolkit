@@ -1,14 +1,19 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api';
-import { productsSearchQueryKey } from '../lib/searchQueryKeys';
+import { queryKeys } from '../lib/queryKeys';
 import { useProductSearchState } from '../hooks/useProductSearchState';
+import { useInventorySearch } from '../hooks/useInventorySearch';
+import { useProductSkus } from '../hooks/useProductSkus';
 import { useSession } from '../hooks/useSession';
 import SidePanel, { PanelSection } from '../components/SidePanel';
 import ImageBackfillPanel from '../components/ImageBackfillPanel';
 import SearchableSelect from '../components/SearchableSelect';
 import ProductImageEditor from '../components/ProductImageEditor';
 import SkuCostEditor from '../components/SkuCostEditor';
+import { formatCentsAsCurrencyWithGrouping } from '../lib/format';
+import { computeMargin, formatCostSummary, formatPriceSummary, summarizeInventoryValue } from '../lib/inventorySummaries';
+import InventoryImportStat from '../components/InventoryImportStat';
 
 type Product = {
   id: string;
@@ -163,9 +168,9 @@ type ImportProgressState =
 
 export default function InventoryPage() {
   const {
-    query: q,
-    setQuery: setQ,
-    debouncedQuery: debounced,
+    query: searchText,
+    setQuery: setSearchText,
+    debouncedQuery: debouncedSearchText,
     page,
     setPage,
     pageSize,
@@ -176,8 +181,8 @@ export default function InventoryPage() {
     setGameFilter,
     languageFilter,
     setLanguageFilter,
-    setFilter,
-    setSetFilter,
+    cardSetFilter,
+    setCardSetFilter,
     rarityFilter,
     setRarityFilter,
     artistFilter,
@@ -211,41 +216,28 @@ export default function InventoryPage() {
   const [printingKey, setPrintingKey] = useState<string | null>(null);
   const [printErr, setPrintErr] = useState<string | null>(null);
   const qc = useQueryClient();
-  const productsQuery = useQuery({
-    queryKey: productsSearchQueryKey('inventory', {
-      query: debounced,
-      page,
-      pageSize,
-      sort,
-      game: gameFilter,
-      language: languageFilter,
-      setName: setFilter,
-      rarity: rarityFilter,
-      artist: artistFilter,
-      includeParseDebug: true,
-    }),
-    queryFn: () => {
-      const params = buildParams();
-      return api.get<ProductSearchResponse>(`/products/search?${params.toString()}`);
-    },
+  const productsQuery = useInventorySearch<ProductSearchResponse>({
+    scope: 'inventory',
+    query: debouncedSearchText,
+    page,
+    pageSize,
+    sort,
     enabled: isEnabled,
-    placeholderData: (prev) => prev,
+    buildParams,
+    game: gameFilter,
+    language: languageFilter,
+    setName: cardSetFilter,
+    rarity: rarityFilter,
+    artist: artistFilter,
+    includeParseDebug: true,
   });
   const { data, isLoading } = productsQuery;
   const summaryQuery = useQuery({
-    queryKey: ['inventory-summary'],
+    queryKey: queryKeys.inventory.summary(),
     queryFn: () => api.get<InventorySummary>('/inventory/summary'),
   });
-  const skuQuery = useQuery({
-    queryKey: ['product-skus', barcodeProduct?.id],
-    queryFn: () => api.get<ProductSkusResponse>(`/products/${barcodeProduct!.id}/skus`),
-    enabled: !!barcodeProduct,
-  });
-  const expandedSkuQuery = useQuery({
-    queryKey: ['product-skus', expandedProductId],
-    queryFn: () => api.get<ProductSkusResponse>(`/products/${expandedProductId!}/skus`),
-    enabled: !!expandedProductId,
-  });
+  const skuQuery = useProductSkus<ProductSkusResponse>(barcodeProduct?.id, { enabled: !!barcodeProduct, scope: 'barcode-modal' });
+  const expandedSkuQuery = useProductSkus<ProductSkusResponse>(expandedProductId, { enabled: !!expandedProductId, scope: 'inventory-expanded' });
 
   useEffect(() => {
     if (!expandedProductId) return;
@@ -331,48 +323,12 @@ export default function InventoryPage() {
       if (items.length > 500) {
         throw new Error('Current search results exceed the 500-label print limit. Narrow the search first.');
       }
-      await printLabels(items, debounced || 'inventory');
+      await printLabels(items, debouncedSearchText || 'inventory');
     } catch (e) {
       setPrintErr(e instanceof Error ? e.message : String(e));
     } finally {
       setPrintingKey(null);
     }
-  }
-
-  function renderPriceSummary(product: Product) {
-    if (product.minSellPriceCents == null && product.maxSellPriceCents == null) {
-      return 'No price yet';
-    }
-    const min = product.minSellPriceCents ?? product.maxSellPriceCents;
-    const max = product.maxSellPriceCents ?? product.minSellPriceCents;
-    if (min == null || max == null) {
-      return 'No price yet';
-    }
-    if (min === max) {
-      return `$${(min / 100).toFixed(2)}`;
-    }
-    return `$${(min / 100).toFixed(2)} - $${(max / 100).toFixed(2)}`;
-  }
-
-  function renderCostSummary(product: Product) {
-    if (!product.avgCostCents || product.avgCostCents <= 0) return null;
-    return `$${(product.avgCostCents / 100).toFixed(2)} / unit`;
-  }
-
-  /**
-   * Estimate profit margin from cost basis vs. the mid-market price the tile
-   * already displays. Returns null when either side is missing.
-   */
-  function computeMargin(product: Product): { percent: number; profitCents: number } | null {
-    const cost = product.avgCostCents;
-    if (!cost || cost <= 0) return null;
-    const marketMax = product.maxSellPriceCents;
-    const marketMin = product.minSellPriceCents;
-    const market = marketMax ?? marketMin;
-    if (market == null || market <= 0) return null;
-    const profit = market - cost;
-    const percent = (profit / market) * 100;
-    return { percent, profitCents: profit };
   }
 
   function renderMarginBadge(product: Product) {
@@ -429,15 +385,7 @@ export default function InventoryPage() {
           ) : (
             (() => {
               const s = summaryQuery.data!;
-              const marketCents = s.totalMarketValueCents ?? s.estimatedCostCents ?? 0;
-              const costCents = s.totalCostBasisCents ?? 0;
-              const profitCents = marketCents - costCents;
-              const positive = profitCents >= 0;
-              const dollars = (cents: number) =>
-                `$${(cents / 100).toLocaleString(undefined, {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}`;
+              const { marketCents, costCents, profitCents, positive, marginPercent } = summarizeInventoryValue(s);
               return (
                 <div className="grid gap-3 sm:grid-cols-3">
                   <div>
@@ -445,7 +393,7 @@ export default function InventoryPage() {
                       Estimated market value
                     </div>
                     <div className="mt-1 text-2xl font-semibold text-emerald-100">
-                      {dollars(marketCents)}
+                      {formatCentsAsCurrencyWithGrouping(marketCents)}
                     </div>
                   </div>
                   <div>
@@ -453,7 +401,7 @@ export default function InventoryPage() {
                       Total cost basis (what we paid)
                     </div>
                     <div className="mt-1 text-2xl font-semibold text-sky-100">
-                      {costCents > 0 ? dollars(costCents) : '—'}
+                      {costCents > 0 ? formatCentsAsCurrencyWithGrouping(costCents) : '—'}
                     </div>
                   </div>
                   <div>
@@ -470,12 +418,12 @@ export default function InventoryPage() {
                       }`}
                     >
                       {costCents > 0
-                        ? `${positive ? '+' : ''}${dollars(profitCents)}`
+                        ? `${positive ? '+' : ''}${formatCentsAsCurrencyWithGrouping(profitCents)}`
                         : '—'}
                     </div>
                     {costCents > 0 && marketCents > 0 && (
                       <div className="text-xs text-slate-400 mt-0.5">
-                        {((profitCents / marketCents) * 100).toFixed(1)}% margin
+                        {marginPercent?.toFixed(1)}% margin
                       </div>
                     )}
                   </div>
@@ -491,8 +439,8 @@ export default function InventoryPage() {
 
         <input
           autoFocus
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
+          value={searchText}
+          onChange={(e) => setSearchText(e.target.value)}
           placeholder="Search by name, set, card number, or artist…"
           className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 outline-none focus:border-emerald-500"
         />
@@ -541,8 +489,8 @@ export default function InventoryPage() {
           <div className="text-xs text-slate-300">
             <span className="block mb-1">Set</span>
             <SearchableSelect
-              value={setFilter}
-              onChange={setSetFilter}
+              value={cardSetFilter}
+              onChange={setCardSetFilter}
               placeholder="All sets"
               searchPlaceholder="Search sets"
               options={(data?.filters.sets ?? []).map((setName) => ({
@@ -746,11 +694,11 @@ export default function InventoryPage() {
                           Available: {p.availableQty.toLocaleString()}
                         </span>
                         <span className="rounded-full border border-emerald-700/60 px-2 py-1 bg-emerald-950/40 text-emerald-200">
-                          Price: {renderPriceSummary(p)}
+                          Price: {formatPriceSummary(p)}
                         </span>
-                        {renderCostSummary(p) && (
+                        {formatCostSummary(p) && (
                           <span className="rounded-full border border-sky-700/60 px-2 py-1 bg-sky-950/40 text-sky-200">
-                            Cost: {renderCostSummary(p)}
+                            Cost: {formatCostSummary(p)}
                           </span>
                         )}
                         {renderMarginBadge(p)}
@@ -784,7 +732,7 @@ export default function InventoryPage() {
                     <span>•</span>
                     <span>Available: {p.availableQty.toLocaleString()}</span>
                     <span>•</span>
-                    <span>Price: {renderPriceSummary(p)}</span>
+                    <span>Price: {formatPriceSummary(p)}</span>
                     {p.artist && (
                       <>
                         <span>•</span>
@@ -1244,14 +1192,14 @@ function CsvImporter() {
               {result.totalRows - result.errors.length === 1 ? '' : 's'}.
             </p>
           )}
-          <Stat label="Rows" value={result.totalRows} />
-          <Stat label="Products created" value={result.productsCreated} />
-          <Stat label="SKUs created" value={result.skusCreated} />
-          <Stat label="Inventory rows created" value={result.inventoryCreated} />
-          <Stat label="Inventory rows updated" value={result.inventoryUpdated} />
-          <Stat label="Costs applied" value={result.costsApplied} />
-          <Stat label="Market prices imported" value={result.marketPricesApplied} />
-          <Stat label="Prices seeded" value={result.pricesSeeded} />
+          <InventoryImportStat label="Rows" value={result.totalRows} />
+          <InventoryImportStat label="Products created" value={result.productsCreated} />
+          <InventoryImportStat label="SKUs created" value={result.skusCreated} />
+          <InventoryImportStat label="Inventory rows created" value={result.inventoryCreated} />
+          <InventoryImportStat label="Inventory rows updated" value={result.inventoryUpdated} />
+          <InventoryImportStat label="Costs applied" value={result.costsApplied} />
+          <InventoryImportStat label="Market prices imported" value={result.marketPricesApplied} />
+          <InventoryImportStat label="Prices seeded" value={result.pricesSeeded} />
           {result.dryRun && (
             <p className="col-span-full text-amber-300 text-xs">
               Dry run — nothing was committed. Click Import to apply.
@@ -1279,15 +1227,6 @@ function CsvImporter() {
           )}
         </div>
       )}
-    </div>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="bg-slate-900/60 border border-slate-700 rounded-lg px-3 py-2">
-      <div className="text-xs text-slate-400">{label}</div>
-      <div className="text-lg font-semibold">{value.toLocaleString()}</div>
     </div>
   );
 }

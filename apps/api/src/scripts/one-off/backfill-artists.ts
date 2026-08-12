@@ -14,9 +14,9 @@
  */
 import { and, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import pLimit from 'p-limit';
-import { getDb, schema } from '../db/client';
-import { ConfigService } from '../server/services/config-service';
-import { PkmnPricesClient } from '../integrations/pkmnprices/client';
+import { getDb, schema } from '../../db/client';
+import { ConfigService } from '../../server/services/config-service';
+import { PkmnPricesClient } from '../../integrations/pkmnprices/client';
 
 async function main(): Promise<void> {
   const db = getDb();

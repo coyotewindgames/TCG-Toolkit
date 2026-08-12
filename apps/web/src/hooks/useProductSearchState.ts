@@ -49,7 +49,7 @@ export function useProductSearchState(options: UseProductSearchStateOptions = {}
   const [sort, setSort] = useState<ProductSort>(defaultSort);
   const [gameFilter, setGameFilter] = useState(initialGameFilter);
   const [languageFilter, setLanguageFilter] = useState(initialLanguageFilter);
-  const [setFilter, setSetFilter] = useState(initialSetFilter);
+  const [cardSetFilter, setCardSetFilter] = useState(initialSetFilter);
   const [rarityFilter, setRarityFilter] = useState(initialRarityFilter);
   const [artistFilter, setArtistFilter] = useState(initialArtistFilter);
 
@@ -60,7 +60,7 @@ export function useProductSearchState(options: UseProductSearchStateOptions = {}
 
   useEffect(() => {
     setPage(1);
-  }, [trimmedDebouncedQuery, sort, gameFilter, languageFilter, setFilter, rarityFilter, artistFilter]);
+  }, [trimmedDebouncedQuery, sort, gameFilter, languageFilter, cardSetFilter, rarityFilter, artistFilter]);
 
   const isEnabled = useMemo(
     () =>
@@ -79,7 +79,7 @@ export function useProductSearchState(options: UseProductSearchStateOptions = {}
 
     if (gameFilter) params.set('game', gameFilter);
     if (languageFilter) params.set('language', languageFilter);
-    if (setFilter) params.set('set', setFilter);
+    if (cardSetFilter) params.set('set', cardSetFilter);
     if (rarityFilter) params.set('rarity', rarityFilter);
     if (artistFilter) params.set('artist', artistFilter);
 
@@ -94,7 +94,7 @@ export function useProductSearchState(options: UseProductSearchStateOptions = {}
     sort,
     gameFilter,
     languageFilter,
-    setFilter,
+    cardSetFilter,
     rarityFilter,
     artistFilter,
     includeParseDebug,
@@ -117,8 +117,8 @@ export function useProductSearchState(options: UseProductSearchStateOptions = {}
     setGameFilter,
     languageFilter,
     setLanguageFilter,
-    setFilter,
-    setSetFilter,
+    cardSetFilter,
+    setCardSetFilter,
     rarityFilter,
     setRarityFilter,
     artistFilter,

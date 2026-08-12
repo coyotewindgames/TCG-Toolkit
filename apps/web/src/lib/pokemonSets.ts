@@ -10,7 +10,10 @@
  * the actual `set_id` used for filtering. When no pkmnprices match exists
  * (rare — mostly for very new sets that haven't landed upstream yet) the
  * detected name is still shown to the operator as an informational chip.
+ *
+ * This module is the single source of truth for Pokémon set names in the repo.
  */
+import { normalizeTextForMatching } from '@tcg/shared';
 
 /**
  * Canonical set names as printed by The Pokémon Company. Ordered oldest →
@@ -252,23 +255,8 @@ export const SET_ALIASES: Readonly<Record<string, string>> = {
   'pokemon go': 'Pokémon GO',
 };
 
-/**
- * Normalize a set name or shorthand for matching. Lowercases, strips diacritics
- * (Pokémon → pokemon), collapses whitespace/punctuation, replaces `&` with
- * `and`, and squashes em/en dashes so lookups are consistent regardless of
- * how the user typed it.
- */
-export function normalizeSet(input: string): string {
-  return input
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/&/g, ' and ')
-    .replace(/[—–]/g, ' ')
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim()
-    .replace(/\s+/g, ' ');
-}
+/** Normalize a set name or shorthand so lookups ignore case, accents and punctuation. */
+export const normalizeSet = normalizeTextForMatching;
 
 /**
  * Break a normalized string into tokens ≥ 3 chars long. Short tokens

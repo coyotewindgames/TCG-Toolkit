@@ -13,7 +13,7 @@
  *   $env:STORE_ID="uuid"; npm run diagnose:card -w @tcg/api -- "Ash Greninja"
  */
 import { and, desc, eq, ilike, or, sql } from 'drizzle-orm';
-import { getDb, getPool, schema } from '../db/client';
+import { getDb, getPool, schema } from '../../db/client';
 
 async function main() {
   const nameArg = process.argv.slice(2).join(' ').trim();

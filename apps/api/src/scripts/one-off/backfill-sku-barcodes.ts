@@ -3,7 +3,7 @@
  * Safe to run repeatedly — only updates rows whose barcode is NULL or not a UUID.
  */
 import { sql } from 'drizzle-orm';
-import { getDb, getPool } from '../db/client';
+import { getDb, getPool } from '../../db/client';
 
 async function main(): Promise<void> {
   const db = getDb();

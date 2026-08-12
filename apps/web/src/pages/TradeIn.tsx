@@ -20,88 +20,40 @@
  */
 import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { CardCondition, CardLanguage, CardPrinting, PayoutKind } from '@tcg/shared';
+import type {
+  CardCondition,
+  CardLanguage,
+  CardPrinting,
+  CatalogCard,
+  CatalogPriceRow,
+  CatalogSearchResponse,
+  CatalogSetSummary,
+  CreateTradeResponse,
+  PayoutKind,
+  QueuedTradeItem,
+} from '@tcg/shared';
+import {
+  CARD_CONDITIONS,
+  CARD_LANGUAGES,
+  CARD_PRINTINGS,
+  CATALOG_LANGUAGE_OPTIONS,
+  TRADE_PAYOUT_MULTIPLIERS,
+} from '@tcg/shared';
 import { api } from '../lib/api';
-import { pkmnPricesSearchQueryKey } from '../lib/searchQueryKeys';
+import { formatCentsAsCurrency } from '../lib/format';
+import { queryKeys } from '../lib/queryKeys';
+import { TradeInChip, TradeInField } from '../components/TradeInControls';
 import { useSession } from '../hooks/useSession';
 import { useProductSearchState } from '../hooks/useProductSearchState';
 import SearchableSelect from '../components/SearchableSelect';
 
-type TcgapiCard = {
-  id: string;
-  name: string;
-  number: string | null;
-  rarity: string | null;
-  imageUrl: string | null;
-  setId: string | null;
-  setName: string | null;
-  gameSlug: string | null;
-  gameName: string | null;
-};
-
-type SearchResponse = {
-  results: TcgapiCard[];
-  page: number;
-  perPage: number;
-  hasMore: boolean;
-  total: number | null;
-};
-
-type SetRow = { id: string; name: string; slug?: string };
-type SetsResponse = { sets: SetRow[] };
-
-// Fixed language axis — PkmnPrices `language` accepts these string values.
-// English/Japanese only, plus a placeholder for future European additions.
-const LANGUAGE_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: 'english', label: 'English' },
-  { value: 'japanese', label: 'Japanese (Pro tier)' },
-];
+type SetsResponse = { sets: CatalogSetSummary[] };
 
 // Matches numeric and alphanumeric card numbers: "25", "025/189", "XY133", "SVP 075".
 // Requires at least one digit so ordinary name searches like "Charizard" stay name searches.
 const NUMBER_QUERY_RE = /^(?=.*\d)[a-z0-9#\-\s]+(\s*\/\s*[a-z0-9#\-\s]+)?$/i;
 
-type PriceRow = {
-  cardId: string;
-  printing: string;
-  marketCents: number | null;
-  lowCents: number | null;
-  medianCents: number | null;
-  buylistCents: number | null;
-  lastUpdatedAt: string | null;
-};
-
-type PricesResponse = { cardId: string; prices: PriceRow[] };
-
-type CreateTradeResponse = {
-  id: string;
-  status: string;
-  totalValueCents: number;
-  skuIds: { skuId: string; quantity: number }[];
-};
-
-type QueuedTradeItem = {
-  id: string;
-  tcgapiProductId: string;
-  name: string;
-  imageSourceUrl: string | null;
-  rarity: string | null;
-  condition: CardCondition;
-  printing: CardPrinting;
-  language: CardLanguage;
-  gradingCompany?: string;
-  grade?: string;
-  certNumber?: string;
-  quantity: number;
-  payoutModifierPercent: number;
-  overrideValueCents?: number;
-  marketPriceCents: number | null;
-  estimatedUnitValueCents: number;
-};
-
-const CONDITIONS: CardCondition[] = ['NM', 'LP', 'MP', 'HP', 'DMG'];
-const PRINTINGS: CardPrinting[] = ['Normal', 'Foil', 'Reverse', 'Holo', 'FirstEdition'];
-const LANGUAGES: CardLanguage[] = ['EN', 'JP', 'DE', 'FR', 'IT', 'ES', 'PT', 'KO', 'CN'];
+type PricesResponse = { cardId: string; prices: CatalogPriceRow[] };
 
 const GRADING_COMPANIES = ['PSA', 'CGC', 'Beckett', 'TAG'] as const;
 type GradingCompany = (typeof GRADING_COMPANIES)[number];
@@ -113,16 +65,7 @@ const GRADE_OPTIONS: Record<GradingCompany, string[]> = {
   TAG: ['10', '9', '8', '7', '6', '5', '4', '3', '2', '1'],
 };
 
-// Multipliers mirror the server's `PAYOUT_MULTIPLIERS` in tradeins.ts. Kept
-// in sync manually because exporting them from the server would drag the
-// API workspace into the web bundle. Only used for the on-screen suggested
-// value preview; the server recomputes authoritatively on submit.
-const PAYOUT_MULTIPLIERS: Record<PayoutKind, number> = {
-  cash: 0.7,
-  store_credit: 0.8,
-};
-
-function pickPricingRow(prices: PriceRow[] | undefined, printing: CardPrinting): PriceRow | undefined {
+function pickPricingRow(prices: CatalogPriceRow[] | undefined, printing: CardPrinting): CatalogPriceRow | undefined {
   if (!prices?.length) return undefined;
   return (
     prices.find((p) => tcgapiPrintingToEnum(p.printing) === printing) ??
@@ -145,11 +88,6 @@ function tcgapiPrintingToEnum(label: string): CardPrinting {
   if (n.includes('foil') && !n.includes('non')) return 'Foil';
   if (n.includes('nonfoil') || n.includes('normal') || n === 'regular') return 'Normal';
   return 'Normal';
-}
-
-function formatCents(c: number | null | undefined): string {
-  if (c == null) return '—';
-  return `$${(c / 100).toFixed(2)}`;
 }
 
 /**
@@ -189,7 +127,7 @@ async function printQrLabels(
 }
 
 function suggestedUnitValueCents(
-  prices: PriceRow[] | undefined,
+  prices: CatalogPriceRow[] | undefined,
   printing: CardPrinting,
   condition: CardCondition,
   payout: PayoutKind,
@@ -202,7 +140,7 @@ function suggestedUnitValueCents(
   );
   const base = candidates.length ? Math.min(...candidates) : 0;
   void condition;
-  const payoutBase = Math.max(0, Math.floor(base * PAYOUT_MULTIPLIERS[payout]));
+  const payoutBase = Math.max(0, Math.floor(base * TRADE_PAYOUT_MULTIPLIERS[payout]));
   return Math.max(0, Math.floor(payoutBase * (1 + payoutModifierPercent / 100)));
 }
 
@@ -223,13 +161,13 @@ function sameQueuedItemIdentity(a: QueuedTradeItem, b: QueuedTradeItem): boolean
 export default function TradeInPage() {
   const session = useSession();
   const {
-    query: q,
-    setQuery: setQ,
-    debouncedQuery: debounced,
+    query: searchText,
+    setQuery: setSearchText,
+    debouncedQuery: debouncedSearchText,
     languageFilter: language,
     setLanguageFilter: setLanguage,
-    setFilter: setId,
-    setSetFilter: setSetId,
+    cardSetFilter,
+    setCardSetFilter,
     rarityFilter: rarity,
     setRarityFilter: setRarity,
     debouncedRarityFilter: debouncedRarity,
@@ -245,18 +183,18 @@ export default function TradeInPage() {
 
   // Language replaces the old game selector — PkmnPrices is Pokémon-only, so
   // the useful axis is which language of card to browse.
-  const [selected, setSelected] = useState<TcgapiCard | null>(null);
+  const [selected, setSelected] = useState<CatalogCard | null>(null);
   const [queuedItems, setQueuedItems] = useState<QueuedTradeItem[]>([]);
 
   // If the operator types something that looks like a card number
   // ("025", "025/189", "XY133"), use it as the `number` filter. Otherwise treat
   // it as a name search.
-  const looksLikeNumber = NUMBER_QUERY_RE.test(debounced.trim());
-  const numberParam = looksLikeNumber ? debounced.trim() : '';
-  const nameParam = looksLikeNumber ? '' : debounced.trim();
+  const isCardNumberQuery = NUMBER_QUERY_RE.test(debouncedSearchText.trim());
+  const numberParam = isCardNumberQuery ? debouncedSearchText.trim() : '';
+  const nameParam = isCardNumberQuery ? '' : debouncedSearchText.trim();
 
   const sets = useQuery<SetsResponse>({
-    queryKey: ['pkmnprices.sets', language],
+    queryKey: queryKeys.trade.sets(language),
     queryFn: () =>
       api.get<SetsResponse>(`/pkmnprices/sets?language=${encodeURIComponent(language)}`),
     enabled: !!language,
@@ -266,22 +204,22 @@ export default function TradeInPage() {
   // Reset selected set when language changes: set IDs are language-scoped upstream.
   const onLanguageChange = (next: string) => {
     setLanguage(next);
-    setSetId('');
+    setCardSetFilter('');
   };
 
   // Enabled when: name search ≥ 2 chars, OR a number is being searched
   // (within a set), OR a set is selected (browse mode).
   const searchEnabled =
     nameParam.length >= 2 ||
-    (!!numberParam && !!setId) ||
-    !!setId;
+    (!!numberParam && !!cardSetFilter) ||
+    !!cardSetFilter;
 
-  const search = useQuery<SearchResponse>({
-    queryKey: pkmnPricesSearchQueryKey({
+  const search = useQuery<CatalogSearchResponse>({
+    queryKey: queryKeys.trade.search({
       query: nameParam,
       number: numberParam,
       language,
-      setId,
+      setId: cardSetFilter,
       rarity: debouncedRarity,
       perPage: 24,
     }),
@@ -290,9 +228,9 @@ export default function TradeInPage() {
       if (nameParam) params.set('q', nameParam);
       if (numberParam) params.set('number', numberParam);
       if (language) params.set('language', language);
-      if (setId) params.set('setId', setId);
+      if (cardSetFilter) params.set('setId', cardSetFilter);
       params.set('perPage', '24');
-      return api.get<SearchResponse>(`/pkmnprices/search?${params.toString()}`, { signal });
+      return api.get<CatalogSearchResponse>(`/pkmnprices/search?${params.toString()}`, { signal });
     },
     enabled: searchEnabled,
     staleTime: 60_000,
@@ -316,7 +254,7 @@ export default function TradeInPage() {
     return Array.from(seen).sort();
   }, [search.data]);
 
-  const needsSetScope = !!numberParam && !setId;
+  const needsSetScope = !!numberParam && !cardSetFilter;
 
   return (
     <div className="p-4 md:p-6 max-w-6xl mx-auto space-y-6">
@@ -332,8 +270,8 @@ export default function TradeInPage() {
       <div className="grid grid-cols-1 md:grid-cols-[1fr_200px_240px_180px] gap-2">
         <input
           autoFocus
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
+          value={searchText}
+          onChange={(e) => setSearchText(e.target.value)}
           placeholder="Card name or number (e.g. “Charizard” or “025/189”)…"
           className="bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-base outline-none focus:border-emerald-500"
         />
@@ -342,11 +280,11 @@ export default function TradeInPage() {
           onChange={onLanguageChange}
           placeholder="Language"
           searchPlaceholder="Search languages"
-          options={LANGUAGE_OPTIONS}
+          options={CATALOG_LANGUAGE_OPTIONS}
         />
         <SearchableSelect
-          value={setId}
-          onChange={setSetId}
+          value={cardSetFilter}
+          onChange={setCardSetFilter}
           placeholder={sets.isLoading ? 'Loading sets...' : 'Any set'}
           searchPlaceholder="Search sets"
           disabled={sets.isLoading}
@@ -364,22 +302,22 @@ export default function TradeInPage() {
         />
       </div>
 
-      {(language !== 'english' || setId || rarity || numberParam) && (
+      {(language !== 'english' || cardSetFilter || rarity || numberParam) && (
         <div className="flex flex-wrap gap-2 text-xs">
           {numberParam && (
-            <Chip onClear={() => setQ('')}>Number: {numberParam}</Chip>
+            <TradeInChip onClear={() => setSearchText('')}>Number: {numberParam}</TradeInChip>
           )}
           {language !== 'english' && (
-            <Chip onClear={() => onLanguageChange('english')}>
-              Language: {LANGUAGE_OPTIONS.find((l) => l.value === language)?.label ?? language}
-            </Chip>
+            <TradeInChip onClear={() => onLanguageChange('english')}>
+              Language: {CATALOG_LANGUAGE_OPTIONS.find((l) => l.value === language)?.label ?? language}
+            </TradeInChip>
           )}
-          {setId && (
-            <Chip onClear={() => setSetId('')}>
-              Set: {sets.data?.sets.find((s) => s.id === setId)?.name ?? setId}
-            </Chip>
+          {cardSetFilter && (
+            <TradeInChip onClear={() => setCardSetFilter('')}>
+              Set: {sets.data?.sets.find((s) => s.id === cardSetFilter)?.name ?? cardSetFilter}
+            </TradeInChip>
           )}
-          {rarity && <Chip onClear={() => setRarity('')}>Rarity: {rarity}</Chip>}
+          {rarity && <TradeInChip onClear={() => setRarity('')}>Rarity: {rarity}</TradeInChip>}
         </div>
       )}
 
@@ -465,7 +403,7 @@ export default function TradeInPage() {
 }
 
 interface IntakeDetailProps {
-  card: TcgapiCard | null;
+  card: CatalogCard | null;
   locationId: string | null;
   queuedItems: QueuedTradeItem[];
   setQueuedItems: Dispatch<SetStateAction<QueuedTradeItem[]>>;
@@ -514,14 +452,14 @@ function IntakeDetailBody({
   setQueuedItems,
   onClose,
 }: {
-  card: TcgapiCard;
+  card: CatalogCard;
   locationId: string | null;
   queuedItems: QueuedTradeItem[];
   setQueuedItems: Dispatch<SetStateAction<QueuedTradeItem[]>>;
   onClose: () => void;
 }) {
   const qc = useQueryClient();
-  const [activeCard, setActiveCard] = useState<TcgapiCard>(card);
+  const [activeCard, setActiveCard] = useState<CatalogCard>(card);
   const [isGraded, setIsGraded] = useState(false);
   const [gradingCompany, setGradingCompany] = useState<GradingCompany>('PSA');
   const [gradedGrade, setGradedGrade] = useState('10');
@@ -562,19 +500,19 @@ function IntakeDetailBody({
     staleTime: 5 * 60_000,
   });
 
-  const variants = useQuery<SearchResponse>({
+  const variants = useQuery<CatalogSearchResponse>({
     queryKey: ['tcgapi.variants', activeCard.setId, activeCard.name],
     queryFn: () => {
       const params = new URLSearchParams({ q: activeCard.name, perPage: '50' });
       if (activeCard.setId) params.set('setId', activeCard.setId);
-      return api.get<SearchResponse>(`/pkmnprices/search?${params.toString()}`);
+      return api.get<CatalogSearchResponse>(`/pkmnprices/search?${params.toString()}`);
     },
     enabled: !!activeCard.setId,
     staleTime: 5 * 60_000,
   });
 
   const rarityVariants = useMemo(() => {
-    const seen = new Map<string, TcgapiCard>();
+    const seen = new Map<string, CatalogCard>();
     for (const v of variants.data?.results ?? []) {
       const key = v.rarity ?? 'Unknown';
       if (!seen.has(key)) seen.set(key, v);
@@ -584,8 +522,8 @@ function IntakeDetailBody({
 
   const ebayGradedUrl = useMemo(() => {
     if (!isGraded) return null;
-    const q = encodeURIComponent(`${activeCard.name} ${gradingCompany} ${gradedGrade}`);
-    return `https://www.ebay.com/sch/i.html?_nkw=${q}&LH_Complete=1&LH_Sold=1`;
+    const encodedSearchText = encodeURIComponent(`${activeCard.name} ${gradingCompany} ${gradedGrade}`);
+    return `https://www.ebay.com/sch/i.html?_nkw=${encodedSearchText}&LH_Complete=1&LH_Sold=1`;
   }, [isGraded, activeCard.name, gradingCompany, gradedGrade]);
 
   const suggested = useMemo(
@@ -826,10 +764,10 @@ function IntakeDetailBody({
                       className="border-t border-slate-800 text-slate-200"
                     >
                       <td className="py-1">{p.printing}</td>
-                      <td className="py-1 text-right font-mono">{formatCents(p.marketCents)}</td>
-                      <td className="py-1 text-right font-mono">{formatCents(p.medianCents)}</td>
-                      <td className="py-1 text-right font-mono">{formatCents(p.lowCents)}</td>
-                      <td className="py-1 text-right font-mono">{formatCents(p.buylistCents)}</td>
+                      <td className="py-1 text-right font-mono">{formatCentsAsCurrency(p.marketCents)}</td>
+                      <td className="py-1 text-right font-mono">{formatCentsAsCurrency(p.medianCents)}</td>
+                      <td className="py-1 text-right font-mono">{formatCentsAsCurrency(p.lowCents)}</td>
+                      <td className="py-1 text-right font-mono">{formatCentsAsCurrency(p.buylistCents)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -882,7 +820,7 @@ function IntakeDetailBody({
         {isGraded && (
           <div className="bg-slate-950 border border-slate-700 rounded-xl p-3 space-y-3">
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Grading company">
+              <TradeInField label="Grading company">
                 <select
                   value={gradingCompany}
                   onChange={(e) => {
@@ -895,8 +833,8 @@ function IntakeDetailBody({
                     <option key={c} value={c}>{c}</option>
                   ))}
                 </select>
-              </Field>
-              <Field label="Grade">
+              </TradeInField>
+              <TradeInField label="Grade">
                 <select
                   value={gradedGrade}
                   onChange={(e) => setGradedGrade(e.target.value)}
@@ -906,9 +844,9 @@ function IntakeDetailBody({
                     <option key={g} value={g}>{gradingCompany} {g}</option>
                   ))}
                 </select>
-              </Field>
+              </TradeInField>
             </div>
-            <Field label="Cert number (optional)">
+            <TradeInField label="Cert number (optional)">
               <input
                 type="text"
                 value={certNumber}
@@ -916,7 +854,7 @@ function IntakeDetailBody({
                 placeholder="e.g. 12345678"
                 className="input"
               />
-            </Field>
+            </TradeInField>
             {ebayGradedUrl && (
               <a
                 href={ebayGradedUrl}
@@ -935,46 +873,46 @@ function IntakeDetailBody({
         )}
 
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Condition">
+          <TradeInField label="Condition">
             <select
               value={condition}
               onChange={(e) => setCondition(e.target.value as CardCondition)}
               className="input"
             >
-              {CONDITIONS.map((c) => (
+              {CARD_CONDITIONS.map((c) => (
                 <option key={c} value={c}>
                   {c}
                 </option>
               ))}
             </select>
-          </Field>
-          <Field label="Printing">
+          </TradeInField>
+          <TradeInField label="Printing">
             <select
               value={printing}
               onChange={(e) => setPrinting(e.target.value as CardPrinting)}
               className="input"
             >
-              {PRINTINGS.map((p) => (
+              {CARD_PRINTINGS.map((p) => (
                 <option key={p} value={p}>
                   {p}
                 </option>
               ))}
             </select>
-          </Field>
-          <Field label="Language">
+          </TradeInField>
+          <TradeInField label="Language">
             <select
               value={language}
               onChange={(e) => setLanguage(e.target.value as CardLanguage)}
               className="input"
             >
-              {LANGUAGES.map((l) => (
+              {CARD_LANGUAGES.map((l) => (
                 <option key={l} value={l}>
                   {l}
                 </option>
               ))}
             </select>
-          </Field>
-          <Field label="Quantity">
+          </TradeInField>
+          <TradeInField label="Quantity">
             <input
               type="number"
               min={1}
@@ -983,11 +921,11 @@ function IntakeDetailBody({
               onChange={(e) => setQuantity(Math.max(1, Math.floor(Number(e.target.value) || 1)))}
               className="input"
             />
-          </Field>
+          </TradeInField>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
-          <Field label="Payout">
+          <TradeInField label="Payout">
             <div className="flex gap-2">
               {(['cash', 'store_credit'] as const).map((p) => (
                 <button
@@ -1004,8 +942,8 @@ function IntakeDetailBody({
                 </button>
               ))}
             </div>
-          </Field>
-          <Field
+          </TradeInField>
+          <TradeInField
             label="Modifier %"
             hint="Applies after the base payout percentage. Positive increases payout; negative reduces it."
           >
@@ -1017,16 +955,16 @@ function IntakeDetailBody({
               placeholder="0"
               className="input"
             />
-          </Field>
-          <Field
+          </TradeInField>
+          <TradeInField
             label={`Suggested unit value (${payout === 'cash' ? 'cash' : 'credit'})`}
             hint={`Computed from the lowest of market/median × payout multiplier${payoutModifier ? ` × ${((1 + payoutModifier / 100) * 100).toFixed(1)}%` : ''}.`}
           >
             <div className="input bg-slate-950 text-slate-200 font-mono">
-              {formatCents(suggested)}
+              {formatCentsAsCurrency(suggested)}
             </div>
-          </Field>
-          <Field label="Override unit value ($)" hint="Optional — leave blank to use suggested.">
+          </TradeInField>
+          <TradeInField label="Override unit value ($)" hint="Optional — leave blank to use suggested.">
             <input
               type="number"
               min={0}
@@ -1036,13 +974,13 @@ function IntakeDetailBody({
               placeholder="0.00"
               className="input"
             />
-          </Field>
+          </TradeInField>
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-950 border border-slate-700 rounded-lg p-3">
           <div className="text-xs text-slate-300">
-            Pending line total: <span className="font-mono text-emerald-300">{formatCents(pendingLineTotalCents)}</span>
-            <span className="text-slate-500"> ({quantity} × {formatCents(effectiveCents)})</span>
+            Pending line total: <span className="font-mono text-emerald-300">{formatCentsAsCurrency(pendingLineTotalCents)}</span>
+            <span className="text-slate-500"> ({quantity} × {formatCentsAsCurrency(effectiveCents)})</span>
           </div>
           <button
             type="button"
@@ -1082,13 +1020,13 @@ function IntakeDetailBody({
                       {item.condition} / {item.printing} / {item.language}
                     </p>
                     <p className="text-[11px] text-slate-500">
-                      {item.quantity} × {formatCents(item.estimatedUnitValueCents)}
+                      {item.quantity} × {formatCentsAsCurrency(item.estimatedUnitValueCents)}
                       {item.overrideValueCents != null ? ' (override)' : ''}
                     </p>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <span className="font-mono text-xs text-emerald-300">
-                      {formatCents(item.estimatedUnitValueCents * item.quantity)}
+                      {formatCentsAsCurrency(item.estimatedUnitValueCents * item.quantity)}
                     </span>
                     <button
                       type="button"
@@ -1136,14 +1074,14 @@ function IntakeDetailBody({
           <div className="text-sm text-slate-300">
             Trade total:{' '}
             <span className="font-mono font-semibold text-emerald-300">
-              {formatCents(itemsTotalPayoutCents)}
+              {formatCentsAsCurrency(itemsTotalPayoutCents)}
             </span>
             <span className="text-slate-500">
               {' '}({queuedItems.reduce((sum, item) => sum + item.quantity, 0)} cards, {queuedItems.length} lines)
             </span>
             {queuedItems.length > 0 && (
               <span className="block text-xs text-slate-500 mt-0.5">
-                + current unsaved line {formatCents(pendingLineTotalCents)} = {formatCents(projectedTradeTotalCents)} projected
+                + current unsaved line {formatCentsAsCurrency(pendingLineTotalCents)} = {formatCentsAsCurrency(projectedTradeTotalCents)} projected
               </span>
             )}
           </div>
@@ -1158,39 +1096,5 @@ function IntakeDetailBody({
         </div>
       </footer>
     </>
-  );
-}
-
-function Field({
-  label,
-  hint,
-  children,
-}: {
-  label: string;
-  hint?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <label className="block text-sm">
-      <span className="block text-xs uppercase tracking-wide text-slate-400 mb-1">{label}</span>
-      {children}
-      {hint && <span className="block text-[11px] text-slate-500 mt-1">{hint}</span>}
-    </label>
-  );
-}
-
-function Chip({ onClear, children }: { onClear: () => void; children: React.ReactNode }) {
-  return (
-    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-slate-800 border border-slate-700 text-slate-200">
-      {children}
-      <button
-        type="button"
-        onClick={onClear}
-        className="text-slate-400 hover:text-rose-300 leading-none"
-        aria-label="Clear filter"
-      >
-        ✕
-      </button>
-    </span>
   );
 }

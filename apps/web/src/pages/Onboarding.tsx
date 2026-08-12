@@ -127,7 +127,6 @@ function StepShopBasics({ onNext }: { onNext: () => void }) {
   const [locationName, setLocationName] = useState('');
   const [address, setAddress] = useState({ street: '', city: '', state: '', zip: '' });
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   const locationsQuery = useQuery({
@@ -158,7 +157,6 @@ function StepShopBasics({ onNext }: { onNext: () => void }) {
       if (Object.keys(body).length > 0) {
         await api.patch(`/locations/${primaryLocation.id}`, body);
       }
-      setSaved(true);
       onNext();
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));

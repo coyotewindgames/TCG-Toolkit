@@ -18,6 +18,7 @@ import { LRUCache } from 'lru-cache';
 import { z } from 'zod';
 import { asyncHandler } from '../../common/async-handler';
 import { BadRequest } from '../../common/http-errors';
+import type { CurrencyFilter } from '@pkmnprices/sdk';
 import {
   pickBestTcgplayerPrice,
   type PkmnpricesCardSummary,
@@ -191,7 +192,7 @@ export function pkmnpricesRouter(c: Container): Router {
         set_id: setId,
         number,
         language: effectiveLanguage,
-        currency: apiCurrency as any,
+        currency: apiCurrency as CurrencyFilter | undefined,
         page,
         per_page: perPage,
         name: q,
@@ -231,7 +232,7 @@ export function pkmnpricesRouter(c: Container): Router {
       }
 
       const client = await c.pkmnpricesFor(req.user!.storeId);
-      const card = await client.getCard(cardId, { currency: apiCurrency as any });
+      const card = await client.getCard(cardId, { currency: apiCurrency as CurrencyFilter | undefined });
       const prices = groupPricesByPrinting(String(cardId), card.prices);
       const body = { cardId: String(cardId), prices };
       cacheSet(pricesCache, cacheKey, body, PRICES_TTL_MS);

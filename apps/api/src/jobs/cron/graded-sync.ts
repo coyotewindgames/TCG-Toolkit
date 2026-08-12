@@ -13,6 +13,9 @@
 import { and, eq, isNotNull } from 'drizzle-orm';
 import { getDb, schema } from '../../db/client';
 import { getQueues } from '../queues';
+import { jobLogger } from '../../common/logger';
+
+const log = jobLogger('cron:graded-sync');
 
 /** ISO-week stamp (e.g. `2026-W33`) so a re-run within the same week is idempotent. */
 function isoWeekStamp(d = new Date()): string {
@@ -76,15 +79,14 @@ async function main() {
     }
   }
 
-  // eslint-disable-next-line no-console
-  console.log(
-    `[cron:graded] enqueued ${priceJobs} graded price-refresh jobs across ${groups.size} store/language buckets (${stamp})`,
+  log.info(
+    { priceJobs, buckets: groups.size, stamp },
+    'graded price-refresh jobs enqueued',
   );
   process.exit(0);
 }
 
 main().catch((err) => {
-  // eslint-disable-next-line no-console
-  console.error('[cron:graded] failed', err);
+  log.error({ err }, 'graded cron failed');
   process.exit(1);
 });

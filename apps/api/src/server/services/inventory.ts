@@ -1,6 +1,7 @@
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import type { Logger } from 'pino';
 import { schema, type Database } from '../../db/client';
-import { Conflict, NotFound } from '../../common/http-errors';
+import { BadRequest, Conflict, NotFound } from '../../common/http-errors';
 import { emitToStore, SOCKET_EVENTS } from '../realtime/socket';
 
 /**
@@ -282,4 +283,76 @@ export class InventoryService {
     }
     await this.emitUpdated(args.storeId, args.skuId);
   }
+
+  /**
+   * Picks the location an import should write to. A stale client location is
+   * recovered automatically when the store has exactly one location, since
+   * that is unambiguous; otherwise the caller must choose.
+   */
+  async resolveImportLocationId(args: {
+    storeId: string;
+    requestedLocationId?: string;
+    log: Logger;
+  }): Promise<string> {
+    const { storeId, requestedLocationId, log } = args;
+
+    const locations = await this.db
+      .select({ id: schema.locations.id })
+      .from(schema.locations)
+      .where(eq(schema.locations.storeId, storeId));
+
+    const [onlyLocation] = locations;
+
+    if (requestedLocationId) {
+      if (locations.some((location) => location.id === requestedLocationId)) {
+        return requestedLocationId;
+      }
+
+      if (locations.length === 1 && onlyLocation) {
+        log.warn(
+          { storeId, requestedLocationId, resolvedLocationId: onlyLocation.id },
+          'requested locationId not in store; falling back to the only store location',
+        );
+        return onlyLocation.id;
+      }
+
+      throw BadRequest('locationId not found in this store. Select a valid location and retry.');
+    }
+
+    if (locations.length === 1 && onlyLocation) {
+      return onlyLocation.id;
+    }
+
+    if (locations.length === 0) {
+      throw BadRequest('No locations exist for this store. Create a location first.');
+    }
+
+    throw BadRequest(
+      'locationId is required when the store has multiple locations. Include form field locationId.',
+    );
+  }
+
+  /**
+   * Zeroes on-hand inventory for every location in the store. The catalog and
+   * all history are left intact, so this stays safe for a store with sales.
+   */
+  async wipeOnHandQuantities(storeId: string): Promise<{ deleted: number; locations: number }> {
+    const locations = await this.db
+      .select({ id: schema.locations.id })
+      .from(schema.locations)
+      .where(eq(schema.locations.storeId, storeId));
+    const locationIds = locations.map((location) => location.id);
+
+    if (locationIds.length === 0) {
+      return { deleted: 0, locations: 0 };
+    }
+
+    const deleted = await this.db
+      .delete(schema.inventory)
+      .where(inArray(schema.inventory.locationId, locationIds))
+      .returning({ skuId: schema.inventory.skuId });
+
+    return { deleted: deleted.length, locations: locationIds.length };
+  }
+
 }
