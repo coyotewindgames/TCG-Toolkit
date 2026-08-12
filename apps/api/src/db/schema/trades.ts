@@ -63,5 +63,3 @@ export const tradeItems = pgTable(
     byTrade: index('trade_items_trade_idx').on(t.tradeId),
   }),
 );
-
-// ---------- audit + idempotency ----------

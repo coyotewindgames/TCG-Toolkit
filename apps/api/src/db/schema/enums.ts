@@ -75,5 +75,3 @@ export const gameEnum = pgEnum('game', [
   'supplies',
   'other',
 ]);
-
-// ---------- tenancy ----------

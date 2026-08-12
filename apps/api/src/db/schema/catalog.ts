@@ -137,5 +137,3 @@ export const currentPrices = pgTable('current_prices', {
   marketMedianCents: integer('market_median_cents'),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
-
-// ---------- orders ----------

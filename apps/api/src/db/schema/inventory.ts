@@ -31,5 +31,3 @@ export const inventory = pgTable(
     byLocation: index('inventory_location_idx').on(t.locationId),
   }),
 );
-
-// ---------- pricing ----------

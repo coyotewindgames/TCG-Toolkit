@@ -86,5 +86,3 @@ export const payments = pgTable(
     byOrder: index('payments_order_idx').on(t.orderId),
   }),
 );
-
-// ---------- trade-ins ----------

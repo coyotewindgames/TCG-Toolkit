@@ -49,5 +49,3 @@ export const webhookEvents = pgTable(
     bySignature: index('webhook_events_signature_idx').on(t.signatureOk, t.receivedAt),
   }),
 );
-
-// ---------- auth ----------

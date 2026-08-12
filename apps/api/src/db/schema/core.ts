@@ -75,5 +75,3 @@ export const customers = pgTable(
     byEmail: index('customers_email_idx').on(t.email),
   }),
 );
-
-// ---------- catalog ----------
