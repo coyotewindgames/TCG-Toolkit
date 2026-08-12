@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import QRCode from 'qrcode';
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
 import { useProductSearchState } from '../hooks/useProductSearchState';
@@ -16,7 +15,9 @@ import { api } from '../lib/api';
 import { toBase64UrlJson } from '../lib/encoding';
 import { formatCentsAsCurrency } from '../lib/format';
 import { getSocket } from '../lib/socket';
-import { productsSearchQueryKey } from '../lib/searchQueryKeys';
+import { useInventorySearch } from '../hooks/useInventorySearch';
+import { useProductSkus } from '../hooks/useProductSkus';
+import RegisterSummaryRow from '../components/RegisterSummaryRow';
 
 function isLocalOrigin(origin: string) {
   return /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i.test(origin);
@@ -47,25 +48,17 @@ export default function RegisterPage() {
     defaultSort: 'name_asc',
   });
   const [selectedProduct, setSelectedProduct] = useState<ProductSearchItem | null>(null);
-  const [selectedProductSkus, setSelectedProductSkus] = useState<ProductSkusResponse['skus']>([]);
-  const [loadingProductSkus, setLoadingProductSkus] = useState(false);
-  const [productSkuError, setProductSkuError] = useState<string | null>(null);
   const [addingSkuId, setAddingSkuId] = useState<string | null>(null);
 
-  const cardSearch = useQuery<ProductSearchResponse>({
-    queryKey: productsSearchQueryKey('register', {
-      query: cardQuery,
-      page: 1,
-      pageSize: 8,
-      sort: 'name_asc',
-      includeParseDebug: false,
-    }),
-    queryFn: ({ signal }) => {
-      const params = buildCardSearchParams({ page: 1, pageSize: 8, sort: 'name_asc' });
-      return api.get<ProductSearchResponse>(`/products/search?${params.toString()}`, { signal });
-    },
+  const cardSearch = useInventorySearch<ProductSearchResponse>({
+    scope: 'register',
+    query: cardQuery,
+    page: 1,
+    pageSize: 8,
+    sort: 'name_asc',
     enabled: isCardSearchEnabled,
-    placeholderData: (prev) => prev,
+    buildParams: () => buildCardSearchParams({ page: 1, pageSize: 8, sort: 'name_asc' }),
+    includeParseDebug: false,
   });
   const cardResults = cardSearch.data?.results ?? [];
   const searchingCards = cardSearch.isFetching;
@@ -230,7 +223,6 @@ export default function RegisterPage() {
       setTotals({ subtotalCents: 0, taxCents: 0, totalCents: 0 });
       setCardQuery('');
       setSelectedProduct(null);
-      setSelectedProductSkus([]);
       setOrderId(null);
       await createOrder();
     } catch (e) {
@@ -243,18 +235,19 @@ export default function RegisterPage() {
 
   async function loadProductSkus(product: ProductSearchItem) {
     setSelectedProduct(product);
-    setLoadingProductSkus(true);
-    setProductSkuError(null);
-    setSelectedProductSkus([]);
-    try {
-      const data = await api.get<ProductSkusResponse>(`/products/${product.id}/skus`);
-      setSelectedProductSkus(data.skus ?? []);
-    } catch (err) {
-      setProductSkuError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoadingProductSkus(false);
-    }
   }
+
+  const selectedProductSkusQuery = useProductSkus<ProductSkusResponse>(selectedProduct?.id, {
+    enabled: !!selectedProduct,
+    scope: 'register',
+  });
+  const selectedProductSkus = selectedProductSkusQuery.data?.skus ?? [];
+  const loadingProductSkus = selectedProductSkusQuery.isLoading;
+  const productSkuError = selectedProductSkusQuery.error
+    ? selectedProductSkusQuery.error instanceof Error
+      ? selectedProductSkusQuery.error.message
+      : String(selectedProductSkusQuery.error)
+    : null;
 
   async function addSkuToOrder(sku: ProductSkusResponse['skus'][number]) {
     if (!orderId || status === 'paid') return;
@@ -308,8 +301,6 @@ export default function RegisterPage() {
             onChange={(e) => {
               setCardQuery(e.target.value);
               setSelectedProduct(null);
-              setSelectedProductSkus([]);
-              setProductSkuError(null);
             }}
             placeholder="Search by card name..."
             className="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm outline-none focus:border-emerald-500"
@@ -417,10 +408,10 @@ export default function RegisterPage() {
       </section>
       <aside className="col-span-4 bg-slate-900 rounded-2xl p-4 flex flex-col">
         <h2 className="text-lg font-semibold mb-4">Totals</h2>
-        <Row label="Subtotal" value={formatCentsAsCurrency(subtotal)} />
-        <Row label="Tax" value={formatCentsAsCurrency(taxCents)} />
+        <RegisterSummaryRow label="Subtotal" value={formatCentsAsCurrency(subtotal)} />
+        <RegisterSummaryRow label="Tax" value={formatCentsAsCurrency(taxCents)} />
         <div className="border-t border-slate-800 my-2" />
-        <Row label="Total" value={formatCentsAsCurrency(total)} large />
+        <RegisterSummaryRow label="Total" value={formatCentsAsCurrency(total)} large />
         <div className="mt-auto grid grid-cols-2 gap-3">
           <button
             disabled={lines.length === 0 || status === 'checkout' || status === 'paid'}
@@ -439,15 +430,6 @@ export default function RegisterPage() {
         </div>
         {lastError && <p className="text-rose-400 text-xs mt-3 break-all">{lastError}</p>}
       </aside>
-    </div>
-  );
-}
-
-function Row({ label, value, large }: { label: string; value: string; large?: boolean }) {
-  return (
-    <div className={`flex justify-between ${large ? 'text-2xl font-bold' : 'text-sm'} py-1`}>
-      <span>{label}</span>
-      <span className="font-mono">{value}</span>
     </div>
   );
 }

@@ -13,6 +13,7 @@ import type {
 } from '@tcg/shared';
 import { api } from '../../lib/api';
 import { toBase64UrlJson } from '../../lib/encoding';
+import { queryKeys } from '../../lib/queryKeys';
 import { getSocket } from '../../lib/socket';
 import { useTransactionSearchController } from './useTransactionSearchController';
 
@@ -176,7 +177,7 @@ export function useSellTransaction(active: boolean): SellModeTransactionControll
   }, [active, orderId, refreshOrder]);
 
   const sellSearch = useQuery<ProductSearchResponse>({
-    queryKey: ['transactions.sell.search', sellSearchController.normalizedQuery],
+    queryKey: queryKeys.sell.search(sellSearchController.normalizedQuery),
     queryFn: ({ signal }) => {
       const params = new URLSearchParams({
         q: sellSearchController.normalizedQuery,
@@ -191,7 +192,7 @@ export function useSellTransaction(active: boolean): SellModeTransactionControll
   });
 
   const selectedProductSkus = useQuery<ProductSkusResponse>({
-    queryKey: ['transactions.sell.skus', selectedProduct?.id],
+    queryKey: queryKeys.sell.skus(selectedProduct?.id),
     queryFn: ({ signal }) => api.get<ProductSkusResponse>(`/products/${selectedProduct!.id}/skus`, { signal }),
     enabled: active && !!selectedProduct?.id,
     staleTime: 30_000,
