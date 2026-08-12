@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, ilike, or, sql } from 'drizzle-orm';
+import { and, asc, eq, ilike, or, sql } from 'drizzle-orm';
 import { normalizeToSpacedAlphanumeric } from '@tcg/shared';
 import { schema, type Database } from '../../db/client';
 import { BadRequest, NotFound } from '../../common/http-errors';

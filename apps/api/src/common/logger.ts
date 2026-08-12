@@ -10,13 +10,23 @@ let logger: Logger | null = null;
 
 export function getLogger(): Logger {
   if (!logger) {
-    const env = loadEnv();
-    logger = pino({
-      level: env.LOG_LEVEL,
-      base: { service: 'tcg-api', env: env.NODE_ENV },
-    });
+    logger = pino(loggerOptions());
   }
   return logger;
+}
+
+/**
+ * Falls back to bare defaults when the environment has not been configured
+ * (unit tests, one-off scripts) so logging never becomes the reason a code path
+ * fails.
+ */
+function loggerOptions(): pino.LoggerOptions {
+  try {
+    const env = loadEnv();
+    return { level: env.LOG_LEVEL, base: { service: 'tcg-api', env: env.NODE_ENV } };
+  } catch {
+    return { level: process.env.LOG_LEVEL ?? 'info', base: { service: 'tcg-api' } };
+  }
 }
 
 /**

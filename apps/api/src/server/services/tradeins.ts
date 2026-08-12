@@ -1,5 +1,4 @@
 import { and, eq, gte, isNull, sql } from 'drizzle-orm';
-import { randomUUID } from 'node:crypto';
 import type {
   CardCondition,
   CreateTradeRequest,

@@ -11,7 +11,7 @@
  * MB of no-op writes per store; this pushes that to zero without losing real
  * price movements.
  */
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import type { PriceSource } from '@tcg/shared';
 import { getLogger } from '../../common/logger';
 import { schema, type Database } from '../../db/client';

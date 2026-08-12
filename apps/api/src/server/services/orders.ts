@@ -51,7 +51,6 @@ export class OrdersService {
       throw Conflict('item is out of stock at every location');
     }
 
-    let reserveLocationId = order.locationId;
     if (reservableLocationId !== order.locationId) {
       const [lineCountRow] = await this.db
         .select({ count: sql<number>`count(*)::int` })
@@ -66,7 +65,6 @@ export class OrdersService {
         .update(schema.orders)
         .set({ locationId: reservableLocationId })
         .where(eq(schema.orders.id, order.id));
-      reserveLocationId = reservableLocationId;
       order.locationId = reservableLocationId;
     }
 

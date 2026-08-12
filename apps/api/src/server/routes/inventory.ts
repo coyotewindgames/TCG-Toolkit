@@ -220,7 +220,6 @@ export function inventoryRouter(c: Container): Router {
     limits: { fileSize: 50 * 1024 * 1024 },
   });
 
-  const importer = new InventoryImportService(c.db);
   const enricher = new CatalogEnrichmentService(c.db, c.configs, c.pkmncardsClient);
 
   r.post(
@@ -235,7 +234,7 @@ export function inventoryRouter(c: Container): Router {
         requestedLocationId: body.locationId,
         log,
       });
-      const result = await importer.import({
+      const result = await new InventoryImportService(c.db, log).import({
         storeId: req.user!.storeId,
         req: {
           ...body,
@@ -286,7 +285,7 @@ export function inventoryRouter(c: Container): Router {
 
       const csv = parseImportUpload(req.file, log);
 
-      const result = await importer.import({
+      const result = await new InventoryImportService(c.db, log).import({
         storeId: req.user!.storeId,
         req: {
           csv,
