@@ -8,7 +8,7 @@
     "typecheck": "tsc -b tsconfig.json",
     "dev": "tsx watch --env-file=../../.env --env-file=.env src/server/main.ts",
     "start": "node dist/server/main.js",
-    "lint": "echo 'no lint configured'",
+    "lint": "eslint src tests --ext .ts",
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",

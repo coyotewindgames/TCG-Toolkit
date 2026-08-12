@@ -215,7 +215,7 @@ function toQty(v: string | undefined): number {
 
 function toCents(v: string | undefined): number | null {
   if (!v) return null;
-  const cleaned = v.replace(/[^\d.\-]/g, '');
+  const cleaned = v.replace(/[^\d.-]/g, '');
   if (!cleaned) return null;
   const f = parseFloat(cleaned);
   if (!Number.isFinite(f)) return null;
