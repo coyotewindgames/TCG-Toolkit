@@ -5,8 +5,8 @@
  *
  * Why wrap the SDK at all:
  *  - SDK returns dollars as floats — we store cents, everywhere.
- *  - SDK types are already good, but we want a `PkmnPricesClient` that mirrors
- *    the shape of `TcgapiClient` so the pricing router can swap them.
+ *  - SDK types are already good, but we want a `PkmnPricesClient` with a stable
+ *    in-house shape the pricing router can depend on.
  *  - We inject a per-request pino log line with `{ source, endpoint, durationMs,
  *    creditsCharged }` so the nightly job's credit budget stays observable.
  */
@@ -16,6 +16,8 @@ import {
   type Card as SdkCard,
   type CardSummary as SdkCardSummary,
   type CurrencyFilter,
+  type EbayListing as SdkEbayListing,
+  type EbayListingsParams,
   type ListCardsParams,
   type ListSetsParams,
   type Price as SdkPrice,
@@ -50,6 +52,21 @@ export interface PkmnpricesPrice {
 
 export interface PkmnpricesCard extends PkmnpricesCardSummary {
   prices: PkmnpricesPrice[];
+}
+
+/**
+ * A single eBay sold comp for a card, from PkmnPrices'
+ * `GET /v1/cards/:id/listings/ebay` (PriceCharting-sourced, USD). Money in cents.
+ * `grader`/`grade` are populated for slabbed sales, null for raw.
+ */
+export interface PkmnpricesEbaySale {
+  priceCents: number;
+  grader: string | null;
+  grade: string | null;
+  saleType: string;
+  soldAt: string;
+  title: string;
+  listingUrl: string;
 }
 
 export interface PkmnpricesSet {
@@ -150,6 +167,51 @@ export class PkmnPricesClient {
   async getCardPrices(id: number, opts: { currency?: CurrencyFilter } = {}): Promise<PkmnpricesPrice[]> {
     const card = await this.getCard(id, opts);
     return card.prices;
+  }
+
+  /**
+   * Recent eBay sold comps for a card, filtered to a grading company + grade.
+   * Cursor-paginated upstream (max 20/page, 1 credit per item returned), so we
+   * cap collection at `maxItems` and stop once sales fall outside `sinceDays`.
+   * Used by the pricing router to build a graded-card median.
+   */
+  async getGradedEbaySales(
+    cardId: number,
+    opts: { grader: string; grade: string; sinceDays?: number; maxItems?: number },
+  ): Promise<PkmnpricesEbaySale[]> {
+    const started = Date.now();
+    const maxItems = opts.maxItems ?? 40;
+    const cutoffMs =
+      opts.sinceDays != null ? Date.now() - opts.sinceDays * 24 * 60 * 60 * 1000 : null;
+    const params: EbayListingsParams = {
+      grader: opts.grader,
+      grade: opts.grade,
+      sort: 'date_desc',
+      limit: 20,
+    };
+    const sales: PkmnpricesEbaySale[] = [];
+    try {
+      for await (const listing of this.sdk.cards.listings.iterateEbay(cardId, params)) {
+        if (cutoffMs != null && Date.parse(listing.sold_at) < cutoffMs) break;
+        sales.push(mapEbaySale(listing));
+        if (sales.length >= maxItems) break;
+      }
+      this.log.debug(
+        {
+          source: 'pkmnprices',
+          endpoint: 'cards.listings.ebay',
+          cardId,
+          grader: opts.grader,
+          grade: opts.grade,
+          durationMs: Date.now() - started,
+          sales: sales.length,
+        },
+        'pkmnprices graded ebay sales',
+      );
+      return sales;
+    } catch (err) {
+      this.rethrowSdkError('cards.listings.ebay', started, err, { cardId });
+    }
   }
 
   // ---- Sets ---------------------------------------------------------------
@@ -292,6 +354,46 @@ function mapSet(s: SdkSet): PkmnpricesSet {
 function dollarsToCents(dollars: number | null | undefined): number {
   if (dollars == null || !Number.isFinite(dollars)) return 0;
   return Math.round(dollars * 100);
+}
+
+function mapEbaySale(l: SdkEbayListing): PkmnpricesEbaySale {
+  return {
+    priceCents: dollarsToCents(l.price),
+    grader: l.grader,
+    grade: l.grade,
+    saleType: l.sale_type,
+    soldAt: l.sold_at,
+    title: l.title,
+    listingUrl: l.listing_url,
+  };
+}
+
+/**
+ * Median sold price (in cents) from a set of graded eBay comps, dropping gross
+ * outliers (>3× the raw median) so a single mis-listed auction can't skew the
+ * result. Returns null when the sample is too thin to trust.
+ */
+export function aggregateGradedMedianCents(
+  sales: PkmnpricesEbaySale[],
+  opts: { minSample?: number } = {},
+): { medianCents: number; sampleSize: number } | null {
+  const minSample = opts.minSample ?? 3;
+  const prices = sales.map((s) => s.priceCents).filter((n) => Number.isFinite(n) && n > 0);
+  if (prices.length < minSample) return null;
+  const rawMedian = medianOf(prices);
+  if (rawMedian <= 0) return null;
+  const trimmed = prices.filter((p) => p <= rawMedian * 3);
+  if (trimmed.length < minSample) return null;
+  return { medianCents: medianOf(trimmed), sampleSize: trimmed.length };
+}
+
+function medianOf(values: number[]): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0
+    ? Math.round((sorted[mid - 1] + sorted[mid]) / 2)
+    : sorted[mid];
 }
 
 /**

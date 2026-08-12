@@ -45,7 +45,7 @@ export interface CreatedStore {
 
 export interface OnboardingStatus {
   storeCreated: true;
-  tcgapiConfigured: boolean;
+  pricingConfigured: boolean;
   inventoryImported: boolean;
   posConfigured: boolean;
   completedAt: Date | null;
@@ -190,10 +190,10 @@ export async function getOnboardingStatus(
     );
   }
 
-  const [tcgapiRow] = await db
-    .select({ id: schema.tcgapiConfigs.storeId })
-    .from(schema.tcgapiConfigs)
-    .where(eq(schema.tcgapiConfigs.storeId, storeId))
+  const [pricingRow] = await db
+    .select({ id: schema.pkmnpricesConfigs.storeId })
+    .from(schema.pkmnpricesConfigs)
+    .where(eq(schema.pkmnpricesConfigs.storeId, storeId))
     .limit(1);
 
   const [posRow] = await db
@@ -217,7 +217,7 @@ export async function getOnboardingStatus(
 
   return {
     storeCreated: true,
-    tcgapiConfigured: !!tcgapiRow,
+    pricingConfigured: !!pricingRow,
     inventoryImported: !!invRow,
     posConfigured: !!posRow,
     completedAt: storeCompletedAt,

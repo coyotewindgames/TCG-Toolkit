@@ -72,5 +72,18 @@ export function analyticsRouter(c: Container): Router {
     }),
   );
 
+  r.get(
+    '/price-movers',
+    asyncHandler(async (req, res) => {
+      const limit = Number(req.query.limit);
+      const sinceDays = Number(req.query.sinceDays);
+      const out = await analytics.topMovers(req.user!.storeId, {
+        limit: Number.isFinite(limit) ? limit : undefined,
+        sinceDays: Number.isFinite(sinceDays) ? sinceDays : undefined,
+      });
+      res.json(out);
+    }),
+  );
+
   return r;
 }

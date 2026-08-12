@@ -13,13 +13,13 @@ interface LocationRow {
   address?: Record<string, string> | null;
 }
 
-interface TcgapiStatus {
+interface PkmnpricesStatus {
   configured: boolean;
   hasKey: boolean;
 }
 
 interface IntegrationsResponse {
-  tcgapi: TcgapiStatus;
+  pkmnprices: PkmnpricesStatus;
 }
 
 // ---- Root wizard ----------------------------------------------------------
@@ -29,7 +29,7 @@ export default function OnboardingPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [step, setStep] = useState<Step>(1);
-  const [tcgapiDone, setTcgapiDone] = useState(false);
+  const [pricingDone, setPricingDone] = useState(false);
   const [inventoryDone, setInventoryDone] = useState(false);
 
   const name = session.user?.displayName ?? 'there';
@@ -42,7 +42,7 @@ export default function OnboardingPage() {
 
   const steps: { n: Step; label: string }[] = [
     { n: 1, label: 'Shop' },
-    { n: 2, label: 'TCGapi' },
+    { n: 2, label: 'Pricing' },
     { n: 3, label: 'Inventory' },
     { n: 4, label: 'Clover' },
   ];
@@ -94,8 +94,8 @@ export default function OnboardingPage() {
           <StepShopBasics onNext={() => setStep(2)} />
         )}
         {step === 2 && (
-          <StepTcgapi
-            onNext={() => { setTcgapiDone(true); setStep(3); }}
+          <StepPkmnprices
+            onNext={() => { setPricingDone(true); setStep(3); }}
             onSkip={() => setStep(3)}
           />
         )}
@@ -110,7 +110,7 @@ export default function OnboardingPage() {
         )}
         {step === 5 && (
           <StepDone
-            tcgapiDone={tcgapiDone}
+            pricingDone={pricingDone}
             inventoryDone={inventoryDone}
             navigate={navigate}
           />
@@ -217,22 +217,22 @@ function StepShopBasics({ onNext }: { onNext: () => void }) {
   );
 }
 
-// ---- Step 2: TCGapi.dev ---------------------------------------------------
+// ---- Step 2: PkmnPrices ----------------------------------------------------
 
-function StepTcgapi({ onNext, onSkip }: { onNext: () => void; onSkip: () => void }) {
-  const [baseUrl, setBaseUrl] = useState('https://api.tcgapi.dev/v1');
+function StepPkmnprices({ onNext, onSkip }: { onNext: () => void; onSkip: () => void }) {
   const [apiKey, setApiKey] = useState('');
+  const [tier, setTier] = useState<'free' | 'pro' | 'business'>('free');
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const qc = useQueryClient();
 
   const status = useQuery({
-    queryKey: ['tcgapi-status'],
-    queryFn: () => api.get<IntegrationsResponse>('/settings/integrations').then((d) => d.tcgapi),
+    queryKey: ['pkmnprices-status'],
+    queryFn: () => api.get<IntegrationsResponse>('/settings/integrations').then((d) => d.pkmnprices),
   });
 
   const save = useMutation({
     mutationFn: () =>
-      api.put('/settings/integrations/tcgapi/onboarding', { baseUrl, apiKey: apiKey || undefined }),
+      api.put('/settings/integrations/pkmnprices/onboarding', { apiKey: apiKey || undefined, tier }),
     onSuccess: () => {
       setMsg({ kind: 'ok', text: 'Saved! Verifying…' });
       verify.mutate();
@@ -241,11 +241,11 @@ function StepTcgapi({ onNext, onSkip }: { onNext: () => void; onSkip: () => void
   });
 
   const verify = useMutation({
-    mutationFn: () => api.post<{ ok: boolean; error?: string }>('/settings/integrations/tcgapi/verify', {}),
+    mutationFn: () => api.post<{ ok: boolean; error?: string }>('/settings/integrations/pkmnprices/verify', {}),
     onSuccess: (data) => {
       if (data.ok) {
         setMsg({ kind: 'ok', text: '✓ Connected! Moving on…' });
-        qc.invalidateQueries({ queryKey: ['tcgapi-status'] });
+        qc.invalidateQueries({ queryKey: ['pkmnprices-status'] });
         setTimeout(onNext, 800);
       } else {
         setMsg({ kind: 'err', text: data.error ?? 'Verification failed' });
@@ -258,14 +258,14 @@ function StepTcgapi({ onNext, onSkip }: { onNext: () => void; onSkip: () => void
 
   return (
     <Card
-      title="Step 2 — Connect TCGapi.dev"
-      subtitle="Powers product images and market pricing for your catalog."
+      title="Step 2 — Connect PkmnPrices"
+      subtitle="Powers Pokémon product data and market pricing for your catalog."
       badge={alreadyConfigured ? { text: 'already connected', ok: true } : undefined}
     >
       {alreadyConfigured ? (
         <div className="space-y-4">
           <p className="text-sm text-slate-300">
-            TCGapi.dev is already configured for your store. You can update it later in Settings.
+            PkmnPrices is already configured for your store. You can update it later in Settings.
           </p>
           <div className="flex gap-3">
             <button type="button" className="btn-primary" onClick={onNext}>Continue →</button>
@@ -276,8 +276,8 @@ function StepTcgapi({ onNext, onSkip }: { onNext: () => void; onSkip: () => void
         <div className="space-y-4">
           <p className="text-sm text-slate-400">
             Sign up at{' '}
-            <a href="https://tcgapi.dev" target="_blank" rel="noopener noreferrer" className="text-emerald-400 hover:underline">
-              tcgapi.dev
+            <a href="https://pkmnprices.com" target="_blank" rel="noopener noreferrer" className="text-emerald-400 hover:underline">
+              pkmnprices.com
             </a>{' '}
             to get an API key. The free tier is plenty to get started.
           </p>
@@ -288,19 +288,23 @@ function StepTcgapi({ onNext, onSkip }: { onNext: () => void; onSkip: () => void
               className="input w-full"
               type="password"
               autoComplete="off"
-              placeholder="tcg_live_…"
+              placeholder="pkmn_live_…"
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
             />
           </label>
 
           <label className="block text-sm">
-            <span className="text-slate-300 block mb-1">Base URL</span>
-            <input
+            <span className="text-slate-300 block mb-1">Plan tier</span>
+            <select
               className="input w-full"
-              value={baseUrl}
-              onChange={(e) => setBaseUrl(e.target.value)}
-            />
+              value={tier}
+              onChange={(e) => setTier(e.target.value as 'free' | 'pro' | 'business')}
+            >
+              <option value="free">Free</option>
+              <option value="pro">Pro</option>
+              <option value="business">Business</option>
+            </select>
           </label>
 
           {msg && (
@@ -389,11 +393,11 @@ function StepClover({ onFinish }: { onFinish: () => void }) {
 // ---- Step 5: Done ----------------------------------------------------------
 
 function StepDone({
-  tcgapiDone,
+  pricingDone,
   inventoryDone,
   navigate,
 }: {
-  tcgapiDone: boolean;
+  pricingDone: boolean;
   inventoryDone: boolean;
   navigate: ReturnType<typeof useNavigate>;
 }) {
@@ -407,7 +411,7 @@ function StepDone({
 
       <ul className="space-y-2">
         <SummaryRow icon="✓" text="Shop created" done />
-        <SummaryRow icon={tcgapiDone ? '✓' : '○'} text="TCGapi.dev connected" done={tcgapiDone} />
+        <SummaryRow icon={pricingDone ? '✓' : '○'} text="PkmnPrices connected" done={pricingDone} />
         <SummaryRow icon={inventoryDone ? '✓' : '○'} text="Inventory imported" done={inventoryDone} />
       </ul>
 
@@ -428,7 +432,7 @@ function StepDone({
         </button>
       </div>
 
-      {(!tcgapiDone || !inventoryDone) && (
+      {(!pricingDone || !inventoryDone) && (
         <p className="text-xs text-slate-500 text-center">
           You can finish the remaining steps any time from{' '}
           <Link to="/settings/integrations" className="text-emerald-400 hover:underline">

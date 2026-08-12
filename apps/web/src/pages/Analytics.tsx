@@ -58,19 +58,19 @@ type TradeinSeriesResponse = {
   }>;
 };
 
-type TopMoversResponse = {
-  data: Array<{
-    cardId: string;
-    name: string;
-    setName: string | null;
-    gameName: string | null;
-    productType: string | null;
-    foilOnly: boolean;
-    printing: string | null;
-    marketCents: number | null;
-    priceChangePercent: number | null;
-    imageUrl: string | null;
-  }>;
+type Mover = {
+  skuId: string;
+  name: string;
+  setName: string | null;
+  game: string | null;
+  printing: string | null;
+  marketCents: number | null;
+  priceChangePercent: number | null;
+};
+
+type PriceMoversResponse = {
+  gainers: Mover[];
+  losers: Mover[];
 };
 
 const PIE_COLORS = ['#10b981', '#22d3ee', '#60a5fa', '#f59e0b', '#f43f5e', '#a78bfa'];
@@ -125,25 +125,13 @@ export default function AnalyticsPage() {
     queryFn: () => api.get<TradeinSeriesResponse>(`/analytics/tradein-series?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
   });
 
-  const topGainers = useQuery({
-    queryKey: ['analytics', 'top-movers', 'up'],
-    queryFn: () => api.get<TopMoversResponse>('/tcgapi/prices/top-movers?direction=up&period=7d&limit=8&type=Cards'),
+  const movers = useQuery({
+    queryKey: ['analytics', 'price-movers', range],
+    queryFn: () => api.get<PriceMoversResponse>('/analytics/price-movers?limit=8&sinceDays=7'),
     retry: false,
   });
 
-  const topLosers = useQuery({
-    queryKey: ['analytics', 'top-movers', 'down'],
-    queryFn: () => api.get<TopMoversResponse>('/tcgapi/prices/top-movers?direction=down&period=7d&limit=8&type=Cards'),
-    retry: false,
-  });
-
-  const marketMoversError =
-    (topGainers.error instanceof Error ? topGainers.error.message : null) ??
-    (topLosers.error instanceof Error ? topLosers.error.message : null);
-  const marketMoversMissingConfig =
-    typeof marketMoversError === 'string' &&
-    (marketMoversError.toLowerCase().includes('not configured') ||
-      marketMoversError.toLowerCase().includes('api key'));
+  const marketMoversError = movers.error instanceof Error ? movers.error.message : null;
 
   return (
     <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-6">
@@ -255,20 +243,19 @@ export default function AnalyticsPage() {
         </Panel>
 
         <Panel title="7-day market movers">
-          {topGainers.isError || topLosers.isError ? (
-            marketMoversMissingConfig ? (
-              <p className="text-sm text-amber-300">
-                Market movers unavailable. Configure TCGapi credentials in Settings to enable this panel.
-              </p>
-            ) : (
-              <p className="text-sm text-amber-300">
-                Market movers unavailable right now. {marketMoversError ?? 'Please retry in a moment.'}
-              </p>
-            )
+          {movers.isError ? (
+            <p className="text-sm text-amber-300">
+              Market movers unavailable right now. {marketMoversError ?? 'Please retry in a moment.'}
+            </p>
+          ) : movers.data && movers.data.gainers.length === 0 && movers.data.losers.length === 0 ? (
+            <p className="text-sm text-slate-400">
+              Not enough price history yet. Movers appear once SKUs have at least a week of price
+              snapshots.
+            </p>
           ) : (
             <div className="grid gap-3 md:grid-cols-2">
-              <MoverList title="Top gainers" rows={topGainers.data?.data ?? []} positive />
-              <MoverList title="Top losers" rows={topLosers.data?.data ?? []} positive={false} />
+              <MoverList title="Top gainers" rows={movers.data?.gainers ?? []} positive />
+              <MoverList title="Top losers" rows={movers.data?.losers ?? []} positive={false} />
             </div>
           )}
         </Panel>
@@ -301,7 +288,7 @@ function MoverList({
   positive,
 }: {
   title: string;
-  rows: TopMoversResponse['data'];
+  rows: Mover[];
   positive: boolean;
 }) {
   return (
@@ -310,7 +297,7 @@ function MoverList({
       <ul className="space-y-2">
         {rows.length === 0 && <li className="text-xs text-slate-500">No data.</li>}
         {rows.map((row) => (
-          <li key={row.cardId} className="flex items-center justify-between gap-2 text-xs">
+          <li key={row.skuId} className="flex items-center justify-between gap-2 text-xs">
             <span className="truncate text-slate-200">{row.name}</span>
             <span className={positive ? 'text-emerald-300 font-semibold' : 'text-rose-300 font-semibold'}>
               {typeof row.priceChangePercent === 'number'

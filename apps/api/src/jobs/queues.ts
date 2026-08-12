@@ -3,7 +3,6 @@ import { loadEnv } from '../config/env';
 
 /** Job queue names. Add new ones here so workers register them in one place. */
 export const QUEUE_NAMES = {
-  priceRefresh: 'price.refresh',
   bulkRefresh: 'pricing.bulk-refresh',
   catalogSync: 'catalog.sync',
   webhookRetry: 'webhook.retry',
@@ -31,7 +30,6 @@ export function getQueues(): Record<keyof typeof QUEUE_NAMES, Queue> {
   if (queues) return queues;
   const connection = bullConnection();
   queues = {
-    priceRefresh: new Queue(QUEUE_NAMES.priceRefresh, { connection }),
     bulkRefresh: new Queue(QUEUE_NAMES.bulkRefresh, { connection }),
     catalogSync: new Queue(QUEUE_NAMES.catalogSync, { connection }),
     webhookRetry: new Queue(QUEUE_NAMES.webhookRetry, { connection }),

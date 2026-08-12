@@ -22,7 +22,6 @@ import { scansRouter } from './routes/scans';
 import { settingsRouter } from './routes/settings';
 import { skusRouter, barcodesRouter } from './routes/skus';
 import { analyticsRouter } from './routes/analytics';
-import { tcgapiRouter } from './routes/tcgapi';
 import { pkmnpricesRouter } from './routes/pkmnprices';
 import { pkmncardsRouter } from './routes/pkmncards';
 import { tradeinsRouter } from './routes/tradeins';
@@ -91,7 +90,6 @@ export function createApp(): Express {
     app.use(`${prefix}/tradeins`, tradeinsRouter(container));
     app.use(`${prefix}/skus`, skusRouter(container));
     app.use(`${prefix}/settings`, settingsRouter(container));
-    app.use(`${prefix}/tcgapi`, tcgapiRouter(container));
     app.use(`${prefix}/pkmnprices`, pkmnpricesRouter(container));
     app.use(`${prefix}/pkmncards`, pkmncardsRouter(container));
     app.use(`${prefix}/barcodes`, barcodesRouter(container));

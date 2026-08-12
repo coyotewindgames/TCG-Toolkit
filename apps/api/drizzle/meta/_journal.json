@@ -129,6 +129,20 @@
       "when": 1782864000000,
       "tag": "0017_products_image_locked",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1786752000000,
+      "tag": "0018_grading",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1786838400000,
+      "tag": "0019_drop_tcgapi",
+      "breakpoints": true
     }
   ]
 }

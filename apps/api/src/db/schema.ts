@@ -29,6 +29,18 @@ import { sql } from 'drizzle-orm';
 // ---------- enums ----------
 
 export const cardConditionEnum = pgEnum('card_condition', ['NM', 'LP', 'MP', 'HP', 'DMG']);
+/**
+ * Third-party grading companies. A graded SKU's `condition` is null — the slab
+ * grade supersedes the in-house NM/LP/... tier (enforced by a CHECK constraint).
+ */
+export const cardGradingCompanyEnum = pgEnum('card_grading_company', [
+  'psa',
+  'cgc',
+  'beckett',
+  'tag',
+  'sgc',
+  'other',
+]);
 export const cardPrintingEnum = pgEnum('card_printing', [
   'Normal',
   'Foil',
@@ -74,6 +86,7 @@ export const priceSourceEnum = pgEnum('price_source', [
   'pkmnprices_market',
   'pkmnprices_low',
   'pkmnprices_cardmarket',
+  'pkmnprices_graded_ebay',
   'manual_override',
 ]);
 export const gameEnum = pgEnum('game', [
@@ -212,9 +225,20 @@ export const skus = pgTable(
     storeId: uuid('store_id')
       .notNull()
       .references(() => stores.id, { onDelete: 'cascade' }),
-    condition: cardConditionEnum('condition').notNull(),
+    /**
+     * In-house condition tier. Null for graded SKUs, where `gradingCompany` +
+     * `grade` describe the card instead (enforced by the `skus_grade_ck`
+     * CHECK constraint added in migration 0018).
+     */
+    condition: cardConditionEnum('condition'),
     printing: cardPrintingEnum('printing').notNull(),
     language: cardLanguageEnum('language').notNull().default('EN'),
+    /** Third-party grading company for slabbed cards; null for raw singles. */
+    gradingCompany: cardGradingCompanyEnum('grading_company'),
+    /** Grade value as a string ("10", "9.5") — graders use different scales. */
+    grade: varchar('grade', { length: 8 }),
+    /** Slab certification number; indexed for later duplicate-cert detection. */
+    certNumber: text('cert_number'),
     /** Always equal to skus.id. Kept as a dedicated column so the unique
      *  scanner-lookup index (`skus_barcode_uq`) is independent of PK type. */
     barcode: varchar('barcode', { length: 64 }).notNull(),
@@ -228,8 +252,11 @@ export const skus = pgTable(
       t.condition,
       t.printing,
       t.language,
-    ),
+      t.gradingCompany,
+      t.grade,
+    ).nullsNotDistinct(),
     byProduct: index('skus_product_idx').on(t.productId),
+    byCert: index('skus_cert_idx').on(t.certNumber),
   }),
 );
 
@@ -516,7 +543,7 @@ export const generatedColumns = {
 
 // ---------- integration credentials (encrypted per store) ----------
 //
-// Third-party API credentials (TCGapi.dev, Clover) live here, encrypted with
+// Third-party API credentials (PkmnPrices, Clover) live here, encrypted with
 // AES-256-GCM via `crypto-vault.ts`. The plaintext is never persisted, never
 // logged, and never returned by the settings API — only "hasKey" booleans are
 // surfaced to the UI. The encryption key itself (CONFIG_ENCRYPTION_KEY) lives
@@ -531,24 +558,9 @@ export const generatedColumns = {
 //   - `last_verified_at` is touched by the explicit "Verify" UI action so
 //     operators can see whether saved creds still authenticate upstream.
 
-export const tcgapiConfigs = pgTable('tcgapi_configs', {
-  storeId: uuid('store_id')
-    .primaryKey()
-    .references(() => stores.id, { onDelete: 'cascade' }),
-  baseUrl: text('base_url').notNull().default('https://api.tcgapi.dev/v1'),
-  apiKeyCiphertext: text('api_key_ciphertext').notNull(),
-  apiKeyIv: text('api_key_iv').notNull(),
-  apiKeyTag: text('api_key_tag').notNull(),
-  queryGameSlugs: text('query_game_slugs').array().notNull().default(sql`ARRAY[]::text[]`),
-  keyVersion: integer('key_version').notNull().default(1),
-  lastVerifiedAt: timestamp('last_verified_at', { withTimezone: true }),
-  updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});
-
 /**
- * Per-store credentials for the PkmnPrices.com pricing API. Same encrypted-blob
- * shape as `tcgapi_configs`; Pokémon-only, so no game filter list is stored.
+ * Per-store credentials for the PkmnPrices.com pricing API. Pokémon-only, so
+ * no game filter list is stored.
  */
 export const pkmnpricesConfigs = pgTable('pkmnprices_configs', {
   storeId: uuid('store_id')
@@ -605,7 +617,7 @@ export const configAuditLog = pgTable(
     storeId: uuid('store_id')
       .notNull()
       .references(() => stores.id, { onDelete: 'cascade' }),
-    tableName: text('table_name').notNull(), // 'tcgapi_configs' | 'pos_configs'
+    tableName: text('table_name').notNull(), // 'pkmnprices_configs' | 'pos_configs'
     action: text('action').notNull(), // 'create' | 'update' | 'rotate' | 'delete' | 'verify'
     actorId: uuid('actor_id').references(() => users.id, { onDelete: 'set null' }),
     actorIp: text('actor_ip'),

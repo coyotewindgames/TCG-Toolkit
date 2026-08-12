@@ -14,18 +14,11 @@ import pLimit from 'p-limit';
 import { loadEnv } from '../config/env';
 import { getLogger } from '../common/logger';
 import { getDb, schema } from '../db/client';
-import { TcgapiClient } from '../integrations/tcgapi/client';
+import { PkmnPricesClient } from '../integrations/pkmnprices/client';
 import { ConfigService } from '../server/services/config-service';
 import { PricingService } from '../server/services/pricing';
 import { PricingRouter } from '../server/services/pricing-router';
 import { QUEUE_NAMES, bullConnection } from './queues';
-
-interface PriceRefreshJob {
-  storeId: string;
-  skuId: string;
-  tcgapiCardId: string;
-  printing?: string;
-}
 
 interface BulkRefreshJob {
   storeId: string;
@@ -40,23 +33,6 @@ interface CatalogSyncJob {
   perPage?: number;
 }
 
-function tcgapiPrintingToEnum(label: string | null | undefined): string {
-  const normalized = (label ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
-  if (!normalized) return 'Normal';
-  if (normalized.includes('reverseholo') || normalized === 'reverse' || normalized === 'rh') {
-    return 'Reverse';
-  }
-  if (normalized.includes('1stedition') || normalized.includes('firstedition')) {
-    return 'FirstEdition';
-  }
-  if (normalized.includes('holo')) return 'Holo';
-  if (normalized.includes('foil') && !normalized.includes('non')) return 'Foil';
-  if (normalized.includes('nonfoil') || normalized.includes('normal') || normalized === 'regular') {
-    return 'Normal';
-  }
-  return 'Normal';
-}
-
 const env = loadEnv();
 const db = getDb();
 const log = getLogger();
@@ -64,52 +40,17 @@ const configs = new ConfigService(db);
 const pricing = new PricingService(db);
 const router = new PricingRouter(db, configs, pricing);
 
-async function tcgapiFor(storeId: string): Promise<TcgapiClient> {
-  const creds = await configs.getTcgapi(storeId);
-  return new TcgapiClient({ baseUrl: creds.baseUrl, apiKey: creds.apiKey });
+async function pkmnpricesFor(storeId: string): Promise<PkmnPricesClient> {
+  const creds = await configs.getPkmnprices(storeId);
+  return new PkmnPricesClient({ apiKey: creds.apiKey });
 }
 
-const refreshPrice: Processor<PriceRefreshJob> = async (job) => {
-  const { storeId, skuId, tcgapiCardId, printing } = job.data;
-  const tcgapi = await tcgapiFor(storeId);
-  const rows = await tcgapi.getCardPrices(tcgapiCardId);
-  const row = printing ? rows.find((r) => tcgapiPrintingToEnum(r.printing) === printing) : rows[0];
-  if (!row) {
-    log.warn(
-      {
-        storeId,
-        skuId,
-        tcgapiCardId,
-        printing,
-        availablePrintings: rows.map((r) => r.printing),
-      },
-      'price refresh skipped: no matching price row',
-    );
-    return { skipped: true };
-  }
-
-  const writes: Array<Promise<unknown>> = [];
-  if (row.marketCents != null) {
-    writes.push(pricing.recordSnapshot({ skuId, source: 'tcgapi_market', priceCents: row.marketCents }));
-  }
-  if (row.lowCents != null) {
-    writes.push(pricing.recordSnapshot({ skuId, source: 'tcgapi_low', priceCents: row.lowCents }));
-  }
-  if (row.medianCents != null) {
-    writes.push(pricing.recordSnapshot({ skuId, source: 'tcgapi_median', priceCents: row.medianCents }));
-  }
-  if (row.buylistCents != null) {
-    writes.push(pricing.recordSnapshot({ skuId, source: 'tcgapi_buylist', priceCents: row.buylistCents }));
-  }
-  await Promise.all(writes);
-  await pricing.recomputeCurrent(skuId);
-  return { ok: true };
-};
-
 /**
- * Catalog sync refreshes name/set/image metadata for a single store's known
- * products within a game. Walks the local `products` table in pages — the
- * Starter tcgapi.dev tier does not include bulk endpoints.
+ * Catalog sync refreshes name/set/number/rarity metadata for a single store's
+ * known products within a game. Walks the local `products` table in pages.
+ * Metadata comes from PkmnPrices, so only Pokémon products that carry a
+ * PkmnPrices card id are synced — non-Pokémon games are manual-only (Option 3)
+ * and are left untouched.
  */
 const syncCatalog: Processor<CatalogSyncJob> = async (job) => {
   const { storeId } = job.data;
@@ -117,13 +58,12 @@ const syncCatalog: Processor<CatalogSyncJob> = async (job) => {
   const page = job.data.page ?? 1;
   const perPage = job.data.perPage ?? 100;
 
-  const tcgapi = await tcgapiFor(storeId);
-
   const offset = (page - 1) * perPage;
   const localProducts = await db
     .select({
       id: schema.products.id,
-      tcgapiId: schema.products.tcgapiProductId,
+      game: schema.products.game,
+      pkmnpricesId: schema.products.pkmnpricesProductId,
     })
     .from(schema.products)
     .where(
@@ -135,24 +75,28 @@ const syncCatalog: Processor<CatalogSyncJob> = async (job) => {
     .limit(perPage)
     .offset(offset);
 
+  // Only Pokémon products with a PkmnPrices id can be metadata-synced.
+  const syncable = localProducts.filter((p) => p.game === 'pokemon' && p.pkmnpricesId != null);
   let refreshed = 0;
-  for (const p of localProducts) {
-    if (!p.tcgapiId) continue;
-    try {
-      const card = await tcgapi.getCard(p.tcgapiId);
-      await db
-        .update(schema.products)
-        .set({
-          name: card.name,
-          setName: card.setName,
-          cardNumber: card.number,
-          rarity: card.rarity,
-          updatedAt: new Date(),
-        })
-        .where(eq(schema.products.id, p.id));
-      refreshed += 1;
-    } catch (err) {
-      log.warn({ productId: p.id, err: (err as Error).message }, 'catalog refresh failed');
+  if (syncable.length > 0) {
+    const pk = await pkmnpricesFor(storeId);
+    for (const p of syncable) {
+      try {
+        const card = await pk.getCard(p.pkmnpricesId!);
+        await db
+          .update(schema.products)
+          .set({
+            name: card.name,
+            setName: card.setName,
+            cardNumber: card.number,
+            rarity: card.rarity,
+            updatedAt: new Date(),
+          })
+          .where(eq(schema.products.id, p.id));
+        refreshed += 1;
+      } catch (err) {
+        log.warn({ productId: p.id, err: (err as Error).message }, 'catalog refresh failed');
+      }
     }
   }
   return { storeId, game: game ?? null, page, refreshed, hasMore: localProducts.length === perPage };
@@ -205,7 +149,6 @@ function startWorker<T>(name: string, processor: Processor<T>): Worker<T> {
   return w;
 }
 
-startWorker(QUEUE_NAMES.priceRefresh, refreshPrice);
 startWorker(QUEUE_NAMES.bulkRefresh, bulkRefresh);
 startWorker(QUEUE_NAMES.catalogSync, syncCatalog);
 startWorker(QUEUE_NAMES.webhookRetry, retryWebhook);

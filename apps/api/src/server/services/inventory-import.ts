@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto';
 import { and, eq, or, sql } from 'drizzle-orm';
 import csvToJson from 'csvtojson';
+import { skuIdentityKey } from '@tcg/shared';
 import { schema, type Database } from '../../db/client';
 import { BadRequest } from '../../common/http-errors';
 
@@ -233,15 +234,6 @@ function productIdentityKey(args: {
   cardNumber: string | null;
 }): string {
   return [args.storeId, args.game, args.name, args.setName ?? '', args.cardNumber ?? ''].join('|');
-}
-
-function skuIdentityKey(args: {
-  productId: string;
-  condition: Condition;
-  printing: Printing;
-  language: Language;
-}): string {
-  return [args.productId, args.condition, args.printing, args.language].join('|');
 }
 
 function inventoryIdentityKey(args: { skuId: string; locationId: string }): string {

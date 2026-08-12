@@ -46,8 +46,9 @@ export class PricingService {
       ),
       pivot as (
         select
-          (select price_cents from latest where source = 'pkmnprices_market')  as pk_market,
-          (select price_cents from latest where source = 'pkmnprices_low')     as pk_low,
+          (select price_cents from latest where source = 'pkmnprices_market')       as pk_market,
+          (select price_cents from latest where source = 'pkmnprices_low')          as pk_low,
+          (select price_cents from latest where source = 'pkmnprices_graded_ebay')  as pk_graded,
           (select price_cents from latest where source = 'tcgapi_market')      as tcg_market,
           (select price_cents from latest where source = 'tcgapi_median')      as tcg_median,
           (select price_cents from latest where source = 'tcgapi_low')         as tcg_low,
@@ -57,9 +58,9 @@ export class PricingService {
       insert into current_prices (sku_id, sell_price_cents, buy_price_cents, market_price_cents, market_median_cents, updated_at)
       select
         ${skuId},
-        coalesce(p.override, p.pk_market, p.tcg_market, p.tcg_median, p.pk_low, p.tcg_low, 0),
-        coalesce(p.tcg_buylist, floor(coalesce(p.pk_low, p.tcg_low, p.pk_market, p.tcg_market, p.tcg_median, 0) * 0.5)::int),
-        coalesce(p.pk_market, p.tcg_market),
+        coalesce(p.override, p.pk_graded, p.pk_market, p.tcg_market, p.tcg_median, p.pk_low, p.tcg_low, 0),
+        coalesce(p.tcg_buylist, floor(coalesce(p.pk_low, p.tcg_low, p.pk_market, p.pk_graded, p.tcg_market, p.tcg_median, 0) * 0.5)::int),
+        coalesce(p.pk_graded, p.pk_market, p.tcg_market),
         p.tcg_median,
         now()
       from pivot p

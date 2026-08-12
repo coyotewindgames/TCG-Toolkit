@@ -161,4 +161,82 @@ export class AnalyticsService {
       pricedSkuCount: Number(row?.pricedSkuCount ?? 0),
     };
   }
+
+  /**
+   * Top price movers computed from this store's own `price_snapshots` history:
+   * the latest market snapshot per in-stock SKU versus the newest snapshot at
+   * least `sinceDays` old. Replaces the retired TCGapi top-movers feed so the
+   * Analytics panel has no external dependency.
+   */
+  async topMovers(storeId: string, opts: { limit?: number; sinceDays?: number } = {}) {
+    const limit = Math.min(Math.max(opts.limit ?? 8, 1), 50);
+    const sinceDays = Math.min(Math.max(opts.sinceDays ?? 7, 1), 365);
+
+    const result = await this.db.execute(sql`
+      with market as (
+        select ps.sku_id, ps.price_cents, ps.captured_at
+        from price_snapshots ps
+        join skus s on s.id = ps.sku_id
+        where s.store_id = ${storeId}
+          and ps.source in ('pkmnprices_market', 'pkmnprices_graded_ebay', 'tcgapi_market')
+      ),
+      latest as (
+        select distinct on (sku_id) sku_id, price_cents, captured_at
+        from market
+        order by sku_id, captured_at desc
+      ),
+      prior as (
+        select distinct on (sku_id) sku_id, price_cents
+        from market
+        where captured_at <= now() - (${sinceDays} || ' days')::interval
+        order by sku_id, captured_at desc
+      )
+      select
+        l.sku_id::text as "skuId",
+        p.name as "name",
+        p.set_name as "setName",
+        p.game::text as "game",
+        sk.printing as "printing",
+        l.price_cents::int as "marketCents",
+        round(((l.price_cents - pr.price_cents)::numeric / nullif(pr.price_cents, 0)) * 100, 2)::float8 as "priceChangePercent"
+      from latest l
+      join prior pr on pr.sku_id = l.sku_id
+      join skus sk on sk.id = l.sku_id
+      join products p on p.id = sk.product_id
+      join inventory inv on inv.sku_id = l.sku_id and inv.qty_on_hand > 0
+      join locations loc on loc.id = inv.location_id and loc.store_id = ${storeId}
+      where pr.price_cents > 0 and l.price_cents <> pr.price_cents
+      group by l.sku_id, p.name, p.set_name, p.game, sk.printing, l.price_cents, pr.price_cents
+    `);
+
+    type MoverRow = {
+      skuId: string;
+      name: string;
+      setName: string | null;
+      game: string | null;
+      printing: string | null;
+      marketCents: number;
+      priceChangePercent: number;
+    };
+    const rows = (result.rows as MoverRow[]).map((r) => ({
+      skuId: r.skuId,
+      name: r.name,
+      setName: r.setName,
+      game: r.game,
+      printing: r.printing,
+      marketCents: Number(r.marketCents),
+      priceChangePercent: Number(r.priceChangePercent),
+    }));
+
+    const gainers = rows
+      .filter((r) => r.priceChangePercent > 0)
+      .sort((a, b) => b.priceChangePercent - a.priceChangePercent)
+      .slice(0, limit);
+    const losers = rows
+      .filter((r) => r.priceChangePercent < 0)
+      .sort((a, b) => a.priceChangePercent - b.priceChangePercent)
+      .slice(0, limit);
+
+    return { gainers, losers };
+  }
 }

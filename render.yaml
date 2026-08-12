@@ -64,6 +64,23 @@ services:
           name: tcg-redis
           property: connectionString
 
+  - type: cron
+    name: tcg-weekly-graded
+    runtime: node
+    plan: starter
+    region: oregon
+    rootDir: .
+    schedule: '0 8 * * 1'
+    buildCommand: npm ci --include=dev && npm run build --workspace=@tcg/shared && npm run build --workspace=@tcg/api
+    startCommand: node apps/api/dist/jobs/cron/graded-sync.js
+    envVars:
+      - fromGroup: tcg-shared-env
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: tcg-redis
+          property: connectionString
+
   - type: web
     name: tcg-web
     runtime: static

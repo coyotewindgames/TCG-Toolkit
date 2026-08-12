@@ -65,6 +65,9 @@ export function skusRouter(c: Container): Router {
           cardNumber: schema.products.cardNumber,
           condition: schema.skus.condition,
           printing: schema.skus.printing,
+          gradingCompany: schema.skus.gradingCompany,
+          grade: schema.skus.grade,
+          certNumber: schema.skus.certNumber,
           sellPriceCents: schema.currentPrices.sellPriceCents,
         })
         .from(schema.skus)
@@ -79,10 +82,17 @@ export function skusRouter(c: Container): Router {
 
         const cardName = row.name?.trim() || row.barcode;
         const setAndNumber = [row.setName, row.cardNumber].filter(Boolean).join(' #');
-        const variant = [row.condition, row.printing].join(' • ');
+        // Graded slabs label off grade + company (+ cert); raw cards off
+        // condition + printing.
+        const variant = row.gradingCompany
+          ? [`${row.gradingCompany.toUpperCase()} ${row.grade ?? ''}`.trim(), row.printing]
+              .filter(Boolean)
+              .join(' • ')
+          : [row.condition, row.printing].filter(Boolean).join(' • ');
+        const certLabel = row.gradingCompany && row.certNumber ? `Cert ${row.certNumber}` : undefined;
         const price =
           row.sellPriceCents != null ? `$${(row.sellPriceCents / 100).toFixed(2)}` : undefined;
-        const subtitle = [setAndNumber, variant, price].filter(Boolean).join('  ·  ');
+        const subtitle = [setAndNumber, variant, certLabel, price].filter(Boolean).join('  ·  ');
 
         return {
           barcode: row.barcode,

@@ -167,8 +167,8 @@ export default function AppLayout() {
               <ul className="space-y-1.5 text-xs">
                 <ChecklistItem done label="Shop created" />
                 <ChecklistItem
-                  done={onboardingStatus.data?.tcgapiConfigured ?? false}
-                  label="Connect TCGapi.dev"
+                  done={onboardingStatus.data?.pricingConfigured ?? false}
+                  label="Connect PkmnPrices"
                   to="/settings/integrations"
                 />
                 <ChecklistItem

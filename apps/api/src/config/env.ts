@@ -23,11 +23,11 @@ const Env = z.object({
   JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 chars'),
   /**
    * 32-byte key (base64 or hex) used by the vault to encrypt third-party
-   * credentials stored in Postgres (Clover access tokens, TCGapi keys, etc.).
+   * credentials stored in Postgres (Clover access tokens, PkmnPrices keys, etc.).
    * Generate with: `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`
    *
    * Treat as a root secret: rotating it requires re-encrypting every row in
-   * `tcgapi_configs` and `pos_configs`.
+   * `pkmnprices_configs` and `pos_configs`.
    */
   CONFIG_ENCRYPTION_KEY: z.string().min(32, 'CONFIG_ENCRYPTION_KEY must be a 32-byte key (base64 or hex)'),
   // Header name Clover uses to deliver the HMAC signature on inbound webhooks.
@@ -41,9 +41,9 @@ const Env = z.object({
   REFRESH_COOKIE_NAME: z.string().default('tcg_refresh'),
   COOKIE_DOMAIN: z.string().optional(),
 
-  // Integration credentials (TCGapi.dev, Clover) are stored encrypted in
+  // Integration credentials (PkmnPrices, Clover) are stored encrypted in
   // Postgres per store and managed via the settings UI. See `vault.ts` and
-  // `config-service.ts`. The legacy env vars `TCGAPI_KEY`, `CLOVER_*` are
+  // `config-service.ts`. The legacy env vars `CLOVER_*` are
   // honoured only by `scripts/seed-configs-from-env.ts` for first-boot import.
 
   // Email delivery (used by the password-reset flow). If RESEND_API_KEY is

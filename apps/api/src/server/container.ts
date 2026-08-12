@@ -1,16 +1,15 @@
 /**
  * Composition root: instantiate services once and pass them to route factories.
  *
- * Third-party clients (Clover, TCGapi.dev) are no longer singletons because
+ * Third-party clients (Clover) are no longer singletons because
  * their credentials live per-store in the encrypted config tables. Use the
- * `posFor(storeId)` / `tcgapiFor(storeId)` factories to get a fully wired
+ * `posFor(storeId)` / `pkmnpricesFor(storeId)` factories to get a fully wired
  * client — they cache on top of the same TTL as ConfigService.
  */
 import { getDb, type Database } from '../db/client';
 import { CloverClient } from '../integrations/pos/clover';
 import { PkmnCardsClient } from '../integrations/pkmncards/client';
 import { PkmnPricesClient } from '../integrations/pkmnprices/client';
-import { TcgapiClient } from '../integrations/tcgapi/client';
 import { BarcodeService } from './services/barcode';
 import { CheckoutService } from './services/checkout';
 import { ConfigService } from './services/config-service';
@@ -40,8 +39,6 @@ export interface Container {
   pkmncardsClient: PkmnCardsClient;
   /** Build a Clover client for the given store, using its encrypted creds. */
   posFor(storeId: string): Promise<CloverClient>;
-  /** Build a TCGapi client for the given store, using its encrypted creds. */
-  tcgapiFor(storeId: string): Promise<TcgapiClient>;
   /** Build a PkmnPrices client for the given store, using its encrypted creds. */
   pkmnpricesFor(storeId: string): Promise<PkmnPricesClient>;
 }
@@ -72,11 +69,6 @@ export function buildContainer(): Container {
     });
   }
 
-  async function tcgapiFor(storeId: string): Promise<TcgapiClient> {
-    const creds = await configs.getTcgapi(storeId);
-    return new TcgapiClient({ baseUrl: creds.baseUrl, apiKey: creds.apiKey });
-  }
-
   async function pkmnpricesFor(storeId: string): Promise<PkmnPricesClient> {
     const creds = await configs.getPkmnprices(storeId);
     return new PkmnPricesClient({ apiKey: creds.apiKey });
@@ -99,7 +91,6 @@ export function buildContainer(): Container {
     configs,
     pkmncardsClient,
     posFor,
-    tcgapiFor,
     pkmnpricesFor,
   };
   return cached;

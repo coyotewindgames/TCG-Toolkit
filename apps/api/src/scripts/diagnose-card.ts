@@ -6,7 +6,7 @@
  *   - all SKUs per product with condition/printing/language
  *   - `current_prices` row for each SKU
  *   - most recent 5 `price_snapshots` per SKU
- *   - whether the store has TCGapi + saved query games configured
+ *   - whether the store has PkmnPrices configured
  *
  * Usage (PowerShell):
  *   npm run diagnose:card -w @tcg/api -- "Ash Greninja"
@@ -25,7 +25,7 @@ async function main() {
   const db = getDb();
   const scopedStoreId = process.env.STORE_ID?.trim() || null;
 
-  // Configured stores + a snapshot of their tcgapi status.
+  // Configured stores + a snapshot of their pkmnprices status.
   const stores = await db
     .select({ id: schema.stores.id, name: schema.stores.name })
     .from(schema.stores);
@@ -34,17 +34,16 @@ async function main() {
     if (scopedStoreId && s.id !== scopedStoreId) continue;
     const [cfg] = await db
       .select({
-        baseUrl: schema.tcgapiConfigs.baseUrl,
-        querySlugs: schema.tcgapiConfigs.queryGameSlugs,
-        lastVerifiedAt: schema.tcgapiConfigs.lastVerifiedAt,
+        baseUrl: schema.pkmnpricesConfigs.baseUrl,
+        lastVerifiedAt: schema.pkmnpricesConfigs.lastVerifiedAt,
       })
-      .from(schema.tcgapiConfigs)
-      .where(eq(schema.tcgapiConfigs.storeId, s.id))
+      .from(schema.pkmnpricesConfigs)
+      .where(eq(schema.pkmnpricesConfigs.storeId, s.id))
       .limit(1);
     console.log(
-      `  ${s.id}  ${s.name}  tcgapi=${cfg ? 'configured' : 'MISSING'}  querySlugs=${
-        cfg ? JSON.stringify(cfg.querySlugs ?? []) : '-'
-      }  lastVerifiedAt=${cfg?.lastVerifiedAt?.toISOString() ?? '-'}`,
+      `  ${s.id}  ${s.name}  pkmnprices=${cfg ? 'configured' : 'MISSING'}  lastVerifiedAt=${
+        cfg?.lastVerifiedAt?.toISOString() ?? '-'
+      }`,
     );
   }
 

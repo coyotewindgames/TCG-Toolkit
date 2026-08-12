@@ -17,9 +17,11 @@ import { api } from '../lib/api';
 interface SkuCostEditorProps {
   sku: {
     id: string;
-    condition: string;
+    condition: string | null;
     printing: string;
     language: string;
+    gradingCompany?: string | null;
+    grade?: string | null;
     avgCostCents: number | null;
   };
   productName: string;
@@ -82,7 +84,10 @@ export default function SkuCostEditor({ sku, productName, onClose, onSaved }: Sk
             <h2 className="text-lg font-semibold">Edit purchased-at price</h2>
             <p className="text-sm text-slate-400 line-clamp-1">{productName}</p>
             <p className="mt-1 text-xs text-slate-500">
-              {sku.condition} · {sku.printing} · {sku.language}
+              {(sku.gradingCompany
+                ? `${sku.gradingCompany.toUpperCase()} ${sku.grade ?? ''}`.trim()
+                : sku.condition) ?? '—'}{' '}
+              · {sku.printing} · {sku.language}
             </p>
           </div>
           <button

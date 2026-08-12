@@ -1,8 +1,8 @@
 /**
- * Language-aware pricing router. Given a SKU, picks a provider (PkmnPrices
- * primary → tcgapi fallback for non-Pokémon), fetches the latest per-printing
- * market price, and writes a snapshot + threshold-guarded `current_prices`
- * refresh.
+ * Language-aware pricing router. Given a SKU, prices Pokémon cards from
+ * PkmnPrices (ungraded market or graded eBay sold comps) and writes a snapshot
+ * + threshold-guarded `current_prices` refresh. Non-Pokémon SKUs are
+ * manual-only and rely on any `manual_override` snapshot.
  *
  * Threshold policy: if the new market cents differs from the previous
  * `current_prices.market_price_cents` by less than 0.5% AND there is no
@@ -16,10 +16,10 @@ import type { PriceSource } from '@tcg/shared';
 import { getLogger } from '../../common/logger';
 import { schema, type Database } from '../../db/client';
 import {
+  aggregateGradedMedianCents,
   pickBestTcgplayerPrice,
   PkmnPricesClient,
 } from '../../integrations/pkmnprices/client';
-import { TcgapiClient } from '../../integrations/tcgapi/client';
 import { ConfigService } from './config-service';
 import { PricingService } from './pricing';
 
@@ -62,7 +62,7 @@ export class PricingRouter {
         };
       }
 
-      const { source, marketCents, lowCents } = providerResult;
+      const { source, marketCents, lowCents, sampleSize } = providerResult;
       const prev = ctx.prevMarketCents;
       const nextCents = marketCents;
 
@@ -77,7 +77,7 @@ export class PricingRouter {
         }
       }
 
-      await this.pricing.recordSnapshot({ skuId, source, priceCents: nextCents });
+      await this.pricing.recordSnapshot({ skuId, source, priceCents: nextCents, sampleSize });
       if (lowCents != null) {
         const lowSource: PriceSource =
           source === 'pkmnprices_market' ? 'pkmnprices_low' : 'tcgapi_low';
@@ -104,8 +104,11 @@ export class PricingRouter {
       .select({
         skuId: schema.skus.id,
         storeId: schema.skus.storeId,
+        condition: schema.skus.condition,
         printing: schema.skus.printing,
         language: schema.skus.language,
+        gradingCompany: schema.skus.gradingCompany,
+        grade: schema.skus.grade,
         tcgapiId: schema.products.tcgapiProductId,
         pkmnpricesId: schema.products.pkmnpricesProductId,
         game: schema.products.game,
@@ -137,8 +140,11 @@ export class PricingRouter {
     return {
       skuId,
       storeId: row.storeId,
+      condition: row.condition,
       language: row.language,
       printing: row.printing,
+      gradingCompany: row.gradingCompany,
+      grade: row.grade,
       game: row.game,
       tcgapiCardId: row.tcgapiId,
       pkmnpricesCardId: row.pkmnpricesId,
@@ -158,8 +164,32 @@ export class PricingRouter {
       if (ctx.language !== 'JP' || canQueryJp) {
         const creds = await this.configs.getPkmnprices(ctx.storeId);
         const client = new PkmnPricesClient({ apiKey: creds.apiKey });
+
+        // Graded SKUs price off eBay sold comps for the specific grader + grade,
+        // not the raw TCGplayer market figure.
+        if (ctx.gradingCompany && ctx.grade) {
+          const sales = await client.getGradedEbaySales(ctx.pkmnpricesCardId, {
+            grader: gradingCompanyToGrader(ctx.gradingCompany),
+            grade: ctx.grade,
+            sinceDays: GRADED_WINDOW_DAYS,
+            maxItems: 40,
+          });
+          const agg = aggregateGradedMedianCents(sales, { minSample: GRADED_MIN_SAMPLE });
+          // Thin sample: leave the SKU on its manual Override (no automated price).
+          if (!agg) return null;
+          return {
+            source: 'pkmnprices_graded_ebay',
+            marketCents: agg.medianCents,
+            lowCents: null,
+            sampleSize: agg.sampleSize,
+          };
+        }
+
         const prices = await client.getCardPrices(ctx.pkmnpricesCardId);
-        const best = pickBestTcgplayerPrice(prices, { condition: 'NM', printing: ctx.printing });
+        const best = pickBestTcgplayerPrice(prices, {
+          condition: conditionEnumToLabel(ctx.condition),
+          printing: ctx.printing,
+        });
         if (best?.marketCents) {
           return {
             source: 'pkmnprices_market',
@@ -170,22 +200,8 @@ export class PricingRouter {
       }
     }
 
-    // Fallback: TCGapi (non-Pokémon SKUs, or Pokémon SKUs without a PkmnPrices id).
-    if (ctx.tcgapiCardId) {
-      const tcgapiStatus = await this.configs.getTcgapiStatus(ctx.storeId).catch(() => null);
-      if (!tcgapiStatus?.configured || !tcgapiStatus.hasKey) return null;
-      const creds = await this.configs.getTcgapi(ctx.storeId);
-      const client = new TcgapiClient({ baseUrl: creds.baseUrl, apiKey: creds.apiKey });
-      const rows = await client.getCardPrices(ctx.tcgapiCardId);
-      const row = rows.find((r) => tcgapiPrintingToEnum(r.printing) === ctx.printing) ?? rows[0];
-      if (!row?.marketCents) return null;
-      return {
-        source: 'tcgapi_market',
-        marketCents: row.marketCents,
-        lowCents: row.lowCents ?? null,
-      };
-    }
-
+    // Non-Pokémon SKUs (and Pokémon without a PkmnPrices id) are manual-only:
+    // no automatic price provider, so pricing falls back to any manual override.
     return null;
   }
 }
@@ -195,8 +211,11 @@ export class PricingRouter {
 interface SkuContext {
   skuId: string;
   storeId: string;
+  condition: string | null;
   language: string;
   printing: string;
+  gradingCompany: string | null;
+  grade: string | null;
   game: string;
   tcgapiCardId: string | null;
   pkmnpricesCardId: number | null;
@@ -208,16 +227,47 @@ interface ProviderPrice {
   source: PriceSource;
   marketCents: number;
   lowCents: number | null;
+  sampleSize?: number;
 }
 
-function tcgapiPrintingToEnum(label: string | null | undefined): string {
-  const normalized = (label ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
-  if (!normalized) return 'Normal';
-  if (normalized.includes('reverseholo') || normalized === 'reverse' || normalized === 'rh') return 'Reverse';
-  if (normalized.includes('1stedition') || normalized.includes('firstedition')) return 'FirstEdition';
-  if (normalized.includes('holo')) return 'Holo';
-  if (normalized.includes('foil') && !normalized.includes('non')) return 'Foil';
-  return 'Normal';
+/** Rolling window and minimum sample for trusting a graded eBay median. */
+const GRADED_WINDOW_DAYS = 90;
+const GRADED_MIN_SAMPLE = 3;
+
+/** SKU grading-company enum → PriceCharting/eBay grader filter string. */
+function gradingCompanyToGrader(company: string): string {
+  switch (company) {
+    case 'psa':
+      return 'PSA';
+    case 'cgc':
+      return 'CGC';
+    case 'beckett':
+      return 'BGS';
+    case 'sgc':
+      return 'SGC';
+    case 'tag':
+      return 'TAG';
+    default:
+      return company.toUpperCase();
+  }
+}
+
+/** In-house condition enum → TCGplayer-style label used in the price feed. */
+function conditionEnumToLabel(condition: string | null): string | undefined {
+  switch (condition) {
+    case 'NM':
+      return 'Near Mint';
+    case 'LP':
+      return 'Lightly Played';
+    case 'MP':
+      return 'Moderately Played';
+    case 'HP':
+      return 'Heavily Played';
+    case 'DMG':
+      return 'Damaged';
+    default:
+      return undefined;
+  }
 }
 
 // Silence "isNotNull unused" — used in future queries; keeps drizzle-orm import stable.

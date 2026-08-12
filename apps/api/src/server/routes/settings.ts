@@ -1,12 +1,11 @@
 import { Router } from 'express';
-import { eq, sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { asyncHandler } from '../../common/async-handler';
 import { BadRequest, Forbidden, NotFound } from '../../common/http-errors';
 import { schema } from '../../db/client';
 import { CloverClient } from '../../integrations/pos/clover';
 import { PkmnPricesClient } from '../../integrations/pkmnprices/client';
-import { TcgapiClient } from '../../integrations/tcgapi/client';
 import { requireAuth, requireRole } from '../auth/middleware';
 import { verifyPassword } from '../auth/service';
 import type { Container } from '../container';
@@ -21,21 +20,6 @@ import {
  * silently swap an integration secret out from under the owner.
  */
 const StepUp = z.object({ password: z.string().min(1) });
-
-const TcgapiUpsert = StepUp.extend({
-  baseUrl: z.string().url().default('https://api.tcgapi.dev/v1'),
-  apiKey: z.string().min(8).optional(),
-});
-
-const TcgapiQueryGamesUpsert = z.object({
-  queryGameSlugs: z.array(z.string().trim().min(1).max(64)).max(25),
-});
-
-// Onboarding variant — same fields but no password step-up required.
-const TcgapiOnboardingUpsert = z.object({
-  baseUrl: z.string().url().default('https://api.tcgapi.dev/v1'),
-  apiKey: z.string().min(8).optional(),
-});
 
 const PkmnpricesTier = z.enum(['free', 'pro', 'business']);
 
@@ -101,131 +85,16 @@ export function settingsRouter(c: Container): Router {
   r.get(
     '/integrations',
     asyncHandler(async (req, res) => {
-      const [countRow] = await c.db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(schema.tcgapiConfigs);
-      const [tcgapi, pkmnprices, pos] = await Promise.all([
-        c.configs.getTcgapiStatus(req.user!.storeId),
+      const [pkmnprices, pos] = await Promise.all([
         c.configs.getPkmnpricesStatus(req.user!.storeId),
         c.configs.getPosStatus(req.user!.storeId),
       ]);
       res.json({
         storeId: req.user!.storeId,
-        tcgapi,
         pkmnprices,
         pos,
         diagnostics: {
-          tcgapiConfiguredStoreCount: countRow?.count ?? 0,
-          tcgapiConfiguredForCurrentStore: tcgapi.configured,
           pkmnpricesConfiguredForCurrentStore: pkmnprices.configured,
-        },
-      });
-    }),
-  );
-
-  // ---- TCGapi.dev ---------------------------------------------------------
-
-  r.put(
-    '/integrations/tcgapi',
-    asyncHandler(async (req, res) => {
-      const body = TcgapiUpsert.parse(req.body ?? {});
-      await assertStepUp(c, req.user!.id, body.password);
-
-      const existing = await c.configs.getTcgapiStatus(req.user!.storeId);
-      if (!existing.configured && !body.apiKey) {
-        throw BadRequest('apiKey is required when configuring TCGapi.dev for the first time');
-      }
-
-      await c.configs.upsertTcgapi({
-        storeId: req.user!.storeId,
-        baseUrl: body.baseUrl,
-        apiKey: body.apiKey,
-        actorId: req.user!.id,
-        actorIp: req.ip,
-      });
-      const status = await c.configs.getTcgapiStatus(req.user!.storeId);
-      res.json({
-        ok: true,
-        storeId: req.user!.storeId,
-        tcgapi: {
-          configured: status.configured,
-          hasKey: status.hasKey,
-          baseUrl: status.baseUrl,
-          queryGameSlugs: status.queryGameSlugs,
-          updatedAt: status.updatedAt,
-        },
-      });
-    }),
-  );
-
-  r.put(
-    '/integrations/tcgapi/query-games',
-    asyncHandler(async (req, res) => {
-      const body = TcgapiQueryGamesUpsert.parse(req.body ?? {});
-      await c.configs.setTcgapiQueryGameSlugs({
-        storeId: req.user!.storeId,
-        queryGameSlugs: body.queryGameSlugs,
-        actorId: req.user!.id,
-        actorIp: req.ip,
-      });
-      const status = await c.configs.getTcgapiStatus(req.user!.storeId);
-      res.json({ ok: true, queryGameSlugs: status.queryGameSlugs });
-    }),
-  );
-
-  r.post(
-    '/integrations/tcgapi/verify',
-    asyncHandler(async (req, res) => {
-      try {
-        const creds = await c.configs.getTcgapi(req.user!.storeId);
-        const client = new TcgapiClient({ baseUrl: creds.baseUrl, apiKey: creds.apiKey });
-        // Cheapest authenticated call.
-        await client.listGames({ page: 1, perPage: 1 });
-        await c.configs.markTcgapiVerified(req.user!.storeId, req.user!.id, req.ip);
-        res.json({ ok: true });
-      } catch (err) {
-        res.status(400).json({ ok: false, error: (err as Error).message });
-      }
-    }),
-  );
-
-  /**
-   * Onboarding-only variant of the TCGapi upsert.
-   * No password step-up required — the user just authenticated moments ago
-   * during signup. Only accepted while `onboarding_completed_at IS NULL` to
-   * prevent reuse as a permanent step-up bypass.
-   */
-  r.put(
-    '/integrations/tcgapi/onboarding',
-    asyncHandler(async (req, res) => {
-      const body = TcgapiOnboardingUpsert.parse(req.body ?? {});
-
-      const onboarding = await getOnboardingStatus(c.db, req.user!.storeId);
-      if (onboarding.completedAt) {
-        throw Forbidden('onboarding already completed; use the regular settings endpoint');
-      }
-
-      const existing = await c.configs.getTcgapiStatus(req.user!.storeId);
-      if (!existing.configured && !body.apiKey) {
-        throw BadRequest('apiKey is required when configuring TCGapi.dev for the first time');
-      }
-
-      await c.configs.upsertTcgapi({
-        storeId: req.user!.storeId,
-        baseUrl: body.baseUrl,
-        apiKey: body.apiKey,
-        actorId: req.user!.id,
-        actorIp: req.ip,
-      });
-      const status = await c.configs.getTcgapiStatus(req.user!.storeId);
-      res.json({
-        ok: true,
-        storeId: req.user!.storeId,
-        tcgapi: {
-          configured: status.configured,
-          hasKey: status.hasKey,
-          baseUrl: status.baseUrl,
-          updatedAt: status.updatedAt,
         },
       });
     }),

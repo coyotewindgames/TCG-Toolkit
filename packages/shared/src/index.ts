@@ -13,6 +13,10 @@ export type CardPrinting = (typeof CARD_PRINTINGS)[number];
 export const CARD_LANGUAGES = ['EN', 'JP', 'DE', 'FR', 'IT', 'ES', 'PT', 'KO', 'CN'] as const;
 export type CardLanguage = (typeof CARD_LANGUAGES)[number];
 
+/** Third-party grading companies for slabbed cards. */
+export const CARD_GRADING_COMPANIES = ['psa', 'cgc', 'beckett', 'tag', 'sgc', 'other'] as const;
+export type CardGradingCompany = (typeof CARD_GRADING_COMPANIES)[number];
+
 export const USER_ROLES = ['owner', 'manager', 'clerk', 'buyer'] as const;
 export type UserRole = (typeof USER_ROLES)[number];
 
@@ -24,6 +28,7 @@ export const PRICE_SOURCES = [
   'pkmnprices_market',
   'pkmnprices_low',
   'pkmnprices_cardmarket',
+  'pkmnprices_graded_ebay',
   'manual_override',
 ] as const;
 export type PriceSource = (typeof PRICE_SOURCES)[number];
@@ -82,9 +87,12 @@ export const ScanResponse = z.object({
   name: z.string(),
   setName: z.string().nullable(),
   cardNumber: z.string().nullable(),
-  condition: z.enum(CARD_CONDITIONS),
+  condition: z.enum(CARD_CONDITIONS).nullable(),
   printing: z.enum(CARD_PRINTINGS),
   language: z.enum(CARD_LANGUAGES),
+  gradingCompany: z.enum(CARD_GRADING_COMPANIES).nullable(),
+  grade: z.string().nullable(),
+  certNumber: z.string().nullable(),
   imageUrl: z.string().url().nullable(),
   priceCents: z.number().int().nonnegative(),
   stockOnHand: z.number().int().nonnegative(),
@@ -169,6 +177,11 @@ export const TradeItemInput = z.object({
   condition: z.enum(CARD_CONDITIONS),
   printing: z.enum(CARD_PRINTINGS),
   language: z.enum(CARD_LANGUAGES).default('EN'),
+  // Graded-slab fields. When gradingCompany is present the SKU is stored as a
+  // graded line (its in-house condition is dropped) and priced off sold comps.
+  gradingCompany: z.enum(CARD_GRADING_COMPANIES).optional(),
+  grade: z.string().min(1).max(8).optional(),
+  certNumber: z.string().min(1).max(64).optional(),
   quantity: z.number().int().positive(),
   // Percentage modifier applied after the base payout multiplier.
   payoutModifierPercent: z.number().finite().optional(),
@@ -241,17 +254,26 @@ export const SOCKET_EVENTS = {
 
 // ---------- Helpers ----------
 
-/** Deterministically hash a SKU identity for de-duplication. */
+/**
+ * Deterministically hash a SKU identity for de-duplication. Keyed on the local
+ * `products.id` (provider-agnostic) plus the variant dimensions. Graded slabs
+ * add grading company + grade and carry a null condition; raw cards leave the
+ * grading fields empty.
+ */
 export function skuIdentityKey(args: {
-  tcgapiProductId?: string | null;
-  condition: CardCondition;
+  productId: string;
+  condition: CardCondition | null;
   printing: CardPrinting;
   language: CardLanguage;
+  gradingCompany?: string | null;
+  grade?: string | null;
 }): string {
   return [
-    args.tcgapiProductId ?? 'NULL',
-    args.condition,
+    args.productId,
+    args.condition ?? '',
     args.printing,
     args.language,
+    args.gradingCompany ?? '',
+    args.grade ?? '',
   ].join('|');
 }

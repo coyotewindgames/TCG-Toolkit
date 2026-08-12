@@ -1,7 +1,7 @@
 /**
  * Per-store credential store for third-party integrations.
  *
- * Reads/writes the encrypted `tcgapi_configs` and `pos_configs` tables and
+ * Reads/writes the encrypted `pkmnprices_configs` and `pos_configs` tables and
  * exposes plaintext only behind explicit method calls. The in-process cache
  * lives 60s by default so settings UI updates propagate quickly without
  * hammering the DB on every request.
@@ -14,11 +14,6 @@ import { eq } from 'drizzle-orm';
 import { schema, type Database } from '../../db/client';
 import { getVault, type Vault, type EncryptedBlob } from '../../security/vault';
 import { NotFound } from '../../common/http-errors';
-
-export interface TcgapiCreds {
-  baseUrl: string;
-  apiKey: string;
-}
 
 export interface PkmnpricesCreds {
   apiKey: string;
@@ -33,15 +28,6 @@ export interface PosCreds {
   merchantId: string;
   accessToken: string;
   webhookSigningSecret: string;
-}
-
-export interface UpsertTcgapiInput {
-  storeId: string;
-  baseUrl: string;
-  apiKey?: string; // omit to keep existing
-  queryGameSlugs?: string[];
-  actorId?: string | null;
-  actorIp?: string | null;
 }
 
 export interface UpsertPkmnpricesInput {
@@ -70,7 +56,6 @@ interface CacheEntry<T> {
 const TTL_MS = 60_000;
 
 export class ConfigService {
-  private readonly tcgapiCache = new Map<string, CacheEntry<TcgapiCreds>>();
   private readonly pkmnpricesCache = new Map<string, CacheEntry<PkmnpricesCreds>>();
   private readonly posCache = new Map<string, CacheEntry<PosCreds>>();
   private readonly posByMerchantCache = new Map<string, CacheEntry<{ storeId: string } & PosCreds>>();
@@ -79,146 +64,6 @@ export class ConfigService {
     private readonly db: Database,
     private readonly vault: Vault = getVault(),
   ) {}
-
-  // ---- TCGapi --------------------------------------------------------------
-
-  async getTcgapi(storeId: string): Promise<TcgapiCreds> {
-    const hit = this.tcgapiCache.get(storeId);
-    if (hit && hit.expiresAt > Date.now()) return hit.value;
-
-    const [row] = await this.db
-      .select()
-      .from(schema.tcgapiConfigs)
-      .where(eq(schema.tcgapiConfigs.storeId, storeId))
-      .limit(1);
-    if (!row) throw NotFound(`tcgapi config not set for store ${storeId}`);
-
-    const apiKey = this.vault.decrypt(this.blob(row.apiKeyCiphertext, row.apiKeyIv, row.apiKeyTag, row.keyVersion));
-    const value: TcgapiCreds = { baseUrl: row.baseUrl, apiKey };
-    this.tcgapiCache.set(storeId, { value, expiresAt: Date.now() + TTL_MS });
-    return value;
-  }
-
-  async getTcgapiStatus(storeId: string): Promise<{
-    configured: boolean;
-    baseUrl: string;
-    hasKey: boolean;
-    queryGameSlugs: string[];
-    lastVerifiedAt: Date | null;
-    updatedAt: Date | null;
-  }> {
-    const [row] = await this.db
-      .select()
-      .from(schema.tcgapiConfigs)
-      .where(eq(schema.tcgapiConfigs.storeId, storeId))
-      .limit(1);
-    if (!row) {
-      return {
-        configured: false,
-        baseUrl: 'https://api.tcgapi.dev/v1',
-        hasKey: false,
-        queryGameSlugs: [],
-        lastVerifiedAt: null,
-        updatedAt: null,
-      };
-    }
-    return {
-      configured: true,
-      baseUrl: row.baseUrl,
-      hasKey: row.apiKeyCiphertext.length > 0,
-      queryGameSlugs: row.queryGameSlugs ?? [],
-      lastVerifiedAt: row.lastVerifiedAt,
-      updatedAt: row.updatedAt,
-    };
-  }
-
-  async setTcgapiQueryGameSlugs(input: {
-    storeId: string;
-    queryGameSlugs: string[];
-    actorId?: string | null;
-    actorIp?: string | null;
-  }): Promise<void> {
-    const cleaned = normalizeGameSlugs(input.queryGameSlugs);
-    const updated = await this.db
-      .update(schema.tcgapiConfigs)
-      .set({ queryGameSlugs: cleaned, updatedBy: input.actorId ?? null, updatedAt: new Date() })
-      .where(eq(schema.tcgapiConfigs.storeId, input.storeId))
-      .returning({ storeId: schema.tcgapiConfigs.storeId });
-    if (updated.length === 0) throw NotFound(`tcgapi config not set for store ${input.storeId}`);
-    await this.audit({
-      storeId: input.storeId,
-      tableName: 'tcgapi_configs',
-      action: 'update_query_games',
-      actorId: input.actorId,
-      actorIp: input.actorIp,
-    });
-  }
-
-  async upsertTcgapi(input: UpsertTcgapiInput): Promise<void> {
-    const [existing] = await this.db
-      .select()
-      .from(schema.tcgapiConfigs)
-      .where(eq(schema.tcgapiConfigs.storeId, input.storeId))
-      .limit(1);
-
-    let blob: EncryptedBlob;
-    if (input.apiKey) {
-      blob = this.vault.encrypt(input.apiKey);
-    } else if (existing) {
-      blob = {
-        ciphertext: existing.apiKeyCiphertext,
-        iv: existing.apiKeyIv,
-        tag: existing.apiKeyTag,
-        keyVersion: existing.keyVersion,
-      };
-    } else {
-      throw new Error('apiKey is required when creating a new TCGapi config');
-    }
-
-    if (existing) {
-      await this.db
-        .update(schema.tcgapiConfigs)
-        .set({
-          baseUrl: input.baseUrl,
-          apiKeyCiphertext: blob.ciphertext,
-          apiKeyIv: blob.iv,
-          apiKeyTag: blob.tag,
-          ...(input.queryGameSlugs ? { queryGameSlugs: normalizeGameSlugs(input.queryGameSlugs) } : {}),
-          keyVersion: blob.keyVersion,
-          updatedBy: input.actorId ?? null,
-          updatedAt: new Date(),
-        })
-        .where(eq(schema.tcgapiConfigs.storeId, input.storeId));
-    } else {
-      await this.db.insert(schema.tcgapiConfigs).values({
-        storeId: input.storeId,
-        baseUrl: input.baseUrl,
-        apiKeyCiphertext: blob.ciphertext,
-        apiKeyIv: blob.iv,
-        apiKeyTag: blob.tag,
-        queryGameSlugs: normalizeGameSlugs(input.queryGameSlugs ?? []),
-        keyVersion: blob.keyVersion,
-        updatedBy: input.actorId ?? null,
-      });
-    }
-
-    await this.audit({
-      storeId: input.storeId,
-      tableName: 'tcgapi_configs',
-      action: existing ? 'update' : 'create',
-      actorId: input.actorId,
-      actorIp: input.actorIp,
-    });
-    this.tcgapiCache.delete(input.storeId);
-  }
-
-  async markTcgapiVerified(storeId: string, actorId?: string | null, actorIp?: string | null): Promise<void> {
-    await this.db
-      .update(schema.tcgapiConfigs)
-      .set({ lastVerifiedAt: new Date() })
-      .where(eq(schema.tcgapiConfigs.storeId, storeId));
-    await this.audit({ storeId, tableName: 'tcgapi_configs', action: 'verify', actorId, actorIp });
-  }
 
   // ---- PkmnPrices ----------------------------------------------------------
 
@@ -530,13 +375,11 @@ export class ConfigService {
   /** Drop in-process caches for one or all stores. */
   invalidate(storeId?: string): void {
     if (!storeId) {
-      this.tcgapiCache.clear();
       this.pkmnpricesCache.clear();
       this.posCache.clear();
       this.posByMerchantCache.clear();
       return;
     }
-    this.tcgapiCache.delete(storeId);
     this.pkmnpricesCache.delete(storeId);
     this.posCache.delete(storeId);
     // posByMerchantCache is keyed on merchantId; drop entries pointing at this store.
@@ -566,14 +409,4 @@ export class ConfigService {
       actorIp: args.actorIp ?? null,
     });
   }
-}
-
-function normalizeGameSlugs(values: string[]): string[] {
-  return Array.from(
-    new Set(
-      values
-        .map((value) => value.trim().toLowerCase())
-        .filter((value) => /^[a-z0-9_-]{1,64}$/.test(value)),
-    ),
-  );
 }

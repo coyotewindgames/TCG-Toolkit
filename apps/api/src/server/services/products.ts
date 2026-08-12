@@ -461,6 +461,9 @@ export class ProductsService {
         condition: schema.skus.condition,
         printing: schema.skus.printing,
         language: schema.skus.language,
+        gradingCompany: schema.skus.gradingCompany,
+        grade: schema.skus.grade,
+        certNumber: schema.skus.certNumber,
         marketPriceCents: schema.currentPrices.marketPriceCents,
         sellPriceCents: schema.currentPrices.sellPriceCents,
         availableQty:
@@ -492,6 +495,9 @@ export class ProductsService {
         schema.skus.condition,
         schema.skus.printing,
         schema.skus.language,
+        schema.skus.gradingCompany,
+        schema.skus.grade,
+        schema.skus.certNumber,
         schema.currentPrices.marketPriceCents,
         schema.currentPrices.sellPriceCents,
       );

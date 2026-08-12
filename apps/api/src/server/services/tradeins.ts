@@ -1,4 +1,4 @@
-import { and, eq, gte, sql } from 'drizzle-orm';
+import { and, eq, gte, isNull, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import type {
   CardCondition,
@@ -275,12 +275,9 @@ export class TradeinsService {
     if (!item.tcgapiProductId) {
       throw BadRequest('item must include skuId or tcgapiProductId for new card intake');
     }
-    const identity = skuIdentityKey({
-      tcgapiProductId: item.tcgapiProductId,
-      condition: item.condition,
-      printing: item.printing,
-      language: item.language,
-    });
+    // A graded slab is stored as its own SKU line: no in-house condition, plus
+    // grading company/grade/cert. Raw cards keep condition and null grading.
+    const isGraded = !!item.gradingCompany;
 
     let [product] = await tx
       .select()
@@ -329,12 +326,26 @@ export class TradeinsService {
       .where(
         and(
           eq(schema.skus.productId, product.id),
-          eq(schema.skus.condition, item.condition),
           eq(schema.skus.printing, item.printing),
           eq(schema.skus.language, item.language),
+          isGraded ? isNull(schema.skus.condition) : eq(schema.skus.condition, item.condition),
+          isGraded
+            ? eq(schema.skus.gradingCompany, item.gradingCompany!)
+            : isNull(schema.skus.gradingCompany),
+          isGraded ? eq(schema.skus.grade, item.grade ?? '') : isNull(schema.skus.grade),
         ),
       );
     if (existing) return existing.id;
+    // Provider-agnostic dedup key stored for auditability; the DB unique index
+    // is the real guard.
+    const identity = skuIdentityKey({
+      productId: product.id,
+      condition: isGraded ? null : item.condition,
+      printing: item.printing,
+      language: item.language,
+      gradingCompany: item.gradingCompany ?? null,
+      grade: isGraded ? (item.grade ?? null) : null,
+    });
     // Pre-generate the SKU UUID so the barcode column can mirror it. This
     // keeps barcode lookups index-only while letting any future scanner work
     // by id direc
@@ -345,9 +356,12 @@ export class TradeinsService {
         id: skuId,
         productId: product.id,
         storeId,
-        condition: item.condition,
+        condition: isGraded ? null : item.condition,
         printing: item.printing,
         language: item.language,
+        gradingCompany: item.gradingCompany ?? null,
+        grade: isGraded ? (item.grade ?? null) : null,
+        certNumber: item.certNumber ?? null,
         barcode: skuId,
         internalSku: identity,
       })

@@ -1,7 +1,7 @@
 /**
  * One-shot bootstrap helper: read legacy env-var credentials and load them
- * into the encrypted `tcgapi_configs` / `pos_configs` tables for a given
- * store. Idempotent — skips stores that already have a row.
+ * into the encrypted `pos_configs` table for a given store. Idempotent —
+ * skips stores that already have a row.
  *
  * Usage:
  *   STORE_ID=<uuid> npm run seed:configs -w @tcg/api
@@ -28,23 +28,6 @@ async function main(): Promise<void> {
     .where(eq(schema.stores.id, storeId))
     .limit(1);
   if (!store) throw new Error(`store ${storeId} not found`);
-
-  const tcgapiKey = process.env.TCGAPI_KEY;
-  const tcgapiBase = process.env.TCGAPI_BASE_URL ?? 'https://api.tcgapi.dev/v1';
-  if (tcgapiKey) {
-    const status = await configs.getTcgapiStatus(storeId);
-    if (status.configured) {
-      // eslint-disable-next-line no-console
-      console.log(`[seed] tcgapi config already present for store ${storeId} — skipping`);
-    } else {
-      await configs.upsertTcgapi({ storeId, baseUrl: tcgapiBase, apiKey: tcgapiKey });
-      // eslint-disable-next-line no-console
-      console.log('[seed] inserted tcgapi_configs row');
-    }
-  } else {
-    // eslint-disable-next-line no-console
-    console.log('[seed] TCGAPI_KEY not set; skipping tcgapi import');
-  }
 
   const cloverToken = process.env.CLOVER_ACCESS_TOKEN;
   const cloverMerchant = process.env.CLOVER_MERCHANT_ID;

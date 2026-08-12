@@ -65,9 +65,12 @@ type ProductSearchResponse = {
 type ProductSku = {
   id: string;
   barcode: string;
-  condition: string;
+  condition: string | null;
   printing: string;
   language: string;
+  gradingCompany: string | null;
+  grade: string | null;
+  certNumber: string | null;
   marketPriceCents: number | null;
   sellPriceCents: number | null;
   availableQty: number;
@@ -75,6 +78,15 @@ type ProductSku = {
   totalCostBasisCents: number | null;
 };
 type ProductSkusResponse = { skus: ProductSku[] };
+
+/** Display label for a SKU's grade line: graded slabs show company + grade,
+ *  raw cards show their in-house condition. */
+function skuGradeLabel(sku: ProductSku): string {
+  if (sku.gradingCompany) {
+    return `${sku.gradingCompany.toUpperCase()} ${sku.grade ?? ''}`.trim();
+  }
+  return sku.condition ?? '—';
+}
 type InventorySummary = {
   /** DEPRECATED — same value as `totalMarketValueCents`. Kept while API rolls out. */
   estimatedCostCents: number;
@@ -812,9 +824,10 @@ export default function InventoryPage() {
                               className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-2"
                             >
                               <div className="flex flex-wrap gap-2 text-sm text-slate-200">
-                                <span>{sku.condition}</span>
+                                <span>{skuGradeLabel(sku)}</span>
                                 <span>• {sku.printing}</span>
                                 <span>• {sku.language}</span>
+                                {sku.certNumber && <span>• Cert {sku.certNumber}</span>}
                                 <span>• Available: {sku.availableQty.toLocaleString()}</span>
                                 {typeof sku.sellPriceCents === 'number' && (
                                   <span>• Sell ${(sku.sellPriceCents / 100).toFixed(2)}</span>
@@ -920,9 +933,10 @@ export default function InventoryPage() {
                   className="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-2"
                 >
                   <div className="text-sm text-slate-300 flex flex-wrap gap-2">
-                    <span>{sku.condition}</span>
+                    <span>{skuGradeLabel(sku)}</span>
                     <span>• {sku.printing}</span>
                     <span>• {sku.language}</span>
+                    {sku.certNumber && <span>• Cert {sku.certNumber}</span>}
                     <span>• Available: {sku.availableQty.toLocaleString()}</span>
                     {typeof (sku.marketPriceCents ?? sku.sellPriceCents) === 'number' && (
                       <span>• ${((sku.marketPriceCents ?? sku.sellPriceCents ?? 0) / 100).toFixed(2)}</span>

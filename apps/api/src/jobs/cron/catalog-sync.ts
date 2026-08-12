@@ -1,10 +1,10 @@
 /**
  * Nightly cron entrypoint. Enqueues both catalog-metadata refresh jobs and
- * price-refresh jobs so the worker can keep product info and current prices
- * in sync with TCGapi.dev for stores that have configured credentials.
+ * price-refresh jobs so the worker can keep Pokémon product info and current
+ * prices in sync with PkmnPrices for stores that have configured credentials.
+ * Graded SKUs are handled by the separate weekly graded-sync cron.
  */
-import { GAMES } from '@tcg/shared';
-import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
 import { getDb, schema } from '../../db/client';
 import { getQueues } from '../queues';
 
@@ -43,7 +43,7 @@ async function main() {
   try {
     const configured = await db.execute(sql<{ storeId: string }>`
       select distinct store_id::text as "storeId"
-      from public.tcgapi_configs
+      from public.pkmnprices_configs
       where coalesce(api_key_ciphertext, '') <> ''
     `);
     configuredStoreIds = configured.rows
@@ -55,7 +55,7 @@ async function main() {
   } catch (err) {
     if (isMissingConfigTable(err)) {
       throw new Error(
-        'Missing table "tcgapi_configs". Run the API migrations against the Render database before the nightly catalog cron can read saved TCGapi keys.',
+        'Missing table "pkmnprices_configs". Run the API migrations against the Render database before the nightly catalog cron can read saved PkmnPrices keys.',
         { cause: err },
       );
     }
@@ -67,13 +67,13 @@ async function main() {
 
   // eslint-disable-next-line no-console
   console.log(
-    `[cron] configured tcgapi store ids: ${configuredStoreIds.length ? configuredStoreIds.join(', ') : '(none)'}`,
+    `[cron] configured pkmnprices store ids: ${configuredStoreIds.length ? configuredStoreIds.join(', ') : '(none)'}`,
   );
 
   if (configuredStoreIds.length === 0) {
     // eslint-disable-next-line no-console
     console.warn(
-      '[cron] no stores found in tcgapi_configs; save/verify TCGapi credentials in Settings for at least one store',
+      '[cron] no stores found in pkmnprices_configs; save/verify PkmnPrices credentials in Settings for at least one store',
     );
   }
 
@@ -83,6 +83,7 @@ async function main() {
         storeId: schema.products.storeId,
         skuId: schema.skus.id,
         language: schema.skus.language,
+        gradingCompany: schema.skus.gradingCompany,
         tcgapiCardId: schema.products.tcgapiProductId,
         pkmnpricesCardId: schema.products.pkmnpricesProductId,
       })
@@ -94,6 +95,9 @@ async function main() {
     // least one upstream card id — those are the ones a provider can price.
     const groups = new Map<string, { storeId: string; language: string; skuIds: string[] }>();
     for (const row of skuRows) {
+      // Graded SKUs price from eBay sold comps (expensive) and refresh on the
+      // separate WEEKLY graded-sync cron, so skip them here.
+      if (row.gradingCompany) continue;
       const hasId = !!row.pkmnpricesCardId || !!row.tcgapiCardId;
       if (!hasId) continue;
       const key = `${row.storeId}|${row.language}`;
@@ -124,15 +128,15 @@ async function main() {
     }
   }
 
+  // Catalog metadata is only synced for Pokémon (from PkmnPrices); non-Pokémon
+  // games are manual-only (Option 3), so we no longer loop the full GAMES enum.
   for (const storeId of configuredStoreIds) {
-    for (const game of GAMES) {
-      await queues.catalogSync.add(
-        'sync',
-        { storeId, game, page: 1 },
-        { jobId: `catalog-${storeId}-${game}-${today}` },
-      );
-      total += 1;
-    }
+    await queues.catalogSync.add(
+      'sync',
+      { storeId, game: 'pokemon', page: 1 },
+      { jobId: `catalog-${storeId}-pokemon-${today}` },
+    );
+    total += 1;
   }
   // eslint-disable-next-line no-console
   console.log(

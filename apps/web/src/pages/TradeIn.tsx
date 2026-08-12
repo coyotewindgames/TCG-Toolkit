@@ -89,6 +89,9 @@ type QueuedTradeItem = {
   condition: CardCondition;
   printing: CardPrinting;
   language: CardLanguage;
+  gradingCompany?: string;
+  grade?: string;
+  certNumber?: string;
   quantity: number;
   payoutModifierPercent: number;
   overrideValueCents?: number;
@@ -209,6 +212,8 @@ function sameQueuedItemIdentity(a: QueuedTradeItem, b: QueuedTradeItem): boolean
     a.condition === b.condition &&
     a.printing === b.printing &&
     a.language === b.language &&
+    (a.gradingCompany ?? null) === (b.gradingCompany ?? null) &&
+    (a.grade ?? null) === (b.grade ?? null) &&
     a.marketPriceCents === b.marketPriceCents &&
     a.payoutModifierPercent === b.payoutModifierPercent &&
     (a.overrideValueCents ?? null) === (b.overrideValueCents ?? null)
@@ -520,6 +525,7 @@ function IntakeDetailBody({
   const [isGraded, setIsGraded] = useState(false);
   const [gradingCompany, setGradingCompany] = useState<GradingCompany>('PSA');
   const [gradedGrade, setGradedGrade] = useState('10');
+  const [certNumber, setCertNumber] = useState('');
   const [condition, setCondition] = useState<CardCondition>('NM');
   const [printing, setPrinting] = useState<CardPrinting>('Normal');
   const [language, setLanguage] = useState<CardLanguage>('EN');
@@ -637,6 +643,9 @@ function IntakeDetailBody({
       condition,
       printing,
       language,
+      gradingCompany: isGraded ? gradingCompany.toLowerCase() : undefined,
+      grade: isGraded ? gradedGrade : undefined,
+      certNumber: isGraded && certNumber.trim() ? certNumber.trim() : undefined,
       quantity,
       payoutModifierPercent: payoutModifier,
       overrideValueCents: overrideCents ?? undefined,
@@ -655,6 +664,7 @@ function IntakeDetailBody({
     setQuantity(1);
     setOverrideValue('');
     setPayoutModifierPercent('0');
+    setCertNumber('');
   }
 
   function removeQueuedItem(id: string) {
@@ -685,6 +695,9 @@ function IntakeDetailBody({
           condition: item.condition,
           printing: item.printing,
           language: item.language,
+          gradingCompany: item.gradingCompany,
+          grade: item.grade,
+          certNumber: item.certNumber,
           quantity: item.quantity,
           payoutModifierPercent: item.payoutModifierPercent,
           overrideValueCents: item.overrideValueCents,
@@ -895,6 +908,15 @@ function IntakeDetailBody({
                 </select>
               </Field>
             </div>
+            <Field label="Cert number (optional)">
+              <input
+                type="text"
+                value={certNumber}
+                onChange={(e) => setCertNumber(e.target.value)}
+                placeholder="e.g. 12345678"
+                className="input"
+              />
+            </Field>
             {ebayGradedUrl && (
               <a
                 href={ebayGradedUrl}

@@ -463,7 +463,7 @@ export async function checkEmailAvailable(email: string): Promise<boolean> {
 
 export interface OnboardingStatus {
   storeCreated: true;
-  tcgapiConfigured: boolean;
+  pricingConfigured: boolean;
   inventoryImported: boolean;
   posConfigured: boolean;
   completedAt: string | null;
