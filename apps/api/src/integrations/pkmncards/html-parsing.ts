@@ -83,12 +83,15 @@ export function extractCardLinks(html: string): string[] {
 }
 
 export function decodeHtml(value: string): string {
-  return value
-    .replace(/&amp;/g, '&')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&nbsp;/g, ' ')
-    .trim();
+  const entities: Record<string, string> = {
+    '&amp;': '&',
+    '&quot;': '"',
+    '&#39;': "'",
+    '&nbsp;': ' ',
+  };
+
+  // Single pass so a decoded `&` can never be re-read as the start of another entity.
+  return value.replace(/&(?:amp|quot|nbsp|#39);/g, (entity) => entities[entity] ?? entity).trim();
 }
 
 export function parseSetMetaFromLink(href: string, label: string): SetMeta | null {
