@@ -3,6 +3,9 @@ import { schema, type Database } from '../../db/client';
 import { hashPassword } from '../auth/service';
 import { BadRequest, Conflict } from '../../common/http-errors';
 import type { AuthenticatedUser } from '../auth/types';
+import { getLogger } from '../../common/logger';
+
+const log = getLogger();
 
 type PgErrorLike = {
   message?: string;
@@ -110,8 +113,8 @@ export async function createStoreWithOwner(
       if (!isStoresInsertSchemaDriftError(err)) {
         throw err;
       }
-      console.warn(
-        '[onboarding] stores schema drift detected during signup; retrying insert without optional/defaulted columns. Run migrations.',
+      log.warn(
+        'stores schema drift detected during signup; retrying insert without optional/defaulted columns. Run migrations.',
       );
       const fallback = await tx.execute(sql`
         insert into stores (name, timezone)
@@ -184,9 +187,9 @@ export async function getOnboardingStatus(
     if (!isMissingOnboardingColumnError(err)) {
       throw err;
     }
-    console.warn(
-      '[onboarding] stores.onboarding_completed_at missing; returning completedAt=null. Run migration 0006_onboarding.sql.',
+    log.warn(
       { storeId },
+      'stores.onboarding_completed_at missing; returning completedAt=null. Run migration 0006_onboarding.sql.',
     );
   }
 
@@ -238,9 +241,9 @@ export async function completeOnboarding(db: Database, storeId: string): Promise
     if (!isMissingOnboardingColumnError(err)) {
       throw err;
     }
-    console.warn(
-      '[onboarding] cannot persist completion because stores.onboarding_completed_at is missing. Run migration 0006_onboarding.sql.',
+    log.warn(
       { storeId },
+      'cannot persist completion because stores.onboarding_completed_at is missing. Run migration 0006_onboarding.sql.',
     );
   }
 }

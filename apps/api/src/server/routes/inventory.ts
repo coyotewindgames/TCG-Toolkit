@@ -3,7 +3,9 @@ import { eq, inArray } from 'drizzle-orm';
 import multer from 'multer';
 import * as XLSX from 'xlsx';
 import { z } from 'zod';
+import type { Logger } from 'pino';
 import { asyncHandler } from '../../common/async-handler';
+import { requestLogger } from '../../common/logger';
 import { BadRequest } from '../../common/http-errors';
 import { schema } from '../../db/client';
 import type { Container } from '../container';
@@ -74,15 +76,9 @@ function hasNulByte(buf: Buffer): boolean {
   return false;
 }
 
-function parseImportUpload(file: Express.Multer.File): string {
+function parseImportUpload(file: Express.Multer.File, log: Logger): string {
   const originalName = (file.originalname ?? '').toLowerCase();
   const mime = (file.mimetype ?? '').toLowerCase();
-  
-  console.info('[csv-import] parseImportUpload called', {
-    filename: file.originalname,
-    size: file.size,
-    mimetype: file.mimetype,
-  });
 
   const isSpreadsheet =
     originalName.endsWith('.xlsx') ||
@@ -93,12 +89,6 @@ function parseImportUpload(file: Express.Multer.File): string {
     hasZipSignature(file.buffer);
 
   if (isSpreadsheet) {
-    console.info('[csv-import] Spreadsheet upload detected', {
-      filename: file.originalname,
-      mimetype: file.mimetype,
-      hasZipSignature: hasZipSignature(file.buffer),
-    });
-
     try {
       const workbook = XLSX.read(file.buffer, { type: 'buffer' });
       const firstSheetName = workbook.SheetNames[0];
@@ -109,50 +99,42 @@ function parseImportUpload(file: Express.Multer.File): string {
       }
 
       const csvText = XLSX.utils.sheet_to_csv(firstSheet, { blankrows: false });
-      console.info('[csv-import] Spreadsheet converted to CSV', {
-        filename: file.originalname,
-        sheetName: firstSheetName,
-        textLength: csvText.length,
-      });
+      log.debug(
+        { filename: file.originalname, sheetName: firstSheetName, textLength: csvText.length },
+        'spreadsheet upload converted to csv',
+      );
       return csvText;
     } catch (err) {
       if (err instanceof Error && err.message === 'Spreadsheet file does not contain any sheets.') {
         throw err;
       }
 
-      console.error('[csv-import] Failed to parse spreadsheet upload', {
-        filename: file.originalname,
-        mimetype: file.mimetype,
-        error: err instanceof Error ? err.message : String(err),
-      });
+      log.warn(
+        { filename: file.originalname, mimetype: file.mimetype, err },
+        'spreadsheet upload could not be parsed',
+      );
       throw BadRequest('Unsupported spreadsheet file. Please upload a valid CSV, XLSX, or XLS file.');
     }
   }
 
   if (hasNulByte(file.buffer)) {
-    console.error('[csv-import] REJECTED: Binary file with null bytes', {
-      filename: file.originalname,
-      mimetype: file.mimetype,
-    });
+    log.warn(
+      { filename: file.originalname, mimetype: file.mimetype },
+      'rejected binary upload (null bytes)',
+    );
     throw BadRequest('Unsupported file type. Only plain CSV text files are accepted.');
   }
 
-  const csvText = file.buffer.toString('utf8');
-  console.info('[csv-import] CSV text extracted', {
-    filename: file.originalname,
-    textLength: csvText.length,
-    preview: csvText.slice(0, 200),
-  });
-  
-  return csvText;
+  return file.buffer.toString('utf8');
 }
 
 async function resolveImportLocationId(args: {
   db: Container['db'];
   storeId: string;
   requestedLocationId?: string;
+  log: Logger;
 }): Promise<string> {
-  const { db, storeId, requestedLocationId } = args;
+  const { db, storeId, requestedLocationId, log } = args;
 
   const locations = await db
     .select({ id: schema.locations.id })
@@ -168,11 +150,10 @@ async function resolveImportLocationId(args: {
     // Stale client location can happen after tenant/location switching.
     // If there is only one valid location, recover automatically.
     if (locations.length === 1) {
-      console.warn('[csv-import] requested locationId not in store; using only store location', {
-        storeId,
-        requestedLocationId,
-        resolvedLocationId: locations[0].id,
-      });
+      log.warn(
+        { storeId, requestedLocationId, resolvedLocationId: locations[0].id },
+        'requested locationId not in store; falling back to the only store location',
+      );
       return locations[0].id;
     }
 
@@ -203,27 +184,15 @@ function scheduleAutoEnrichmentAfterImport(args: {
   enricher: CatalogEnrichmentService;
   storeId: string;
   result: ImportResult;
+  log: Logger;
 }): void {
-  const { enricher, storeId, result } = args;
+  const { enricher, storeId, result, log } = args;
   if (!shouldScheduleAutoEnrichment(result)) {
-    console.info('[enrichment] auto-backfill skipped after import', {
-      storeId,
-      dryRun: result.dryRun,
-      productsCreated: result.productsCreated,
-      skusCreated: result.skusCreated,
-      inventoryCreated: result.inventoryCreated,
-      inventoryUpdated: result.inventoryUpdated,
-    });
+    log.debug({ storeId, dryRun: result.dryRun }, 'auto-backfill skipped after import');
     return;
   }
 
-  console.info('[enrichment] auto-backfill scheduled after import', {
-    storeId,
-    productsCreated: result.productsCreated,
-    skusCreated: result.skusCreated,
-    inventoryCreated: result.inventoryCreated,
-    inventoryUpdated: result.inventoryUpdated,
-  });
+  log.info({ storeId }, 'auto-backfill scheduled after import');
   // Non-blocking: import response should not wait on enrichment lookups.
   enricher.runInBackground({ storeId, onlyMissingImage: true });
 }
@@ -232,15 +201,13 @@ function scheduleAutoEnrichmentDeferred(args: {
   enricher: CatalogEnrichmentService;
   storeId: string;
   result: ImportResult;
+  log: Logger;
 }): void {
   setImmediate(() => {
     try {
       scheduleAutoEnrichmentAfterImport(args);
     } catch (err) {
-      console.error('[enrichment] auto-backfill scheduling failed', {
-        storeId: args.storeId,
-        err: err instanceof Error ? err.message : String(err),
-      });
+      args.log.error({ storeId: args.storeId, err }, 'auto-backfill scheduling failed');
     }
   });
 }
@@ -260,11 +227,13 @@ export function inventoryRouter(c: Container): Router {
     '/import',
     requireRole('owner', 'manager'),
     asyncHandler(async (req, res) => {
+      const log = requestLogger(req);
       const body = ImportBody.parse(req.body ?? {});
       const locationId = await resolveImportLocationId({
         db: c.db,
         storeId: req.user!.storeId,
         requestedLocationId: body.locationId,
+        log,
       });
       const result = await importer.import({
         storeId: req.user!.storeId,
@@ -278,6 +247,7 @@ export function inventoryRouter(c: Container): Router {
         enricher,
         storeId: req.user!.storeId,
         result,
+        log,
       });
     }),
   );
@@ -287,17 +257,8 @@ export function inventoryRouter(c: Container): Router {
     requireRole('owner', 'manager'),
     upload.single('file'),
     asyncHandler(async (req, res) => {
-      console.info('[csv-import] /import/file request received', {
-        storeId: req.user!.storeId,
-        hasFile: !!req.file,
-        fileName: req.file?.originalname,
-        fileSize: req.file?.size,
-        mimetype: req.file?.mimetype,
-        bodyKeys: Object.keys(req.body ?? {}),
-      });
-
+      const log = requestLogger(req);
       if (!req.file?.buffer) {
-        console.error('[csv-import] No file in request');
         throw BadRequest(
           'CSV file is required. Send multipart/form-data with a file field named "file".',
         );
@@ -316,33 +277,14 @@ export function inventoryRouter(c: Container): Router {
               : undefined,
       });
 
-      console.info('[csv-import] Parsed request body', {
-        locationId: body.locationId,
-        location_id: body.location_id,
-        locationID: body.locationID,
-        defaultCondition: body.defaultCondition,
-        defaultPrinting: body.defaultPrinting,
-        dryRun: body.dryRun,
-      });
-
       const resolvedLocationId = await resolveImportLocationId({
         db: c.db,
         storeId: req.user!.storeId,
         requestedLocationId: body.locationId ?? body.location_id ?? body.locationID,
+        log,
       });
 
-      console.info('[csv-import] Resolved location', {
-        locationId: resolvedLocationId,
-      });
-
-      const csv = parseImportUpload(req.file);
-      
-      console.info('[csv-import] Calling import service', {
-        storeId: req.user!.storeId,
-        locationId: resolvedLocationId,
-        csvLength: csv.length,
-        dryRun: body.dryRun,
-      });
+      const csv = parseImportUpload(req.file, log);
 
       const result = await importer.import({
         storeId: req.user!.storeId,
@@ -355,21 +297,12 @@ export function inventoryRouter(c: Container): Router {
         },
       });
 
-      console.info('[csv-import] Import completed', {
-        storeId: req.user!.storeId,
-        totalRows: result.totalRows,
-        productsCreated: result.productsCreated,
-        skusCreated: result.skusCreated,
-        inventoryCreated: result.inventoryCreated,
-        inventoryUpdated: result.inventoryUpdated,
-        errors: result.errors.length,
-        dryRun: result.dryRun,
-      });
       res.json(result);
       scheduleAutoEnrichmentDeferred({
         enricher,
         storeId: req.user!.storeId,
         result,
+        log,
       });
     }),
   );
@@ -430,17 +363,19 @@ export function inventoryRouter(c: Container): Router {
     requireRole('owner', 'manager'),
     asyncHandler(async (req, res) => {
       const storeId = req.user!.storeId;
-      console.info('[enrichment] backfill request start', { storeId });
       // Manual mode: one click == one batch.
       const result = await enricher.enrichStore({ storeId, onlyMissingImage: true });
-      console.info('[enrichment] backfill request complete', {
-        storeId,
-        scanned: result.scanned,
-        matched: result.matched,
-        imagesUpdated: result.imagesUpdated,
-        unmatched: result.unmatched.length,
-        remaining: result.remaining,
-      });
+      requestLogger(req).info(
+        {
+          storeId,
+          scanned: result.scanned,
+          matched: result.matched,
+          imagesUpdated: result.imagesUpdated,
+          unmatched: result.unmatched.length,
+          remaining: result.remaining,
+        },
+        'enrichment backfill batch complete',
+      );
       res.json(result);
     }),
   );

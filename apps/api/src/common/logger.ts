@@ -18,3 +18,17 @@ export function getLogger(): Logger {
   }
   return logger;
 }
+
+/**
+ * Logger for work done on behalf of an HTTP request. `pino-http` attaches a
+ * request-scoped child logger (with the request id) to `req.log`; fall back to
+ * the process logger when called outside a request (jobs, scripts, tests).
+ */
+export function requestLogger(req: { log?: Logger }): Logger {
+  return req.log ?? getLogger();
+}
+
+/** Logger for a background job or one-off task, tagged with the job name. */
+export function jobLogger(job: string): Logger {
+  return getLogger().child({ job });
+}

@@ -7,6 +7,7 @@
 import { eq, inArray, sql } from 'drizzle-orm';
 import { getDb, schema } from '../../db/client';
 import { getQueues } from '../queues';
+import { jobLogger } from '../../common/logger';
 
 function dbTargetForLog(): string {
   try {
@@ -25,19 +26,17 @@ function isMissingConfigTable(err: unknown): boolean {
   return cause?.code === '42P01';
 }
 
+const log = jobLogger('cron:catalog-sync');
+
 async function main() {
   const db = getDb();
   const queues = getQueues();
   const today = new Date().toISOString().slice(0, 10);
 
-  // eslint-disable-next-line no-console
-  console.log(`[cron] database target: ${dbTargetForLog()}`);
+  log.info({ database: dbTargetForLog() }, 'starting nightly catalog sync');
 
   const storeRows = await db.select({ id: schema.stores.id }).from(schema.stores).limit(10);
-  // eslint-disable-next-line no-console
-  console.log(
-    `[cron] visible stores (${storeRows.length} sampled): ${storeRows.length ? storeRows.map((s) => s.id).join(', ') : '(none)'}`,
-  );
+  log.info({ sampledStoreIds: storeRows.map((store) => store.id) }, 'visible stores');
 
   let configuredStoreIds: string[] = [];
   try {
@@ -65,15 +64,11 @@ async function main() {
   let total = 0;
   let priceJobs = 0;
 
-  // eslint-disable-next-line no-console
-  console.log(
-    `[cron] configured pkmnprices store ids: ${configuredStoreIds.length ? configuredStoreIds.join(', ') : '(none)'}`,
-  );
+  log.info({ configuredStoreIds }, 'stores with pkmnprices credentials');
 
   if (configuredStoreIds.length === 0) {
-    // eslint-disable-next-line no-console
-    console.warn(
-      '[cron] no stores found in pkmnprices_configs; save/verify PkmnPrices credentials in Settings for at least one store',
+    log.warn(
+      'no stores found in pkmnprices_configs; save/verify PkmnPrices credentials in Settings for at least one store',
     );
   }
 
@@ -138,15 +133,14 @@ async function main() {
     );
     total += 1;
   }
-  // eslint-disable-next-line no-console
-  console.log(
-    `[cron] enqueued ${total} catalog-sync jobs and ${priceJobs} price-refresh jobs across ${configuredStoreIds.length} stores`,
+  log.info(
+    { catalogJobs: total, priceJobs, stores: configuredStoreIds.length },
+    'cron enqueue complete',
   );
   process.exit(0);
 }
 
 main().catch((err) => {
-  // eslint-disable-next-line no-console
-  console.error('[cron] failed', err);
+  log.error({ err }, 'cron failed');
   process.exit(1);
 });
