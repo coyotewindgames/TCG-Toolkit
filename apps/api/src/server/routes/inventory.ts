@@ -1,13 +1,11 @@
 import { Router } from 'express';
-import { eq, inArray } from 'drizzle-orm';
 import multer from 'multer';
-import * as XLSX from 'xlsx';
 import { z } from 'zod';
 import type { Logger } from 'pino';
 import { asyncHandler } from '../../common/async-handler';
 import { requestLogger } from '../../common/logger';
 import { BadRequest } from '../../common/http-errors';
-import { schema } from '../../db/client';
+import { parseImportUpload } from './import-upload';
 import type { Container } from '../container';
 import { requireAuth, requireRole } from '../auth/middleware';
 import { InventoryImportService, type ImportResult } from '../services/inventory-import';
@@ -57,121 +55,6 @@ const WIPE_CONFIRM_PHRASE = 'DELETE ALL INVENTORY';
 const WipeBody = z.object({
   confirm: z.literal(WIPE_CONFIRM_PHRASE),
 });
-
-function hasZipSignature(buf: Buffer): boolean {
-  return (
-    buf.length >= 4 &&
-    buf[0] === 0x50 &&
-    buf[1] === 0x4b &&
-    buf[2] === 0x03 &&
-    buf[3] === 0x04
-  );
-}
-
-function hasNulByte(buf: Buffer): boolean {
-  const sample = Math.min(buf.length, 2048);
-  for (let i = 0; i < sample; i++) {
-    if (buf[i] === 0x00) return true;
-  }
-  return false;
-}
-
-function parseImportUpload(file: Express.Multer.File, log: Logger): string {
-  const originalName = (file.originalname ?? '').toLowerCase();
-  const mime = (file.mimetype ?? '').toLowerCase();
-
-  const isSpreadsheet =
-    originalName.endsWith('.xlsx') ||
-    originalName.endsWith('.xls') ||
-    originalName.endsWith('.xlsm') ||
-    mime.includes('spreadsheetml') ||
-    mime === 'application/vnd.ms-excel' ||
-    hasZipSignature(file.buffer);
-
-  if (isSpreadsheet) {
-    try {
-      const workbook = XLSX.read(file.buffer, { type: 'buffer' });
-      const firstSheetName = workbook.SheetNames[0];
-      const firstSheet = firstSheetName ? workbook.Sheets[firstSheetName] : undefined;
-
-      if (!firstSheet) {
-        throw BadRequest('Spreadsheet file does not contain any sheets.');
-      }
-
-      const csvText = XLSX.utils.sheet_to_csv(firstSheet, { blankrows: false });
-      log.debug(
-        { filename: file.originalname, sheetName: firstSheetName, textLength: csvText.length },
-        'spreadsheet upload converted to csv',
-      );
-      return csvText;
-    } catch (err) {
-      if (err instanceof Error && err.message === 'Spreadsheet file does not contain any sheets.') {
-        throw err;
-      }
-
-      log.warn(
-        { filename: file.originalname, mimetype: file.mimetype, err },
-        'spreadsheet upload could not be parsed',
-      );
-      throw BadRequest('Unsupported spreadsheet file. Please upload a valid CSV, XLSX, or XLS file.');
-    }
-  }
-
-  if (hasNulByte(file.buffer)) {
-    log.warn(
-      { filename: file.originalname, mimetype: file.mimetype },
-      'rejected binary upload (null bytes)',
-    );
-    throw BadRequest('Unsupported file type. Only plain CSV text files are accepted.');
-  }
-
-  return file.buffer.toString('utf8');
-}
-
-async function resolveImportLocationId(args: {
-  db: Container['db'];
-  storeId: string;
-  requestedLocationId?: string;
-  log: Logger;
-}): Promise<string> {
-  const { db, storeId, requestedLocationId, log } = args;
-
-  const locations = await db
-    .select({ id: schema.locations.id })
-    .from(schema.locations)
-    .where(eq(schema.locations.storeId, storeId));
-
-  if (requestedLocationId) {
-    const belongsToStore = locations.some((location) => location.id === requestedLocationId);
-    if (belongsToStore) {
-      return requestedLocationId;
-    }
-
-    // Stale client location can happen after tenant/location switching.
-    // If there is only one valid location, recover automatically.
-    if (locations.length === 1) {
-      log.warn(
-        { storeId, requestedLocationId, resolvedLocationId: locations[0].id },
-        'requested locationId not in store; falling back to the only store location',
-      );
-      return locations[0].id;
-    }
-
-    throw BadRequest('locationId not found in this store. Select a valid location and retry.');
-  }
-
-  if (locations.length === 1) {
-    return locations[0].id;
-  }
-
-  if (locations.length === 0) {
-    throw BadRequest('No locations exist for this store. Create a location first.');
-  }
-
-  throw BadRequest(
-    'locationId is required when the store has multiple locations. Include form field locationId.',
-  );
-}
 
 function shouldScheduleAutoEnrichment(result: ImportResult): boolean {
   if (result.dryRun) return false;
@@ -228,8 +111,7 @@ export function inventoryRouter(c: Container): Router {
     asyncHandler(async (req, res) => {
       const log = requestLogger(req);
       const body = ImportBody.parse(req.body ?? {});
-      const locationId = await resolveImportLocationId({
-        db: c.db,
+      const locationId = await c.inventory.resolveImportLocationId({
         storeId: req.user!.storeId,
         requestedLocationId: body.locationId,
         log,
@@ -276,8 +158,7 @@ export function inventoryRouter(c: Container): Router {
               : undefined,
       });
 
-      const resolvedLocationId = await resolveImportLocationId({
-        db: c.db,
+      const resolvedLocationId = await c.inventory.resolveImportLocationId({
         storeId: req.user!.storeId,
         requestedLocationId: body.locationId ?? body.location_id ?? body.locationID,
         log,
@@ -409,24 +290,7 @@ export function inventoryRouter(c: Container): Router {
       // Belt-and-braces: zod literal already enforces this, but be loud.
       if (body.confirm !== WIPE_CONFIRM_PHRASE) throw BadRequest('confirmation phrase mismatch');
 
-      const storeId = req.user!.storeId;
-      const locs = await c.db
-        .select({ id: schema.locations.id })
-        .from(schema.locations)
-        .where(eq(schema.locations.storeId, storeId));
-      const locationIds = locs.map((l) => l.id);
-
-      if (locationIds.length === 0) {
-        res.json({ deleted: 0, locations: 0 });
-        return;
-      }
-
-      const result = await c.db
-        .delete(schema.inventory)
-        .where(inArray(schema.inventory.locationId, locationIds))
-        .returning({ skuId: schema.inventory.skuId });
-
-      res.json({ deleted: result.length, locations: locationIds.length });
+      res.json(await c.inventory.wipeOnHandQuantities(req.user!.storeId));
     }),
   );
 
