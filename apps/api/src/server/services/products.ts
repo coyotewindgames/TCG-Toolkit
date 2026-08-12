@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, ilike, or, sql } from 'drizzle-orm';
+import { normalizeToSpacedAlphanumeric } from '@tcg/shared';
 import { schema, type Database } from '../../db/client';
 import { BadRequest, NotFound } from '../../common/http-errors';
 
@@ -25,14 +26,6 @@ interface ParsedSearchIntent {
   inferredSetName: string | null;
   inferredNameQuery: string;
   ambiguousSetCandidates: string[];
-}
-
-function normalizeForMatch(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim()
-    .replace(/\s+/g, ' ');
 }
 
 function trigramSet(value: string): Set<string> {
@@ -78,7 +71,7 @@ function removeFirstWholePhrase(source: string, phrase: string): string {
 }
 
 function tokenVariants(token: string): string[] {
-  const normalized = normalizeForMatch(token);
+  const normalized = normalizeToSpacedAlphanumeric(token);
   if (!normalized) return [];
   if (normalized === 'mega') return ['mega', 'm'];
   if (normalized === 'm') return ['m', 'mega'];
@@ -93,7 +86,7 @@ export class ProductsService {
     rawQuery: string,
     args: SearchInventoryArgs,
   ): Promise<ParsedSearchIntent> {
-    const normalizedQuery = normalizeForMatch(rawQuery);
+    const normalizedQuery = normalizeToSpacedAlphanumeric(rawQuery);
     if (!normalizedQuery) {
       return {
         strategy: 'plain',
@@ -122,7 +115,7 @@ export class ProductsService {
       .filter((v): v is string => !!v && v.trim().length > 0)
       .map((setName) => ({
         original: setName,
-        normalized: normalizeForMatch(setName),
+        normalized: normalizeToSpacedAlphanumeric(setName),
       }))
       .filter((entry) => entry.normalized.length > 0)
       .filter((entry) => ` ${normalizedQuery} `.includes(` ${entry.normalized} `));
@@ -146,7 +139,7 @@ export class ProductsService {
       .map((r) => r.value)
       .filter((v): v is string => !!v && v.trim().length > 0)
       .map((setName) => {
-        const normalized = normalizeForMatch(setName);
+        const normalized = normalizeToSpacedAlphanumeric(setName);
         return {
           original: setName,
           normalized,
@@ -197,7 +190,7 @@ export class ProductsService {
     const effectiveSetFilter = explicitSetFilter || inferredSetFilter;
     const effectiveNameQuery = (parsed.inferredNameQuery || trimmed).trim();
     const pattern = `%${effectiveNameQuery}%`;
-    const normalizedTokens = normalizeForMatch(effectiveNameQuery)
+    const normalizedTokens = normalizeToSpacedAlphanumeric(effectiveNameQuery)
       .split(' ')
       .map((token) => token.trim())
       .filter((token) => token.length > 0);

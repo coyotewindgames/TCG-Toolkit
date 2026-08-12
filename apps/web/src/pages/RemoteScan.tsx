@@ -2,6 +2,7 @@ import { BrowserMultiFormatReader, type IScannerControls } from '@zxing/browser'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { api } from '../lib/api';
+import { formatCentsAsCurrency } from '../lib/format';
 
 type AddItemResult = {
   line: {
@@ -22,10 +23,6 @@ type AddItemResult = {
 type CameraStatus = 'idle' | 'starting' | 'scanning' | 'error';
 
 const DEDUPE_WINDOW_MS = 1200;
-
-function formatMoney(cents: number): string {
-  return `$${(cents / 100).toFixed(2)}`;
-}
 
 function toErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
@@ -342,7 +339,7 @@ export default function RemoteScanPage() {
             <div className="rounded-lg border border-emerald-900/60 bg-emerald-950/30 p-3 text-emerald-200">
               <div className="font-semibold">Added: {lastAdded.name}</div>
               <div className="text-xs mt-1">Qty: {lastAdded.quantity}</div>
-              <div className="text-xs">Unit: {formatMoney(lastAdded.unitPriceCents)}</div>
+              <div className="text-xs">Unit: {formatCentsAsCurrency(lastAdded.unitPriceCents)}</div>
             </div>
           )}
 
@@ -350,15 +347,15 @@ export default function RemoteScanPage() {
             <div className="grid grid-cols-3 gap-2 text-xs">
               <div className="rounded border border-slate-700 p-2">
                 <div className="text-slate-400">Subtotal</div>
-                <div className="font-semibold">{formatMoney(totals.subtotalCents)}</div>
+                <div className="font-semibold">{formatCentsAsCurrency(totals.subtotalCents)}</div>
               </div>
               <div className="rounded border border-slate-700 p-2">
                 <div className="text-slate-400">Tax</div>
-                <div className="font-semibold">{formatMoney(totals.taxCents)}</div>
+                <div className="font-semibold">{formatCentsAsCurrency(totals.taxCents)}</div>
               </div>
               <div className="rounded border border-slate-700 p-2">
                 <div className="text-slate-400">Total</div>
-                <div className="font-semibold">{formatMoney(totals.totalCents)}</div>
+                <div className="font-semibold">{formatCentsAsCurrency(totals.totalCents)}</div>
               </div>
             </div>
           )}

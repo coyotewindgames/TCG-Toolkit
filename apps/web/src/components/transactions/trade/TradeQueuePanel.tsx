@@ -1,14 +1,10 @@
 import type { TradeModeTransactionController } from '../../../hooks/transactions/useTradeTransaction';
+import { formatCentsAsCurrency } from '../../../lib/format';
 
 interface TradeQueuePanelProps {
   trade: TradeModeTransactionController;
   openOnMobile: boolean;
   onCloseMobile: () => void;
-}
-
-function formatCents(cents: number | null | undefined): string {
-  if (cents == null) return '—';
-  return `$${(cents / 100).toFixed(2)}`;
 }
 
 /**
@@ -74,7 +70,7 @@ export default function TradeQueuePanel({ trade, openOnMobile, onCloseMobile }: 
                           {item.condition} • {item.printing} • {item.language} • Qty {item.quantity}
                         </p>
                         <p className="mt-1 font-mono text-xs text-emerald-300">
-                          {formatCents(item.estimatedUnitValueCents * item.quantity)}
+                          {formatCentsAsCurrency(item.estimatedUnitValueCents * item.quantity)}
                         </p>
                       </div>
                       <button

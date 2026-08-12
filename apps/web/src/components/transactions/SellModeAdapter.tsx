@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { centsToMoney } from '../../lib/transactions';
+import { formatCentsAsCurrency } from '../../lib/format';
 import { useSellTransaction } from '../../hooks/transactions/useSellTransaction';
 import CardImage from './CardImage';
 
@@ -79,7 +79,7 @@ export default function SellModeAdapter({ active }: SellModeAdapterProps) {
                           'Unknown set'}
                       </p>
                       <p className="pt-1 font-mono text-emerald-300">
-                        {centsToMoney(product.minSellPriceCents ?? product.maxSellPriceCents ?? 0)}
+                        {formatCentsAsCurrency(product.minSellPriceCents ?? product.maxSellPriceCents ?? 0)}
                       </p>
                     </div>
                   </button>
@@ -189,7 +189,7 @@ function SellSkuList({
               </p>
               <p className="text-slate-400">
                 Qty {sku.availableQty}
-                {typeof sku.sellPriceCents === 'number' ? ` • ${centsToMoney(sku.sellPriceCents)}` : ''}
+                {typeof sku.sellPriceCents === 'number' ? ` • ${formatCentsAsCurrency(sku.sellPriceCents)}` : ''}
               </p>
             </div>
             <button
@@ -322,10 +322,10 @@ function SellCartSidebar({
                     </p>
                     <div className="mt-1 flex items-center justify-between text-xs">
                       <span className="text-slate-300">
-                        {line.qty} × {centsToMoney(line.unitPriceCents)}
+                        {line.qty} × {formatCentsAsCurrency(line.unitPriceCents)}
                       </span>
                       <span className="font-mono text-emerald-300">
-                        {centsToMoney(line.qty * line.unitPriceCents)}
+                        {formatCentsAsCurrency(line.qty * line.unitPriceCents)}
                       </span>
                     </div>
                   </li>
@@ -341,12 +341,12 @@ function SellCartSidebar({
                 <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
                   Total
                 </p>
-                <p className="text-xl font-semibold">{centsToMoney(totals.totalCents)}</p>
+                <p className="text-xl font-semibold">{formatCentsAsCurrency(totals.totalCents)}</p>
               </div>
               <p className="text-right text-xs text-slate-400">
                 {itemCount} item{itemCount === 1 ? '' : 's'}
                 <br />
-                Tax {centsToMoney(totals.taxCents)}
+                Tax {formatCentsAsCurrency(totals.taxCents)}
               </p>
             </div>
             <div className="grid grid-cols-2 gap-2">
@@ -411,7 +411,7 @@ function SellMobileActionBar({
               {itemCount} item{itemCount === 1 ? '' : 's'}
             </span>
           </span>
-          <span className="font-mono text-emerald-300">{centsToMoney(totalCents)}</span>
+          <span className="font-mono text-emerald-300">{formatCentsAsCurrency(totalCents)}</span>
         </button>
         <button
           type="button"

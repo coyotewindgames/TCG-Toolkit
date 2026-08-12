@@ -1,3 +1,5 @@
+import { normalizeAlphanumeric, normalizeDiacriticInsensitive } from '@tcg/shared';
+
 export interface PkmnCardsLookupInput {
   name: string;
   setCode: string | null;
@@ -612,15 +614,7 @@ function slugifyArtist(input: string): string {
  * Normalize an artist name / slug so equality checks are diacritic- and
  * punctuation-insensitive.
  */
-function normalizeArtistText(input: string): string {
-  return input
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim()
-    .replace(/\s+/g, ' ');
-}
+const normalizeArtistText = normalizeDiacriticInsensitive;
 
 /** Convert `yuka-morii` → `Yuka Morii` for display. */
 function slugToDisplayName(slug: string): string {
@@ -661,10 +655,7 @@ function boundedLevenshtein(a: string, b: string, max: number): number {
 }
 
 function normalizeSetCode(setCode: string | null | undefined): string {
-  return (setCode ?? '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, '');
+  return normalizeAlphanumeric(setCode ?? '');
 }
 
 function normalizeSetName(setName: string | null | undefined): string {

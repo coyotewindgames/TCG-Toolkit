@@ -20,88 +20,39 @@
  */
 import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { CardCondition, CardLanguage, CardPrinting, PayoutKind } from '@tcg/shared';
+import type {
+  CardCondition,
+  CardLanguage,
+  CardPrinting,
+  CatalogCard,
+  CatalogPriceRow,
+  CatalogSearchResponse,
+  CatalogSetSummary,
+  CreateTradeResponse,
+  PayoutKind,
+  QueuedTradeItem,
+} from '@tcg/shared';
+import {
+  CARD_CONDITIONS,
+  CARD_LANGUAGES,
+  CARD_PRINTINGS,
+  CATALOG_LANGUAGE_OPTIONS,
+  TRADE_PAYOUT_MULTIPLIERS,
+} from '@tcg/shared';
 import { api } from '../lib/api';
+import { formatCentsAsCurrency } from '../lib/format';
 import { pkmnPricesSearchQueryKey } from '../lib/searchQueryKeys';
 import { useSession } from '../hooks/useSession';
 import { useProductSearchState } from '../hooks/useProductSearchState';
 import SearchableSelect from '../components/SearchableSelect';
 
-type TcgapiCard = {
-  id: string;
-  name: string;
-  number: string | null;
-  rarity: string | null;
-  imageUrl: string | null;
-  setId: string | null;
-  setName: string | null;
-  gameSlug: string | null;
-  gameName: string | null;
-};
-
-type SearchResponse = {
-  results: TcgapiCard[];
-  page: number;
-  perPage: number;
-  hasMore: boolean;
-  total: number | null;
-};
-
-type SetRow = { id: string; name: string; slug?: string };
-type SetsResponse = { sets: SetRow[] };
-
-// Fixed language axis — PkmnPrices `language` accepts these string values.
-// English/Japanese only, plus a placeholder for future European additions.
-const LANGUAGE_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: 'english', label: 'English' },
-  { value: 'japanese', label: 'Japanese (Pro tier)' },
-];
+type SetsResponse = { sets: CatalogSetSummary[] };
 
 // Matches numeric and alphanumeric card numbers: "25", "025/189", "XY133", "SVP 075".
 // Requires at least one digit so ordinary name searches like "Charizard" stay name searches.
 const NUMBER_QUERY_RE = /^(?=.*\d)[a-z0-9#\-\s]+(\s*\/\s*[a-z0-9#\-\s]+)?$/i;
 
-type PriceRow = {
-  cardId: string;
-  printing: string;
-  marketCents: number | null;
-  lowCents: number | null;
-  medianCents: number | null;
-  buylistCents: number | null;
-  lastUpdatedAt: string | null;
-};
-
-type PricesResponse = { cardId: string; prices: PriceRow[] };
-
-type CreateTradeResponse = {
-  id: string;
-  status: string;
-  totalValueCents: number;
-  skuIds: { skuId: string; quantity: number }[];
-};
-
-type QueuedTradeItem = {
-  id: string;
-  tcgapiProductId: string;
-  name: string;
-  imageSourceUrl: string | null;
-  rarity: string | null;
-  condition: CardCondition;
-  printing: CardPrinting;
-  language: CardLanguage;
-  gradingCompany?: string;
-  grade?: string;
-  certNumber?: string;
-  quantity: number;
-  payoutModifierPercent: number;
-  overrideValueCents?: number;
-  marketPriceCents: number | null;
-  estimatedUnitValueCents: number;
-};
-
-const CONDITIONS: CardCondition[] = ['NM', 'LP', 'MP', 'HP', 'DMG'];
-const PRINTINGS: CardPrinting[] = ['Normal', 'Foil', 'Reverse', 'Holo', 'FirstEdition'];
-const LANGUAGES: CardLanguage[] = ['EN', 'JP', 'DE', 'FR', 'IT', 'ES', 'PT', 'KO', 'CN'];
+type PricesResponse = { cardId: string; prices: CatalogPriceRow[] };
 
 const GRADING_COMPANIES = ['PSA', 'CGC', 'Beckett', 'TAG'] as const;
 type GradingCompany = (typeof GRADING_COMPANIES)[number];
@@ -113,16 +64,7 @@ const GRADE_OPTIONS: Record<GradingCompany, string[]> = {
   TAG: ['10', '9', '8', '7', '6', '5', '4', '3', '2', '1'],
 };
 
-// Multipliers mirror the server's `PAYOUT_MULTIPLIERS` in tradeins.ts. Kept
-// in sync manually because exporting them from the server would drag the
-// API workspace into the web bundle. Only used for the on-screen suggested
-// value preview; the server recomputes authoritatively on submit.
-const PAYOUT_MULTIPLIERS: Record<PayoutKind, number> = {
-  cash: 0.7,
-  store_credit: 0.8,
-};
-
-function pickPricingRow(prices: PriceRow[] | undefined, printing: CardPrinting): PriceRow | undefined {
+function pickPricingRow(prices: CatalogPriceRow[] | undefined, printing: CardPrinting): CatalogPriceRow | undefined {
   if (!prices?.length) return undefined;
   return (
     prices.find((p) => tcgapiPrintingToEnum(p.printing) === printing) ??
@@ -145,11 +87,6 @@ function tcgapiPrintingToEnum(label: string): CardPrinting {
   if (n.includes('foil') && !n.includes('non')) return 'Foil';
   if (n.includes('nonfoil') || n.includes('normal') || n === 'regular') return 'Normal';
   return 'Normal';
-}
-
-function formatCents(c: number | null | undefined): string {
-  if (c == null) return '—';
-  return `$${(c / 100).toFixed(2)}`;
 }
 
 /**
@@ -189,7 +126,7 @@ async function printQrLabels(
 }
 
 function suggestedUnitValueCents(
-  prices: PriceRow[] | undefined,
+  prices: CatalogPriceRow[] | undefined,
   printing: CardPrinting,
   condition: CardCondition,
   payout: PayoutKind,
@@ -202,7 +139,7 @@ function suggestedUnitValueCents(
   );
   const base = candidates.length ? Math.min(...candidates) : 0;
   void condition;
-  const payoutBase = Math.max(0, Math.floor(base * PAYOUT_MULTIPLIERS[payout]));
+  const payoutBase = Math.max(0, Math.floor(base * TRADE_PAYOUT_MULTIPLIERS[payout]));
   return Math.max(0, Math.floor(payoutBase * (1 + payoutModifierPercent / 100)));
 }
 
@@ -245,7 +182,7 @@ export default function TradeInPage() {
 
   // Language replaces the old game selector — PkmnPrices is Pokémon-only, so
   // the useful axis is which language of card to browse.
-  const [selected, setSelected] = useState<TcgapiCard | null>(null);
+  const [selected, setSelected] = useState<CatalogCard | null>(null);
   const [queuedItems, setQueuedItems] = useState<QueuedTradeItem[]>([]);
 
   // If the operator types something that looks like a card number
@@ -276,7 +213,7 @@ export default function TradeInPage() {
     (!!numberParam && !!setId) ||
     !!setId;
 
-  const search = useQuery<SearchResponse>({
+  const search = useQuery<CatalogSearchResponse>({
     queryKey: pkmnPricesSearchQueryKey({
       query: nameParam,
       number: numberParam,
@@ -292,7 +229,7 @@ export default function TradeInPage() {
       if (language) params.set('language', language);
       if (setId) params.set('setId', setId);
       params.set('perPage', '24');
-      return api.get<SearchResponse>(`/pkmnprices/search?${params.toString()}`, { signal });
+      return api.get<CatalogSearchResponse>(`/pkmnprices/search?${params.toString()}`, { signal });
     },
     enabled: searchEnabled,
     staleTime: 60_000,
@@ -342,7 +279,7 @@ export default function TradeInPage() {
           onChange={onLanguageChange}
           placeholder="Language"
           searchPlaceholder="Search languages"
-          options={LANGUAGE_OPTIONS}
+          options={CATALOG_LANGUAGE_OPTIONS}
         />
         <SearchableSelect
           value={setId}
@@ -371,7 +308,7 @@ export default function TradeInPage() {
           )}
           {language !== 'english' && (
             <Chip onClear={() => onLanguageChange('english')}>
-              Language: {LANGUAGE_OPTIONS.find((l) => l.value === language)?.label ?? language}
+              Language: {CATALOG_LANGUAGE_OPTIONS.find((l) => l.value === language)?.label ?? language}
             </Chip>
           )}
           {setId && (
@@ -465,7 +402,7 @@ export default function TradeInPage() {
 }
 
 interface IntakeDetailProps {
-  card: TcgapiCard | null;
+  card: CatalogCard | null;
   locationId: string | null;
   queuedItems: QueuedTradeItem[];
   setQueuedItems: Dispatch<SetStateAction<QueuedTradeItem[]>>;
@@ -514,14 +451,14 @@ function IntakeDetailBody({
   setQueuedItems,
   onClose,
 }: {
-  card: TcgapiCard;
+  card: CatalogCard;
   locationId: string | null;
   queuedItems: QueuedTradeItem[];
   setQueuedItems: Dispatch<SetStateAction<QueuedTradeItem[]>>;
   onClose: () => void;
 }) {
   const qc = useQueryClient();
-  const [activeCard, setActiveCard] = useState<TcgapiCard>(card);
+  const [activeCard, setActiveCard] = useState<CatalogCard>(card);
   const [isGraded, setIsGraded] = useState(false);
   const [gradingCompany, setGradingCompany] = useState<GradingCompany>('PSA');
   const [gradedGrade, setGradedGrade] = useState('10');
@@ -562,19 +499,19 @@ function IntakeDetailBody({
     staleTime: 5 * 60_000,
   });
 
-  const variants = useQuery<SearchResponse>({
+  const variants = useQuery<CatalogSearchResponse>({
     queryKey: ['tcgapi.variants', activeCard.setId, activeCard.name],
     queryFn: () => {
       const params = new URLSearchParams({ q: activeCard.name, perPage: '50' });
       if (activeCard.setId) params.set('setId', activeCard.setId);
-      return api.get<SearchResponse>(`/pkmnprices/search?${params.toString()}`);
+      return api.get<CatalogSearchResponse>(`/pkmnprices/search?${params.toString()}`);
     },
     enabled: !!activeCard.setId,
     staleTime: 5 * 60_000,
   });
 
   const rarityVariants = useMemo(() => {
-    const seen = new Map<string, TcgapiCard>();
+    const seen = new Map<string, CatalogCard>();
     for (const v of variants.data?.results ?? []) {
       const key = v.rarity ?? 'Unknown';
       if (!seen.has(key)) seen.set(key, v);
@@ -826,10 +763,10 @@ function IntakeDetailBody({
                       className="border-t border-slate-800 text-slate-200"
                     >
                       <td className="py-1">{p.printing}</td>
-                      <td className="py-1 text-right font-mono">{formatCents(p.marketCents)}</td>
-                      <td className="py-1 text-right font-mono">{formatCents(p.medianCents)}</td>
-                      <td className="py-1 text-right font-mono">{formatCents(p.lowCents)}</td>
-                      <td className="py-1 text-right font-mono">{formatCents(p.buylistCents)}</td>
+                      <td className="py-1 text-right font-mono">{formatCentsAsCurrency(p.marketCents)}</td>
+                      <td className="py-1 text-right font-mono">{formatCentsAsCurrency(p.medianCents)}</td>
+                      <td className="py-1 text-right font-mono">{formatCentsAsCurrency(p.lowCents)}</td>
+                      <td className="py-1 text-right font-mono">{formatCentsAsCurrency(p.buylistCents)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -941,7 +878,7 @@ function IntakeDetailBody({
               onChange={(e) => setCondition(e.target.value as CardCondition)}
               className="input"
             >
-              {CONDITIONS.map((c) => (
+              {CARD_CONDITIONS.map((c) => (
                 <option key={c} value={c}>
                   {c}
                 </option>
@@ -954,7 +891,7 @@ function IntakeDetailBody({
               onChange={(e) => setPrinting(e.target.value as CardPrinting)}
               className="input"
             >
-              {PRINTINGS.map((p) => (
+              {CARD_PRINTINGS.map((p) => (
                 <option key={p} value={p}>
                   {p}
                 </option>
@@ -967,7 +904,7 @@ function IntakeDetailBody({
               onChange={(e) => setLanguage(e.target.value as CardLanguage)}
               className="input"
             >
-              {LANGUAGES.map((l) => (
+              {CARD_LANGUAGES.map((l) => (
                 <option key={l} value={l}>
                   {l}
                 </option>
@@ -1023,7 +960,7 @@ function IntakeDetailBody({
             hint={`Computed from the lowest of market/median × payout multiplier${payoutModifier ? ` × ${((1 + payoutModifier / 100) * 100).toFixed(1)}%` : ''}.`}
           >
             <div className="input bg-slate-950 text-slate-200 font-mono">
-              {formatCents(suggested)}
+              {formatCentsAsCurrency(suggested)}
             </div>
           </Field>
           <Field label="Override unit value ($)" hint="Optional — leave blank to use suggested.">
@@ -1041,8 +978,8 @@ function IntakeDetailBody({
 
         <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-950 border border-slate-700 rounded-lg p-3">
           <div className="text-xs text-slate-300">
-            Pending line total: <span className="font-mono text-emerald-300">{formatCents(pendingLineTotalCents)}</span>
-            <span className="text-slate-500"> ({quantity} × {formatCents(effectiveCents)})</span>
+            Pending line total: <span className="font-mono text-emerald-300">{formatCentsAsCurrency(pendingLineTotalCents)}</span>
+            <span className="text-slate-500"> ({quantity} × {formatCentsAsCurrency(effectiveCents)})</span>
           </div>
           <button
             type="button"
@@ -1082,13 +1019,13 @@ function IntakeDetailBody({
                       {item.condition} / {item.printing} / {item.language}
                     </p>
                     <p className="text-[11px] text-slate-500">
-                      {item.quantity} × {formatCents(item.estimatedUnitValueCents)}
+                      {item.quantity} × {formatCentsAsCurrency(item.estimatedUnitValueCents)}
                       {item.overrideValueCents != null ? ' (override)' : ''}
                     </p>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <span className="font-mono text-xs text-emerald-300">
-                      {formatCents(item.estimatedUnitValueCents * item.quantity)}
+                      {formatCentsAsCurrency(item.estimatedUnitValueCents * item.quantity)}
                     </span>
                     <button
                       type="button"
@@ -1136,14 +1073,14 @@ function IntakeDetailBody({
           <div className="text-sm text-slate-300">
             Trade total:{' '}
             <span className="font-mono font-semibold text-emerald-300">
-              {formatCents(itemsTotalPayoutCents)}
+              {formatCentsAsCurrency(itemsTotalPayoutCents)}
             </span>
             <span className="text-slate-500">
               {' '}({queuedItems.reduce((sum, item) => sum + item.quantity, 0)} cards, {queuedItems.length} lines)
             </span>
             {queuedItems.length > 0 && (
               <span className="block text-xs text-slate-500 mt-0.5">
-                + current unsaved line {formatCents(pendingLineTotalCents)} = {formatCents(projectedTradeTotalCents)} projected
+                + current unsaved line {formatCentsAsCurrency(pendingLineTotalCents)} = {formatCentsAsCurrency(projectedTradeTotalCents)} projected
               </span>
             )}
           </div>

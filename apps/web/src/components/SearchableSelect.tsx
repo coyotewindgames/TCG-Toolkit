@@ -8,7 +8,7 @@ export type SearchableSelectOption = {
 interface SearchableSelectProps {
   value: string;
   onChange: (value: string) => void;
-  options: SearchableSelectOption[];
+  options: readonly SearchableSelectOption[];
   placeholder: string;
   searchPlaceholder?: string;
   disabled?: boolean;

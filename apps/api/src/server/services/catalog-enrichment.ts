@@ -1,7 +1,7 @@
 import { and, eq, isNull, or, sql } from 'drizzle-orm';
 import { schema, type Database } from '../../db/client';
 import type { ConfigService } from './config-service';
-import { PkmnCardsClient } from '../../integrations/pkmncards/client';
+import type { PkmnCardsClient } from '../../integrations/pkmncards/client';
 import { getLogger } from '../../common/logger';
 
 export interface EnrichMatched {
@@ -52,11 +52,10 @@ const BACKGROUND_RUNS = new Set<string>();
 const logger = getLogger();
 
 export class CatalogEnrichmentService {
-  private readonly pkmnCards = new PkmnCardsClient();
-
   constructor(
     private readonly db: Database,
     private readonly configs: ConfigService,
+    private readonly pkmnCards: PkmnCardsClient,
   ) {}
 
   async enrichStore(args: {

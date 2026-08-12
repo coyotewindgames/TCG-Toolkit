@@ -84,10 +84,6 @@ export function transactionDraftReducer(
   }
 }
 
-export function centsToMoney(cents: number): string {
-  return `$${(cents / 100).toFixed(2)}`;
-}
-
 export function draftTotals(items: TransactionDraftItem[]) {
   const itemCount = items.reduce((sum, item) => sum + item.quantity, 0);
   const subtotalCents = items.reduce((sum, item) => sum + item.unitCents * item.quantity, 0);

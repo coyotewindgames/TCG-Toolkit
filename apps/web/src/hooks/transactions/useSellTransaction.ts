@@ -3,71 +3,18 @@ import QRCode from 'qrcode';
 import { useQuery } from '@tanstack/react-query';
 import { useBarcodeScanner } from '../useBarcodeScanner';
 import { useSession } from '../useSession';
+import type {
+  OrderDetailResponse,
+  OrderLineView,
+  OrderTotals,
+  ProductSearchItem,
+  ProductSearchResponse,
+  ProductSkusResponse,
+} from '@tcg/shared';
 import { api } from '../../lib/api';
+import { toBase64UrlJson } from '../../lib/encoding';
 import { getSocket } from '../../lib/socket';
 import { useTransactionSearchController } from './useTransactionSearchController';
-
-export type SellModeProduct = {
-  id: string;
-  name: string;
-  setName: string | null;
-  cardNumber: string | null;
-  imageSourceUrl?: string | null;
-  availableQty: number;
-  minSellPriceCents: number | null;
-  maxSellPriceCents: number | null;
-};
-
-export type SellModeSearchResponse = {
-  results: SellModeProduct[];
-};
-
-type SellModeOrderLine = {
-  id: string;
-  skuId: string;
-  name: string;
-  condition: string;
-  unitPriceCents: number;
-  qty: number;
-  imageUrl?: string;
-  qtyRemaining?: number;
-};
-
-type SellModeOrderDetail = {
-  order: {
-    subtotalCents: number;
-    taxCents: number;
-    totalCents: number;
-  };
-  items: Array<{
-    id: string;
-    skuId: string;
-    quantity: number;
-    unitPriceCents: number;
-    productNameSnapshot: string | null;
-    condition: string;
-    imageUrl: string | null;
-    qtyRemaining: number;
-  }>;
-};
-
-type SellModeProductSkusResponse = {
-  skus: Array<{
-    id: string;
-    barcode: string;
-    condition: string;
-    printing: string;
-    language: string;
-    sellPriceCents: number | null;
-    availableQty: number;
-  }>;
-};
-
-type SellModeTotals = {
-  subtotalCents: number;
-  taxCents: number;
-  totalCents: number;
-};
 
 export interface SellModeTransactionController {
   remoteScanQr: string | null;
@@ -76,28 +23,20 @@ export interface SellModeTransactionController {
   setSellQuery: (value: string) => void;
   searchingCards: boolean;
   cardSearchError: string | null;
-  cardResults: SellModeProduct[];
-  selectedProduct: SellModeProduct | null;
-  selectProduct: (product: SellModeProduct | null) => void;
-  selectedProductSkus: SellModeProductSkusResponse['skus'];
+  cardResults: ProductSearchItem[];
+  selectedProduct: ProductSearchItem | null;
+  selectProduct: (product: ProductSearchItem | null) => void;
+  selectedProductSkus: ProductSkusResponse['skus'];
   loadingProductSkus: boolean;
   productSkuError: string | null;
   addingSkuId: string | null;
-  lines: SellModeOrderLine[];
-  totals: SellModeTotals;
+  lines: OrderLineView[];
+  totals: OrderTotals;
   sellStatus: 'idle' | 'scanning' | 'checkout' | 'paid';
   sellError: string | null;
   checkoutSell: () => Promise<void>;
   cancelSell: () => Promise<void>;
   addSellSku: (barcode: string, skuId: string) => Promise<void>;
-}
-
-function toBase64UrlJson(value: unknown): string {
-  const text = JSON.stringify(value);
-  const bytes = new TextEncoder().encode(text);
-  let bin = '';
-  for (const byte of bytes) bin += String.fromCharCode(byte);
-  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
 }
 
 function isLocalOrigin(origin: string) {
@@ -107,8 +46,8 @@ function isLocalOrigin(origin: string) {
 export function useSellTransaction(active: boolean): SellModeTransactionController {
   const session = useSession();
   const [orderId, setOrderId] = useState<string | null>(null);
-  const [lines, setLines] = useState<SellModeOrderLine[]>([]);
-  const [totals, setTotals] = useState<SellModeTotals>({
+  const [lines, setLines] = useState<OrderLineView[]>([]);
+  const [totals, setTotals] = useState<OrderTotals>({
     subtotalCents: 0,
     taxCents: 0,
     totalCents: 0,
@@ -119,7 +58,7 @@ export function useSellTransaction(active: boolean): SellModeTransactionControll
     debounceMs: 300,
     minQueryLength: 2,
   });
-  const [selectedProduct, setSelectedProduct] = useState<SellModeProduct | null>(null);
+  const [selectedProduct, setSelectedProduct] = useState<ProductSearchItem | null>(null);
   const [addingSkuId, setAddingSkuId] = useState<string | null>(null);
   const [remoteScanQr, setRemoteScanQr] = useState<string | null>(null);
 
@@ -155,7 +94,7 @@ export function useSellTransaction(active: boolean): SellModeTransactionControll
 
   const refreshOrder = useCallback(async () => {
     if (!orderId) return;
-    const data = await api.get<SellModeOrderDetail>(`/orders/${orderId}`);
+    const data = await api.get<OrderDetailResponse>(`/orders/${orderId}`);
     setTotals({
       subtotalCents: data.order.subtotalCents,
       taxCents: data.order.taxCents,
@@ -236,7 +175,7 @@ export function useSellTransaction(active: boolean): SellModeTransactionControll
     return () => window.clearInterval(timer);
   }, [active, orderId, refreshOrder]);
 
-  const sellSearch = useQuery<SellModeSearchResponse>({
+  const sellSearch = useQuery<ProductSearchResponse>({
     queryKey: ['transactions.sell.search', sellSearchController.normalizedQuery],
     queryFn: ({ signal }) => {
       const params = new URLSearchParams({
@@ -245,15 +184,15 @@ export function useSellTransaction(active: boolean): SellModeTransactionControll
         pageSize: '8',
         sort: 'name_asc',
       });
-      return api.get<SellModeSearchResponse>(`/products/search?${params.toString()}`, { signal });
+      return api.get<ProductSearchResponse>(`/products/search?${params.toString()}`, { signal });
     },
     enabled: active && sellSearchController.isSearchEnabled,
     staleTime: 30_000,
   });
 
-  const selectedProductSkus = useQuery<SellModeProductSkusResponse>({
+  const selectedProductSkus = useQuery<ProductSkusResponse>({
     queryKey: ['transactions.sell.skus', selectedProduct?.id],
-    queryFn: ({ signal }) => api.get<SellModeProductSkusResponse>(`/products/${selectedProduct!.id}/skus`, { signal }),
+    queryFn: ({ signal }) => api.get<ProductSkusResponse>(`/products/${selectedProduct!.id}/skus`, { signal }),
     enabled: active && !!selectedProduct?.id,
     staleTime: 30_000,
   });

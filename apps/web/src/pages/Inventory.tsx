@@ -9,6 +9,7 @@ import ImageBackfillPanel from '../components/ImageBackfillPanel';
 import SearchableSelect from '../components/SearchableSelect';
 import ProductImageEditor from '../components/ProductImageEditor';
 import SkuCostEditor from '../components/SkuCostEditor';
+import { formatCentsAsCurrencyWithGrouping } from '../lib/format';
 
 type Product = {
   id: string;
@@ -433,11 +434,6 @@ export default function InventoryPage() {
               const costCents = s.totalCostBasisCents ?? 0;
               const profitCents = marketCents - costCents;
               const positive = profitCents >= 0;
-              const dollars = (cents: number) =>
-                `$${(cents / 100).toLocaleString(undefined, {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}`;
               return (
                 <div className="grid gap-3 sm:grid-cols-3">
                   <div>
@@ -445,7 +441,7 @@ export default function InventoryPage() {
                       Estimated market value
                     </div>
                     <div className="mt-1 text-2xl font-semibold text-emerald-100">
-                      {dollars(marketCents)}
+                      {formatCentsAsCurrencyWithGrouping(marketCents)}
                     </div>
                   </div>
                   <div>
@@ -453,7 +449,7 @@ export default function InventoryPage() {
                       Total cost basis (what we paid)
                     </div>
                     <div className="mt-1 text-2xl font-semibold text-sky-100">
-                      {costCents > 0 ? dollars(costCents) : '—'}
+                      {costCents > 0 ? formatCentsAsCurrencyWithGrouping(costCents) : '—'}
                     </div>
                   </div>
                   <div>
@@ -470,7 +466,7 @@ export default function InventoryPage() {
                       }`}
                     >
                       {costCents > 0
-                        ? `${positive ? '+' : ''}${dollars(profitCents)}`
+                        ? `${positive ? '+' : ''}${formatCentsAsCurrencyWithGrouping(profitCents)}`
                         : '—'}
                     </div>
                     {costCents > 0 && marketCents > 0 && (

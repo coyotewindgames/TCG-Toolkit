@@ -254,7 +254,7 @@ export function inventoryRouter(c: Container): Router {
   });
 
   const importer = new InventoryImportService(c.db);
-  const enricher = new CatalogEnrichmentService(c.db, c.configs);
+  const enricher = new CatalogEnrichmentService(c.db, c.configs, c.pkmncardsClient);
 
   r.post(
     '/import',

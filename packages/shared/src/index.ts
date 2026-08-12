@@ -277,3 +277,11 @@ export function skuIdentityKey(args: {
     args.grade ?? '',
   ].join('|');
 }
+
+// ---------- API response shapes shared with the web client ----------
+
+export * from './dto';
+
+// ---------- Text normalization ----------
+
+export * from './text';

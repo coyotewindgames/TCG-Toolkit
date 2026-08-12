@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto';
 import { and, eq, or, sql } from 'drizzle-orm';
 import csvToJson from 'csvtojson';
-import { skuIdentityKey } from '@tcg/shared';
+import { normalizeAlphanumeric, skuIdentityKey } from '@tcg/shared';
 import { schema, type Database } from '../../db/client';
 import { BadRequest } from '../../common/http-errors';
 
@@ -41,7 +41,6 @@ export async function parseCsv(text: string): Promise<ParsedCsvRow[]> {
 
 // ---------- header normalization ----------
 
-const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
 const IMPORT_BATCH_SIZE = 1000;
 
 // All accepted header synonyms -> canonical key
@@ -117,7 +116,7 @@ const HEADER_MAP: Record<string, string> = {
 function indexHeaders(headers: string[]): Record<string, number> {
   const idx: Record<string, number> = {};
   headers.forEach((h, i) => {
-    const normalizedHeader = norm(h);
+    const normalizedHeader = normalizeAlphanumeric(h);
     const key =
       HEADER_MAP[normalizedHeader] ??
       (normalizedHeader.startsWith('marketpriceasof') ? 'marketCents' : undefined);
@@ -152,7 +151,7 @@ const GAMES = [
 ] as const;
 
 function toGame(v: string | undefined): Game {
-  const n = norm(v ?? '');
+  const n = normalizeAlphanumeric(v ?? '');
   if (!n) return 'other';
   if (n.includes('magic') || n === 'mtg') return 'mtg';
   if (n.includes('pokemon') || n.includes('pokmon') || n === 'pkm') return 'pokemon';
@@ -167,7 +166,7 @@ function toGame(v: string | undefined): Game {
 
 type Condition = 'NM' | 'LP' | 'MP' | 'HP' | 'DMG';
 function toCondition(v: string | undefined, fallback: Condition): Condition {
-  const n = norm(v ?? '');
+  const n = normalizeAlphanumeric(v ?? '');
   if (!n) return fallback;
   if (n.startsWith('nm') || n.includes('nearmint') || n === 'm' || n === 'mint') return 'NM';
   if (n.startsWith('lp') || n.includes('lightlyplayed') || n.includes('excellent')) return 'LP';
@@ -179,7 +178,7 @@ function toCondition(v: string | undefined, fallback: Condition): Condition {
 
 type Printing = 'Normal' | 'Foil' | 'Reverse' | 'Holo' | 'FirstEdition';
 function toPrinting(v: string | undefined, fallback: Printing): Printing {
-  const n = norm(v ?? '');
+  const n = normalizeAlphanumeric(v ?? '');
   if (!n) return fallback;
   if (n.includes('reverseholo') || n === 'rh' || n === 'reverse') return 'Reverse';
   if (n.includes('1stedition') || n.includes('firstedition')) return 'FirstEdition';
@@ -193,7 +192,7 @@ function toPrinting(v: string | undefined, fallback: Printing): Printing {
 
 type Language = 'EN' | 'JP' | 'DE' | 'FR' | 'IT' | 'ES' | 'PT' | 'KO' | 'CN';
 function toLanguage(v: string | undefined): Language {
-  const n = norm(v ?? '');
+  const n = normalizeAlphanumeric(v ?? '');
   if (!n) return 'EN';
   if (n.startsWith('en') || n === 'english') return 'EN';
   if (n.startsWith('jp') || n.startsWith('ja') || n.includes('japanese')) return 'JP';
@@ -220,10 +219,6 @@ function toCents(v: string | undefined): number | null {
   const f = parseFloat(cleaned);
   if (!Number.isFinite(f)) return null;
   return Math.round(f * 100);
-}
-
-function mapRowData(row: ParsedCsvRow): Record<string, string> {
-  return row;
 }
 
 function productIdentityKey(args: {
@@ -888,7 +883,7 @@ export class InventoryImportService {
         // Context
         context,
         rawRowData: rawRow,
-        mappedRowData: mapRowData(rawRow),
+        mappedRowData: rawRow,
         
         // Cache state for debugging
         cacheState: {
@@ -925,7 +920,7 @@ export class InventoryImportService {
         ]
           .filter(Boolean)
           .join(' | '),
-        data: mapRowData(rawRow),
+        data: rawRow,
       });
     };
 

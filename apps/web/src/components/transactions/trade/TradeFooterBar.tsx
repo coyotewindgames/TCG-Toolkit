@@ -1,9 +1,5 @@
 import type { TradeModeTransactionController } from '../../../hooks/transactions/useTradeTransaction';
-
-function formatCents(cents: number | null | undefined): string {
-  if (cents == null) return '—';
-  return `$${(cents / 100).toFixed(2)}`;
-}
+import { formatCentsAsCurrency } from '../../../lib/format';
 
 interface TradeFooterBarProps {
   trade: TradeModeTransactionController;
@@ -35,7 +31,7 @@ export default function TradeFooterBar({ trade, commitLabel, onOpenQueue }: Trad
             </span>
           </span>
           <span className="font-mono text-emerald-300">
-            {formatCents(trade.queuedTradeTotalCents)}
+            {formatCentsAsCurrency(trade.queuedTradeTotalCents)}
           </span>
         </button>
 
@@ -44,7 +40,7 @@ export default function TradeFooterBar({ trade, commitLabel, onOpenQueue }: Trad
             <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
               Trade total
             </p>
-            <p className="text-xl font-semibold">{formatCents(trade.queuedTradeTotalCents)}</p>
+            <p className="text-xl font-semibold">{formatCentsAsCurrency(trade.queuedTradeTotalCents)}</p>
           </div>
           <p className="text-xs text-slate-400">
             {trade.queuedItems.length} line{trade.queuedItems.length === 1 ? '' : 's'} queued

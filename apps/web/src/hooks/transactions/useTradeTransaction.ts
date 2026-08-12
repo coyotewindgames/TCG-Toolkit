@@ -1,43 +1,33 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { CardCondition, CardLanguage, CardPrinting, PayoutKind } from '@tcg/shared';
+import type {
+  CardCondition,
+  CardLanguage,
+  CardPrinting,
+  CatalogArtistSearchResponse,
+  CatalogCard,
+  CatalogPriceRow,
+  CatalogPricesResponse,
+  CatalogSearchResponse,
+  CatalogSetSummary,
+  CatalogSetsResponse,
+  CreateTradeResponse,
+  PayoutKind,
+} from '@tcg/shared';
+import {
+  CARD_CONDITIONS,
+  CARD_LANGUAGES,
+  CARD_PRINTINGS,
+  CATALOG_LANGUAGE_OPTIONS,
+  TRADE_PAYOUT_MULTIPLIERS,
+} from '@tcg/shared';
 import { useSession } from '../useSession';
 import { api } from '../../lib/api';
+import { formatCentsAsCurrency } from '../../lib/format';
 import { detectSet, normalizeSet } from '../../lib/pokemonSets';
 import type { TransactionMode } from '../../lib/transactions';
 import { useTransactionSearchController } from './useTransactionSearchController';
 import { useTradeQueueState, type TradeQueueItem } from './useTradeQueueState';
-
-type TcgapiCard = {
-  id: string;
-  name: string;
-  number: string | null;
-  rarity: string | null;
-  imageUrl: string | null;
-  setId: string | null;
-  setName: string | null;
-  gameSlug: string | null;
-  gameName: string | null;
-  artist?: string | null;
-};
-
-type SearchResponse = {
-  results: TcgapiCard[];
-  page: number;
-  perPage: number;
-  hasMore: boolean;
-  total: number | null;
-  matchedBy?: 'name' | 'artist';
-};
-
-type ArtistSearchResponse = {
-  results: TcgapiCard[];
-  page: number;
-  perPage: number;
-  hasMore: boolean;
-  total: number;
-  resolvedArtist: { slug: string; displayName: string; method: string } | null;
-};
 
 /**
  * Heuristic: does this free-text query look like a person's name? Used to
@@ -58,43 +48,8 @@ function looksLikePersonName(input: string): boolean {
   return tokens.every((t) => /^[A-Za-z][A-Za-z'.-]{1,20}$/.test(t));
 }
 
-type SetRow = { id: string; name: string; slug?: string };
-type SetsResponse = { sets: SetRow[] };
-
-type PriceRow = {
-  cardId: string;
-  printing: string;
-  marketCents: number | null;
-  lowCents: number | null;
-  medianCents: number | null;
-  buylistCents: number | null;
-  lastUpdatedAt: string | null;
-};
-
-type PricesResponse = { cardId: string; prices: PriceRow[] };
-
-type CreateTradeResponse = {
-  id: string;
-  status: string;
-  totalValueCents: number;
-  skuIds: { skuId: string; quantity: number }[];
-};
-
-const LANGUAGE_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: 'english', label: 'English' },
-  { value: 'japanese', label: 'Japanese (Pro tier)' },
-];
-
-const CONDITIONS: CardCondition[] = ['NM', 'LP', 'MP', 'HP', 'DMG'];
-const PRINTINGS: CardPrinting[] = ['Normal', 'Foil', 'Reverse', 'Holo', 'FirstEdition'];
-const CARD_LANGUAGES: CardLanguage[] = ['EN', 'JP', 'DE', 'FR', 'IT', 'ES', 'PT', 'KO', 'CN'];
 const NUMBER_QUERY_RE = /^(?=.*\d)[a-z0-9#\-\s]+(\s*\/\s*[a-z0-9#\-\s]+)?$/i;
-const PAYOUT_MULTIPLIERS: Record<PayoutKind, number> = {
-  cash: 0.7,
-  store_credit: 0.8,
-};
-
-function pickPricingRow(prices: PriceRow[] | undefined, printing: CardPrinting): PriceRow | undefined {
+function pickPricingRow(prices: CatalogPriceRow[] | undefined, printing: CardPrinting): CatalogPriceRow | undefined {
   if (!prices?.length) return undefined;
   return (
     prices.find((row) => tcgapiPrintingToEnum(row.printing) === printing) ??
@@ -114,7 +69,7 @@ function tcgapiPrintingToEnum(label: string): CardPrinting {
 }
 
 function suggestedUnitValueCents(
-  prices: PriceRow[] | undefined,
+  prices: CatalogPriceRow[] | undefined,
   printing: CardPrinting,
   payout: PayoutKind,
   payoutModifierPercent: number,
@@ -125,13 +80,8 @@ function suggestedUnitValueCents(
     (value): value is number => typeof value === 'number' && value > 0,
   );
   const base = candidates.length ? Math.min(...candidates) : 0;
-  const payoutBase = Math.max(0, Math.floor(base * PAYOUT_MULTIPLIERS[payout]));
+  const payoutBase = Math.max(0, Math.floor(base * TRADE_PAYOUT_MULTIPLIERS[payout]));
   return Math.max(0, Math.floor(payoutBase * (1 + payoutModifierPercent / 100)));
-}
-
-function formatCents(cents: number | null | undefined): string {
-  if (cents == null) return '—';
-  return `$${(cents / 100).toFixed(2)}`;
 }
 
 /**
@@ -174,10 +124,10 @@ async function printQrLabels(
 }
 
 export interface TradeModeTransactionController {
-  languageOptions: Array<{ value: string; label: string }>;
-  conditionOptions: CardCondition[];
-  printingOptions: CardPrinting[];
-  cardLanguageOptions: CardLanguage[];
+  languageOptions: ReadonlyArray<{ value: string; label: string }>;
+  conditionOptions: readonly CardCondition[];
+  printingOptions: readonly CardPrinting[];
+  cardLanguageOptions: readonly CardLanguage[];
   rarityOptions: string[];
   query: string;
   setQuery: (value: string) => void;
@@ -187,12 +137,12 @@ export interface TradeModeTransactionController {
   setSetId: (value: string) => void;
   rarity: string;
   setRarity: (value: string) => void;
-  selectedCard: TcgapiCard | null;
-  selectCard: (card: TcgapiCard | null) => void;
-  sets: SetRow[];
+  selectedCard: CatalogCard | null;
+  selectCard: (card: CatalogCard | null) => void;
+  sets: CatalogSetSummary[];
   setsLoading: boolean;
   searchEnabled: boolean;
-  searchResults: TcgapiCard[];
+  searchResults: CatalogCard[];
   searchFetching: boolean;
   searchError: string | null;
   looksLikeNumber: boolean;
@@ -208,7 +158,7 @@ export interface TradeModeTransactionController {
    * a chip so operators can see how their query was interpreted.
    */
   resolvedArtistName: string | null;
-  selectedCardPrices: PriceRow[];
+  selectedCardPrices: CatalogPriceRow[];
   selectedMarketPriceCents: number | null;
   suggestedTradeUnitCents: number;
   pendingLineTotalCents: number;
@@ -237,7 +187,7 @@ export interface TradeModeTransactionController {
   addTradeItemToQueue: () => void;
   removeQueuedItem: (id: string) => void;
   submitTrade: () => void;
-  selectQueuedSearchCard: (card: TcgapiCard) => void;
+  selectQueuedSearchCard: (card: CatalogCard) => void;
   clearTradeSelection: () => void;
   handleLanguageChange: (value: string) => void;
 }
@@ -247,7 +197,7 @@ export function useTradeTransaction(active: boolean, mode: TransactionMode): Tra
   const qc = useQueryClient();
   const [language, setLanguage] = useState<string>('english');
   const [setId, setSetId] = useState<string>('');
-  const [selectedCard, setSelectedCard] = useState<TcgapiCard | null>(null);
+  const [selectedCard, setSelectedCard] = useState<CatalogCard | null>(null);
   const queueState = useTradeQueueState();
   const [condition, setCondition] = useState<CardCondition>('NM');
   const [printing, setPrinting] = useState<CardPrinting>('Normal');
@@ -291,12 +241,12 @@ export function useTradeTransaction(active: boolean, mode: TransactionMode): Tra
   const numberParam = looksLikeNumber ? mainSearch.normalizedQuery : '';
   const nameParam = looksLikeNumber ? '' : mainSearch.normalizedQuery;
 
-  const setsQuery = useQuery<SetsResponse>({
+  const setsQuery = useQuery<CatalogSetsResponse>({
     // Cache key bumped to v2 after the API started returning the full set list
     // (previously capped at 50 rows). Bumping the key forces a refetch so
     // operators don't need to clear browser storage to pick up the new data.
     queryKey: ['transactions.trade.sets.v2', language],
-    queryFn: () => api.get<SetsResponse>(`/pkmnprices/sets?language=${encodeURIComponent(language)}`),
+    queryFn: () => api.get<CatalogSetsResponse>(`/pkmnprices/sets?language=${encodeURIComponent(language)}`),
     enabled: active,
     staleTime: 24 * 60 * 60_000,
   });
@@ -386,7 +336,7 @@ export function useTradeTransaction(active: boolean, mode: TransactionMode): Tra
     !artistFilter &&
     (effectiveNameParam.length >= 2 || (!!numberParam && !!effectiveSetId) || !!effectiveSetId);
 
-  const searchQuery = useQuery<SearchResponse>({
+  const searchQuery = useQuery<CatalogSearchResponse>({
     queryKey: [
       'transactions.trade.search',
       {
@@ -407,7 +357,7 @@ export function useTradeTransaction(active: boolean, mode: TransactionMode): Tra
       if (language && language !== 'english') params.set('language', language);
       if (effectiveSetId) params.set('setId', effectiveSetId);
       params.set('perPage', '24');
-      return api.get<SearchResponse>(`/pkmnprices/search?${params.toString()}`, { signal });
+      return api.get<CatalogSearchResponse>(`/pkmnprices/search?${params.toString()}`, { signal });
     },
     enabled: searchEnabled,
     staleTime: 60_000,
@@ -427,13 +377,13 @@ export function useTradeTransaction(active: boolean, mode: TransactionMode): Tra
     looksLikePersonName(effectiveNameParam);
   const artistSearchTerm = artistFilter.trim() || (shouldAutoFallbackArtist ? effectiveNameParam : '');
 
-  const artistSearchQuery = useQuery<ArtistSearchResponse>({
+  const artistSearchQuery = useQuery<CatalogArtistSearchResponse>({
     queryKey: ['transactions.trade.artistSearch', artistSearchTerm],
     queryFn: ({ signal }) => {
       const params = new URLSearchParams();
       params.set('name', artistSearchTerm);
       params.set('perPage', '24');
-      return api.get<ArtistSearchResponse>(`/pkmncards/artist-search?${params.toString()}`, { signal });
+      return api.get<CatalogArtistSearchResponse>(`/pkmncards/artist-search?${params.toString()}`, { signal });
     },
     enabled: active && artistSearchTerm.length >= 2,
     staleTime: 5 * 60_000,
@@ -473,10 +423,10 @@ export function useTradeTransaction(active: boolean, mode: TransactionMode): Tra
     return Array.from(seen).sort();
   }, [searchQuery.data]);
 
-  const selectedCardPricesQuery = useQuery<PricesResponse>({
+  const selectedCardPricesQuery = useQuery<CatalogPricesResponse>({
     queryKey: ['transactions.trade.prices', selectedCard?.id],
     queryFn: ({ signal }) =>
-      api.get<PricesResponse>(`/pkmnprices/cards/${encodeURIComponent(selectedCard!.id)}/prices`, { signal }),
+      api.get<CatalogPricesResponse>(`/pkmnprices/cards/${encodeURIComponent(selectedCard!.id)}/prices`, { signal }),
     enabled: active && !!selectedCard?.id,
     staleTime: 5 * 60_000,
   });
@@ -537,8 +487,8 @@ export function useTradeTransaction(active: boolean, mode: TransactionMode): Tra
       setTradeSubmitErr(null);
       setTradeSubmitMsg(
         result.status === 'pending_approval'
-          ? `Created trade ${result.id.slice(0, 8)}... for ${formatCents(result.totalValueCents)} (${cardCount} cards), pending manager approval.`
-          : `Submitted ${cardCount} cards for ${formatCents(result.totalValueCents)}.`,
+          ? `Created trade ${result.id.slice(0, 8)}... for ${formatCentsAsCurrency(result.totalValueCents)} (${cardCount} cards), pending manager approval.`
+          : `Submitted ${cardCount} cards for ${formatCentsAsCurrency(result.totalValueCents)}.`,
       );
       queueState.clear();
       setOverrideValue('');
@@ -568,7 +518,7 @@ export function useTradeTransaction(active: boolean, mode: TransactionMode): Tra
     setSetId('');
   }
 
-  function selectQueuedSearchCard(card: TcgapiCard) {
+  function selectQueuedSearchCard(card: CatalogCard) {
     setSelectedCard(card);
     setCondition('NM');
     setPrinting('Normal');
@@ -640,9 +590,9 @@ export function useTradeTransaction(active: boolean, mode: TransactionMode): Tra
   }
 
   return {
-    languageOptions: LANGUAGE_OPTIONS,
-    conditionOptions: CONDITIONS,
-    printingOptions: PRINTINGS,
+    languageOptions: CATALOG_LANGUAGE_OPTIONS,
+    conditionOptions: CARD_CONDITIONS,
+    printingOptions: CARD_PRINTINGS,
     cardLanguageOptions: CARD_LANGUAGES,
     rarityOptions,
     query: mainSearch.query,

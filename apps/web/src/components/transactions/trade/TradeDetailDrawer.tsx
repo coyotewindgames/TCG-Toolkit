@@ -1,14 +1,10 @@
 import { useEffect } from 'react';
 import type { TradeModeTransactionController } from '../../../hooks/transactions/useTradeTransaction';
 import CardImage from '../CardImage';
+import { formatCentsAsCurrency } from '../../../lib/format';
 
 interface TradeDetailDrawerProps {
   trade: TradeModeTransactionController;
-}
-
-function formatCents(cents: number | null | undefined): string {
-  if (cents == null) return '—';
-  return `$${(cents / 100).toFixed(2)}`;
 }
 
 /**
@@ -82,18 +78,18 @@ export default function TradeDetailDrawer({ trade }: TradeDetailDrawerProps) {
                   <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950/60 p-2 text-xs text-slate-300">
                     <p>
                       Market:{' '}
-                      <span className="font-mono">{formatCents(trade.selectedMarketPriceCents)}</span>
+                      <span className="font-mono">{formatCentsAsCurrency(trade.selectedMarketPriceCents)}</span>
                     </p>
                     <p>
                       Suggested:{' '}
                       <span className="font-mono text-emerald-300">
-                        {formatCents(trade.suggestedTradeUnitCents)}
+                        {formatCentsAsCurrency(trade.suggestedTradeUnitCents)}
                       </span>
                     </p>
                     <p>
                       Line total:{' '}
                       <span className="font-mono text-emerald-300">
-                        {formatCents(trade.pendingLineTotalCents)}
+                        {formatCentsAsCurrency(trade.pendingLineTotalCents)}
                       </span>
                     </p>
                   </div>

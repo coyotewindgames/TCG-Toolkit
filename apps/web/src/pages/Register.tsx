@@ -4,89 +4,19 @@ import QRCode from 'qrcode';
 import { useBarcodeScanner } from '../hooks/useBarcodeScanner';
 import { useProductSearchState } from '../hooks/useProductSearchState';
 import { useSession } from '../hooks/useSession';
+import type {
+  AddOrderItemResponse,
+  OrderDetailResponse,
+  OrderLineView,
+  ProductSearchItem,
+  ProductSearchResponse,
+  ProductSkusResponse,
+} from '@tcg/shared';
 import { api } from '../lib/api';
+import { toBase64UrlJson } from '../lib/encoding';
+import { formatCentsAsCurrency } from '../lib/format';
 import { getSocket } from '../lib/socket';
 import { productsSearchQueryKey } from '../lib/searchQueryKeys';
-
-type Line = {
-  id: string;
-  skuId: string;
-  name: string;
-  condition: string;
-  unitPriceCents: number;
-  qty: number;
-  imageUrl?: string;
-  qtyRemaining?: number;
-};
-
-type AddItemResult = {
-  line: {
-    id: string;
-    skuId: string;
-    name: string;
-    quantity: number;
-    unitPriceCents: number;
-    imageUrl?: string | null;
-  };
-  totals: { subtotalCents: number; taxCents: number; totalCents: number };
-};
-
-type OrderDetailResult = {
-  order: {
-    subtotalCents: number;
-    taxCents: number;
-    totalCents: number;
-  };
-  items: Array<{
-    id: string;
-    skuId: string;
-    quantity: number;
-    unitPriceCents: number;
-    productNameSnapshot: string | null;
-    condition: string;
-    imageUrl: string | null;
-    qtyRemaining: number;
-  }>;
-};
-
-type ProductSearchItem = {
-  id: string;
-  name: string;
-  setName: string | null;
-  cardNumber: string | null;
-  imageSourceUrl?: string | null;
-  availableQty: number;
-  minSellPriceCents: number | null;
-  maxSellPriceCents: number | null;
-};
-
-type ProductSearchResult = {
-  results: ProductSearchItem[];
-};
-
-type ProductSkusResult = {
-  skus: Array<{
-    id: string;
-    barcode: string;
-    condition: string;
-    printing: string;
-    language: string;
-    sellPriceCents: number | null;
-    availableQty: number;
-  }>;
-};
-
-function formatMoney(cents: number) {
-  return `$${(cents / 100).toFixed(2)}`;
-}
-
-function toBase64UrlJson(value: unknown): string {
-  const text = JSON.stringify(value);
-  const bytes = new TextEncoder().encode(text);
-  let bin = '';
-  for (const b of bytes) bin += String.fromCharCode(b);
-  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
-}
 
 function isLocalOrigin(origin: string) {
   return /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i.test(origin);
@@ -95,8 +25,8 @@ function isLocalOrigin(origin: string) {
 export default function RegisterPage() {
   const session = useSession();
   const [orderId, setOrderId] = useState<string | null>(null);
-  const [lines, setLines] = useState<Line[]>([]);
-  const [totals, setTotals] = useState<AddItemResult['totals']>({
+  const [lines, setLines] = useState<OrderLineView[]>([]);
+  const [totals, setTotals] = useState<AddOrderItemResponse['totals']>({
     subtotalCents: 0,
     taxCents: 0,
     totalCents: 0,
@@ -117,12 +47,12 @@ export default function RegisterPage() {
     defaultSort: 'name_asc',
   });
   const [selectedProduct, setSelectedProduct] = useState<ProductSearchItem | null>(null);
-  const [selectedProductSkus, setSelectedProductSkus] = useState<ProductSkusResult['skus']>([]);
+  const [selectedProductSkus, setSelectedProductSkus] = useState<ProductSkusResponse['skus']>([]);
   const [loadingProductSkus, setLoadingProductSkus] = useState(false);
   const [productSkuError, setProductSkuError] = useState<string | null>(null);
   const [addingSkuId, setAddingSkuId] = useState<string | null>(null);
 
-  const cardSearch = useQuery<ProductSearchResult>({
+  const cardSearch = useQuery<ProductSearchResponse>({
     queryKey: productsSearchQueryKey('register', {
       query: cardQuery,
       page: 1,
@@ -132,7 +62,7 @@ export default function RegisterPage() {
     }),
     queryFn: ({ signal }) => {
       const params = buildCardSearchParams({ page: 1, pageSize: 8, sort: 'name_asc' });
-      return api.get<ProductSearchResult>(`/products/search?${params.toString()}`, { signal });
+      return api.get<ProductSearchResponse>(`/products/search?${params.toString()}`, { signal });
     },
     enabled: isCardSearchEnabled,
     placeholderData: (prev) => prev,
@@ -177,7 +107,7 @@ export default function RegisterPage() {
 
   const refreshOrder = useCallback(async () => {
     if (!orderId) return;
-    const data = await api.get<OrderDetailResult>(`/orders/${orderId}`);
+    const data = await api.get<OrderDetailResponse>(`/orders/${orderId}`);
     setTotals({
       subtotalCents: data.order.subtotalCents,
       taxCents: data.order.taxCents,
@@ -230,7 +160,7 @@ export default function RegisterPage() {
     if (!orderId) return;
     const s = getSocket();
     s.emit('order.join', { orderId });
-    const onItem = (msg: { orderId: string; line: AddItemResult['line']; totals: AddItemResult['totals'] }) => {
+    const onItem = (msg: { orderId: string; line: AddOrderItemResponse['line']; totals: AddOrderItemResponse['totals'] }) => {
       if (msg.orderId !== orderId) return;
       void refreshOrder();
     };
@@ -263,7 +193,7 @@ export default function RegisterPage() {
     if (!orderId || status === 'paid') return;
     setStatus('scanning');
     try {
-      await api.post<AddItemResult>(`/orders/${orderId}/items`, { barcode });
+      await api.post<AddOrderItemResponse>(`/orders/${orderId}/items`, { barcode });
       await refreshOrder();
       setLastError(null);
     } catch (e) {
@@ -317,7 +247,7 @@ export default function RegisterPage() {
     setProductSkuError(null);
     setSelectedProductSkus([]);
     try {
-      const data = await api.get<ProductSkusResult>(`/products/${product.id}/skus`);
+      const data = await api.get<ProductSkusResponse>(`/products/${product.id}/skus`);
       setSelectedProductSkus(data.skus ?? []);
     } catch (err) {
       setProductSkuError(err instanceof Error ? err.message : String(err));
@@ -326,11 +256,11 @@ export default function RegisterPage() {
     }
   }
 
-  async function addSkuToOrder(sku: ProductSkusResult['skus'][number]) {
+  async function addSkuToOrder(sku: ProductSkusResponse['skus'][number]) {
     if (!orderId || status === 'paid') return;
     setAddingSkuId(sku.id);
     try {
-      await api.post<AddItemResult>(`/orders/${orderId}/items`, { barcode: sku.barcode });
+      await api.post<AddOrderItemResponse>(`/orders/${orderId}/items`, { barcode: sku.barcode });
       await refreshOrder();
       setLastError(null);
     } catch (err) {
@@ -417,7 +347,7 @@ export default function RegisterPage() {
                         {[p.setName, p.cardNumber].filter(Boolean).join(' • ') || 'Unknown set'}
                       </div>
                       <div className="text-sm font-black tracking-tight text-emerald-300">
-                        {formatMoney(p.minSellPriceCents ?? p.maxSellPriceCents ?? 0)}
+                        {formatCentsAsCurrency(p.minSellPriceCents ?? p.maxSellPriceCents ?? 0)}
                       </div>
                     </div>
                   </button>
@@ -439,7 +369,7 @@ export default function RegisterPage() {
                   <div className="text-xs text-slate-300">
                     {sku.condition} • {sku.printing} • {sku.language} • Qty {sku.availableQty}
                     {typeof sku.sellPriceCents === 'number'
-                      ? ` • ${formatMoney(sku.sellPriceCents)}`
+                      ? ` • ${formatCentsAsCurrency(sku.sellPriceCents)}`
                       : ''}
                   </div>
                   <button
@@ -477,7 +407,7 @@ export default function RegisterPage() {
                   </div>
                 </div>
                 <div className="mt-2 text-xl md:text-2xl font-black tracking-tight text-emerald-300">
-                  {formatMoney(l.unitPriceCents * l.qty)}
+                  {formatCentsAsCurrency(l.unitPriceCents * l.qty)}
                 </div>
               </div>
               <div className="text-sm w-14 text-right self-center opacity-80">×{l.qty}</div>
@@ -487,10 +417,10 @@ export default function RegisterPage() {
       </section>
       <aside className="col-span-4 bg-slate-900 rounded-2xl p-4 flex flex-col">
         <h2 className="text-lg font-semibold mb-4">Totals</h2>
-        <Row label="Subtotal" value={formatMoney(subtotal)} />
-        <Row label="Tax" value={formatMoney(taxCents)} />
+        <Row label="Subtotal" value={formatCentsAsCurrency(subtotal)} />
+        <Row label="Tax" value={formatCentsAsCurrency(taxCents)} />
         <div className="border-t border-slate-800 my-2" />
-        <Row label="Total" value={formatMoney(total)} large />
+        <Row label="Total" value={formatCentsAsCurrency(total)} large />
         <div className="mt-auto grid grid-cols-2 gap-3">
           <button
             disabled={lines.length === 0 || status === 'checkout' || status === 'paid'}

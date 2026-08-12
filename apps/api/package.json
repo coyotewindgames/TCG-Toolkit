@@ -15,12 +15,12 @@
     "db:migrate": "tsx --env-file=../../.env --env-file=.env src/db/migrate.ts",
     "db:migrate:render": "tsx src/db/migrate.ts",
     "worker": "tsx --env-file=../../.env --env-file=.env src/jobs/worker.ts",
-    "backfill:sku-barcodes": "tsx --env-file=../../.env --env-file=.env src/scripts/backfill-sku-barcodes.ts",
+    "backfill:sku-barcodes": "tsx --env-file=../../.env --env-file=.env src/scripts/one-off/backfill-sku-barcodes.ts",
     "seed:configs": "tsx --env-file=../../.env --env-file=.env src/scripts/seed-configs-from-env.ts",
     "bootstrap:owner": "tsx --env-file=../../.env --env-file=.env src/scripts/bootstrap-owner.ts",
     "set:password": "tsx --env-file=../../.env --env-file=.env src/scripts/set-password.ts",
-    "diagnose:card": "tsx --env-file=../../.env --env-file=.env src/scripts/diagnose-card.ts",
-    "backfill:pkmnprices": "tsx --env-file=../../.env --env-file=.env src/scripts/backfill-pkmnprices-ids.ts"
+    "diagnose:card": "tsx --env-file=../../.env --env-file=.env src/scripts/one-off/diagnose-card.ts",
+    "backfill:pkmnprices": "tsx --env-file=../../.env --env-file=.env src/scripts/one-off/backfill-pkmnprices-ids.ts"
   },
   "dependencies": {
     "@pkmnprices/sdk": "^1.0.3",
