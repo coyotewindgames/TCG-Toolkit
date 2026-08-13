@@ -20,8 +20,11 @@ import { asyncHandler } from '../../common/async-handler';
 import { BadRequest } from '../../common/http-errors';
 import type { CurrencyFilter } from '@pkmnprices/sdk';
 import {
+  aggregateGradedMedianCents,
+  gradingCompanyToGrader,
   pickBestTcgplayerPrice,
   type PkmnpricesCardSummary,
+  type PkmnpricesEbaySale,
   type PkmnpricesPrice,
 } from '../../integrations/pkmnprices/client';
 import { requireAuth } from '../auth/middleware';
@@ -52,7 +55,27 @@ interface PriceRowShape {
   lastUpdatedAt: string | null;
 }
 
+interface GradedSaleShape {
+  priceCents: number;
+  soldAt: string;
+  title: string;
+  listingUrl: string;
+}
+
+interface GradedPriceShape {
+  cardId: string;
+  company: string;
+  grade: string;
+  medianCents: number | null;
+  sampleSize: number;
+  sales: GradedSaleShape[];
+}
+
 // --- Query schemas -------------------------------------------------------
+
+// Mirrors `card_grading_company` enum in the DB schema so a graded SKU's
+// company value round-trips straight through this endpoint.
+const GRADING_COMPANIES = ['psa', 'cgc', 'beckett', 'tag', 'sgc', 'other'] as const;
 
 const SearchQuery = z.object({
   q: z.string().trim().min(1).max(200).optional(),
@@ -74,15 +97,30 @@ const SetsQuery = z.object({
   q: z.string().trim().min(1).max(120).optional(),
 });
 
+const GradedPriceQuery = z.object({
+  company: z.enum(GRADING_COMPANIES),
+  grade: z.string().trim().min(1).max(16),
+});
+
 // --- Caches (module-scoped so they survive container rebuilds) -----------
 
 const searchCache = new LRUCache<string, { body: unknown; expiresAt: number }>({ max: 500 });
 const setsCache = new LRUCache<string, { body: unknown; expiresAt: number }>({ max: 100 });
 const pricesCache = new LRUCache<string, { body: unknown; expiresAt: number }>({ max: 500 });
+// Graded lookups cost 1 credit per eBay sale returned (up to 40/card+grade),
+// far pricier than the ungraded market endpoint, so this cache gets a much
+// longer TTL — an operator re-checking the same slab grade a few times in an
+// afternoon shouldn't burn the credit budget again.
+const gradedPriceCache = new LRUCache<string, { body: unknown; expiresAt: number }>({ max: 300 });
 
 const SEARCH_TTL_MS = 15 * 60_000;
 const SETS_TTL_MS = 24 * 60 * 60_000;
 const PRICES_TTL_MS = 5 * 60_000;
+const GRADED_PRICE_TTL_MS = 60 * 60_000;
+/** Rolling window and minimum sample for trusting a graded eBay median (mirrors pricing-router.ts). */
+const GRADED_WINDOW_DAYS = 90;
+const GRADED_MIN_SAMPLE = 3;
+const GRADED_MAX_ITEMS = 40;
 
 function cacheGet<T>(cache: LRUCache<string, { body: unknown; expiresAt: number }>, key: string): T | null {
   const hit = cache.get(key);
@@ -240,6 +278,64 @@ export function pkmnpricesRouter(c: Container): Router {
     }),
   );
 
+  // Live graded-slab pricing for a single (card, grading company, grade)
+  // combination. Slabs are a first-class option next to raw/ungraded cards:
+  // the card search/detail UI can offer a grading-company + grade dropdown
+  // and pull a real median straight from recent eBay sold comps instead of
+  // sending the operator to manually search eBay. This is the same
+  // methodology the nightly graded-sync cron uses to price graded SKUs
+  // (see PricingRouter.fetchFromBestProvider), just on-demand.
+  //
+  // Deliberately NOT bundled into `/cards/:id/prices`: eBay listings cost 1
+  // credit per item returned (up to 40/lookup), so this only runs when the
+  // operator actually picks a specific grading company + grade, and results
+  // are cached for an hour to absorb repeat lookups within a shift.
+  r.get(
+    '/cards/:id/graded-price',
+    asyncHandler(async (req, res) => {
+      const cardId = Number(req.params.id);
+      if (!Number.isFinite(cardId) || cardId <= 0) throw BadRequest('invalid card id');
+
+      const parsed = GradedPriceQuery.safeParse(req.query);
+      if (!parsed.success) throw BadRequest('invalid graded price params', parsed.error.flatten());
+      const { company, grade } = parsed.data;
+
+      const status = await c.configs.getPkmnpricesStatus(req.user!.storeId);
+      if (!status.configured || !status.hasKey) {
+        throw BadRequest('PkmnPrices.com is not configured for this store.');
+      }
+
+      const cacheKey = `${req.user!.storeId}|graded|${cardId}|${company}|${grade}`;
+      const cached = cacheGet<GradedPriceShape>(gradedPriceCache, cacheKey);
+      if (cached) {
+        res.json(cached);
+        return;
+      }
+
+      const client = await c.pkmnpricesFor(req.user!.storeId);
+      const sales = await client.getGradedEbaySales(cardId, {
+        grader: gradingCompanyToGrader(company),
+        grade,
+        sinceDays: GRADED_WINDOW_DAYS,
+        maxItems: GRADED_MAX_ITEMS,
+      });
+      const agg = aggregateGradedMedianCents(sales, { minSample: GRADED_MIN_SAMPLE });
+
+      const body: GradedPriceShape = {
+        cardId: String(cardId),
+        company,
+        grade,
+        medianCents: agg?.medianCents ?? null,
+        sampleSize: agg?.sampleSize ?? sales.length,
+        // Cap the raw comps sent to the client to a handful for display —
+        // the median + sample size is the number that matters for payout.
+        sales: sales.slice(0, 8).map(mapEbaySaleToShape),
+      };
+      cacheSet(gradedPriceCache, cacheKey, body, GRADED_PRICE_TTL_MS);
+      res.json(body);
+    }),
+  );
+
   return r;
 }
 
@@ -257,6 +353,15 @@ function mapCardToTcgapiShape(c: PkmnpricesCardSummary): TcgapiCardShape {
     artist: c.artist ?? null,
     gameSlug: 'pokemon',
     gameName: 'Pokémon',
+  };
+}
+
+function mapEbaySaleToShape(s: PkmnpricesEbaySale): GradedSaleShape {
+  return {
+    priceCents: s.priceCents,
+    soldAt: s.soldAt,
+    title: s.title,
+    listingUrl: s.listingUrl,
   };
 }
 

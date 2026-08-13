@@ -396,6 +396,24 @@ function medianOf(values: number[]): number {
     : sorted[mid];
 }
 
+/** SKU grading-company enum → PriceCharting/eBay grader filter string. */
+export function gradingCompanyToGrader(company: string): string {
+  switch (company.toLowerCase()) {
+    case 'psa':
+      return 'PSA';
+    case 'cgc':
+      return 'CGC';
+    case 'beckett':
+      return 'BGS';
+    case 'sgc':
+      return 'SGC';
+    case 'tag':
+      return 'TAG';
+    default:
+      return company.toUpperCase();
+  }
+}
+
 /**
  * From a `prices` array, pick the row that best matches the SKU's condition
  * and printing. Preference order:

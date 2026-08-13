@@ -14,6 +14,8 @@ export const queryKeys = {
     search: pkmnPricesSearchQueryKey,
     artistSearch: (term: string) => ['transactions', 'trade', 'artistSearch', term] as const,
     prices: (cardId: string | null | undefined) => ['transactions', 'trade', 'prices', cardId ?? null] as const,
+    gradedPrice: (cardId: string | null | undefined, company: string, grade: string) =>
+      ['transactions', 'trade', 'gradedPrice', cardId ?? null, company, grade] as const,
   },
   sell: {
     search: (query: string) => ['transactions', 'sell', 'search', query.trim()] as const,

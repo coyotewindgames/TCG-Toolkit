@@ -77,7 +77,7 @@ export default function TradeDetailDrawer({ trade }: TradeDetailDrawerProps) {
                   </div>
                   <div className="mt-3 rounded-lg border border-track bg-navy/60 p-2 text-xs text-ink-muted">
                     <p>
-                      Market:{' '}
+                      {trade.isGraded ? 'Graded median:' : 'Market:'}{' '}
                       <span className="font-mono">{formatCentsAsCurrency(trade.selectedMarketPriceCents)}</span>
                     </p>
                     <p>
@@ -96,20 +96,24 @@ export default function TradeDetailDrawer({ trade }: TradeDetailDrawerProps) {
                 </div>
 
                 <div className="min-w-0 flex-1 space-y-3">
-                  <Row>
-                    <EnumSelect
-                      label="Condition"
-                      value={trade.condition}
-                      options={trade.conditionOptions}
-                      onChange={trade.setCondition}
-                    />
-                    <EnumSelect
-                      label="Printing"
-                      value={trade.printing}
-                      options={trade.printingOptions}
-                      onChange={trade.setPrinting}
-                    />
-                  </Row>
+                  <GradedCardSection trade={trade} />
+
+                  {!trade.isGraded && (
+                    <Row>
+                      <EnumSelect
+                        label="Condition"
+                        value={trade.condition}
+                        options={trade.conditionOptions}
+                        onChange={trade.setCondition}
+                      />
+                      <EnumSelect
+                        label="Printing"
+                        value={trade.printing}
+                        options={trade.printingOptions}
+                        onChange={trade.setPrinting}
+                      />
+                    </Row>
+                  )}
                   <Row>
                     <EnumSelect
                       label="Language"
@@ -180,6 +184,113 @@ export default function TradeDetailDrawer({ trade }: TradeDetailDrawerProps) {
 
 function Row({ children }: { children: React.ReactNode }) {
   return <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">{children}</div>;
+}
+
+/**
+ * "Slabs" as a first-class option: lets the operator mark a card as a graded
+ * slab, pick a grading company + grade, and see a live median pulled from
+ * recent eBay sold comps (via `GET /pkmnprices/cards/:id/graded-price`)
+ * instead of manually searching eBay. Selecting a grade also drives the
+ * suggested payout for the queued line item.
+ */
+function GradedCardSection({ trade }: { trade: TradeModeTransactionController }) {
+  const ebayGradedUrl = trade.isGraded
+    ? `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(
+        `${trade.selectedCard?.name ?? ''} ${trade.gradingCompany} ${trade.grade}`,
+      )}&LH_Complete=1&LH_Sold=1`
+    : null;
+
+  return (
+    <div className="space-y-3">
+      <label className="flex cursor-pointer select-none items-center gap-2 text-sm text-ink-muted">
+        <input
+          type="checkbox"
+          checked={trade.isGraded}
+          onChange={(event) => trade.setIsGraded(event.target.checked)}
+          className="rounded accent-brand"
+        />
+        Graded card / slab (PSA, CGC, Beckett, TAG, SGC)
+      </label>
+
+      {trade.isGraded && (
+        <div className="space-y-3 rounded-xl border border-border bg-navy p-3">
+          <Row>
+            <EnumSelect
+              label="Grading company"
+              value={trade.gradingCompany}
+              options={trade.gradingCompanyOptions}
+              onChange={(next) => {
+                trade.setGradingCompany(next);
+                trade.setGrade('10');
+              }}
+            />
+            <label className="block text-xs">
+              <span className="mb-1 block font-medium uppercase tracking-wide text-ink-muted">Grade</span>
+              <select
+                value={trade.grade}
+                onChange={(event) => trade.setGrade(event.target.value)}
+                className="min-h-11 w-full rounded-lg border border-border bg-navy px-3 text-sm outline-none focus:border-brand"
+              >
+                {trade.gradeOptions.map((g) => (
+                  <option key={g} value={g}>
+                    {trade.gradingCompany.toUpperCase()} {g}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </Row>
+
+          <TextField
+            label="Cert number (optional)"
+            value={trade.certNumber}
+            onChange={trade.setCertNumber}
+            placeholder="e.g. 12345678"
+          />
+
+          <div className="rounded-lg border border-border bg-track px-3 py-2">
+            {trade.gradedPriceLoading ? (
+              <p className="text-xs text-ink-dim">
+                Checking recent {trade.gradingCompany.toUpperCase()} {trade.grade} sales…
+              </p>
+            ) : trade.gradedPriceError ? (
+              <p className="text-xs text-rose-300">Couldn't fetch graded pricing — use Override value.</p>
+            ) : trade.gradedPrice?.medianCents != null ? (
+              <p className="text-sm text-ink">
+                <span className="font-semibold">{formatCentsAsCurrency(trade.gradedPrice.medianCents)}</span>{' '}
+                <span className="text-xs text-ink-dim">
+                  median · {trade.gradedPrice.sampleSize} recent {trade.gradingCompany.toUpperCase()} {trade.grade} sale
+                  {trade.gradedPrice.sampleSize === 1 ? '' : 's'} (90d)
+                </span>
+              </p>
+            ) : (
+              <p className="text-xs text-ink-dim">
+                Not enough recent {trade.gradingCompany.toUpperCase()} {trade.grade} sales to suggest a price — use
+                Override value.
+              </p>
+            )}
+          </div>
+
+          {ebayGradedUrl && (
+            <a
+              href={ebayGradedUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-xs text-blue-400 underline underline-offset-2 hover:text-blue-300"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden>
+                <circle cx="11" cy="11" r="8" />
+                <path d="m21 21-4.35-4.35" />
+              </svg>
+              View {trade.gradingCompany.toUpperCase()} {trade.grade} recently sold on eBay
+            </a>
+          )}
+          <p className="text-[11px] text-ink-dim">
+            Graded prices vary by pop report — use Override value to fine-tune the exact payout.
+          </p>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function EnumSelect<T extends string>({

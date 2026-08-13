@@ -67,8 +67,14 @@ export default function TradeQueuePanel({ trade, openOnMobile, onCloseMobile }: 
                           {item.name}
                         </p>
                         <p className="text-[11px] text-ink-muted">
-                          {item.condition} • {item.printing} • {item.language} • Qty {item.quantity}
+                          {item.gradingCompany
+                            ? `${item.gradingCompany.toUpperCase()} ${item.grade}`
+                            : item.condition}{' '}
+                          • {item.printing} • {item.language} • Qty {item.quantity}
                         </p>
+                        {item.certNumber && (
+                          <p className="text-[11px] text-ink-dim">Cert #{item.certNumber}</p>
+                        )}
                         <p className="mt-1 font-mono text-xs text-brand">
                           {formatCentsAsCurrency(item.estimatedUnitValueCents * item.quantity)}
                         </p>

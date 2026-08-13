@@ -55,6 +55,24 @@ const NUMBER_QUERY_RE = /^(?=.*\d)[a-z0-9#\-\s]+(\s*\/\s*[a-z0-9#\-\s]+)?$/i;
 
 type PricesResponse = { cardId: string; prices: CatalogPriceRow[] };
 
+interface GradedSaleRow {
+  priceCents: number;
+  soldAt: string;
+  title: string;
+  listingUrl: string;
+}
+
+/** Response from GET /pkmnprices/cards/:id/graded-price — a live median
+ * pulled from recent eBay sold comps for one (grading company, grade). */
+type GradedPriceResponse = {
+  cardId: string;
+  company: string;
+  grade: string;
+  medianCents: number | null;
+  sampleSize: number;
+  sales: GradedSaleRow[];
+};
+
 const GRADING_COMPANIES = ['PSA', 'CGC', 'Beckett', 'TAG'] as const;
 type GradingCompany = (typeof GRADING_COMPANIES)[number];
 
@@ -141,6 +159,19 @@ function suggestedUnitValueCents(
   const base = candidates.length ? Math.min(...candidates) : 0;
   void condition;
   const payoutBase = Math.max(0, Math.floor(base * TRADE_PAYOUT_MULTIPLIERS[payout]));
+  return Math.max(0, Math.floor(payoutBase * (1 + payoutModifierPercent / 100)));
+}
+
+/** Same payout math as `suggestedUnitValueCents`, but for a graded slab's
+ * live eBay median (there's no condition/printing axis once a card is
+ * slabbed — the grade supersedes it). */
+function suggestedGradedUnitValueCents(
+  medianCents: number | null | undefined,
+  payout: PayoutKind,
+  payoutModifierPercent: number,
+): number {
+  if (!medianCents || medianCents <= 0) return 0;
+  const payoutBase = Math.max(0, Math.floor(medianCents * TRADE_PAYOUT_MULTIPLIERS[payout]));
   return Math.max(0, Math.floor(payoutBase * (1 + payoutModifierPercent / 100)));
 }
 
@@ -500,6 +531,21 @@ function IntakeDetailBody({
     staleTime: 5 * 60_000,
   });
 
+  // Live median from recent eBay sold comps for the selected grading company
+  // + grade. Only fetched once the operator opts into "Graded card" and picks
+  // a grade — the upstream endpoint costs 1 credit per sale returned, so we
+  // don't want to eagerly fetch every grade option.
+  const gradedPrice = useQuery<GradedPriceResponse>({
+    queryKey: ['tcgapi.gradedPrice', activeCard.id, gradingCompany, gradedGrade],
+    queryFn: () =>
+      api.get<GradedPriceResponse>(
+        `/pkmnprices/cards/${encodeURIComponent(activeCard.id)}/graded-price?company=${encodeURIComponent(gradingCompany.toLowerCase())}&grade=${encodeURIComponent(gradedGrade)}`,
+      ),
+    enabled: isGraded && !!activeCard.id,
+    staleTime: 30 * 60_000,
+    retry: false,
+  });
+
   const variants = useQuery<CatalogSearchResponse>({
     queryKey: ['tcgapi.variants', activeCard.setId, activeCard.name],
     queryFn: () => {
@@ -528,14 +574,16 @@ function IntakeDetailBody({
 
   const suggested = useMemo(
     () =>
-      suggestedUnitValueCents(
-        prices.data?.prices,
-        printing,
-        condition,
-        payout,
-        Number(payoutModifierPercent) || 0,
-      ),
-    [prices.data, printing, condition, payout, payoutModifierPercent],
+      isGraded
+        ? suggestedGradedUnitValueCents(gradedPrice.data?.medianCents, payout, Number(payoutModifierPercent) || 0)
+        : suggestedUnitValueCents(
+            prices.data?.prices,
+            printing,
+            condition,
+            payout,
+            Number(payoutModifierPercent) || 0,
+          ),
+    [isGraded, gradedPrice.data, prices.data, printing, condition, payout, payoutModifierPercent],
   );
 
   const payoutModifier = useMemo(() => {
@@ -556,7 +604,9 @@ function IntakeDetailBody({
     () => pickPricingRow(prices.data?.prices, printing),
     [prices.data?.prices, printing],
   );
-  const selectedMarketPriceCents = selectedPriceRow?.marketCents ?? null;
+  const selectedMarketPriceCents = isGraded
+    ? gradedPrice.data?.medianCents ?? null
+    : selectedPriceRow?.marketCents ?? null;
 
   const itemsTotalPayoutCents = useMemo(
     () => queuedItems.reduce((sum, item) => sum + item.estimatedUnitValueCents * item.quantity, 0),
@@ -855,6 +905,27 @@ function IntakeDetailBody({
                 className="input"
               />
             </TradeInField>
+
+            <div className="rounded-lg border border-border bg-track px-3 py-2">
+              {gradedPrice.isLoading ? (
+                <p className="text-xs text-ink-dim">Checking recent {gradingCompany} {gradedGrade} sales…</p>
+              ) : gradedPrice.isError ? (
+                <p className="text-xs text-red-400">Couldn't fetch graded pricing — use Override unit value.</p>
+              ) : gradedPrice.data?.medianCents != null ? (
+                <p className="text-sm text-ink">
+                  <span className="font-semibold">{formatCentsAsCurrency(gradedPrice.data.medianCents)}</span>{' '}
+                  <span className="text-xs text-ink-dim">
+                    median · {gradedPrice.data.sampleSize} recent {gradingCompany} {gradedGrade} sale
+                    {gradedPrice.data.sampleSize === 1 ? '' : 's'} (90d)
+                  </span>
+                </p>
+              ) : (
+                <p className="text-xs text-ink-dim">
+                  Not enough recent {gradingCompany} {gradedGrade} sales to suggest a price — use Override unit value.
+                </p>
+              )}
+            </div>
+
             {ebayGradedUrl && (
               <a
                 href={ebayGradedUrl}
@@ -867,7 +938,7 @@ function IntakeDetailBody({
               </a>
             )}
             <p className="text-[11px] text-ink-dim">
-              Graded card prices vary by pop report — use Override unit value to set the exact payout.
+              Graded prices vary by pop report — use Override unit value to fine-tune the exact payout.
             </p>
           </div>
         )}

@@ -17,6 +17,7 @@ import { getLogger } from '../../common/logger';
 import { schema, type Database } from '../../db/client';
 import {
   aggregateGradedMedianCents,
+  gradingCompanyToGrader,
   pickBestTcgplayerPrice,
   PkmnPricesClient,
 } from '../../integrations/pkmnprices/client';
@@ -233,24 +234,6 @@ interface ProviderPrice {
 /** Rolling window and minimum sample for trusting a graded eBay median. */
 const GRADED_WINDOW_DAYS = 90;
 const GRADED_MIN_SAMPLE = 3;
-
-/** SKU grading-company enum → PriceCharting/eBay grader filter string. */
-function gradingCompanyToGrader(company: string): string {
-  switch (company) {
-    case 'psa':
-      return 'PSA';
-    case 'cgc':
-      return 'CGC';
-    case 'beckett':
-      return 'BGS';
-    case 'sgc':
-      return 'SGC';
-    case 'tag':
-      return 'TAG';
-    default:
-      return company.toUpperCase();
-  }
-}
 
 /** In-house condition enum → TCGplayer-style label used in the price feed. */
 function conditionEnumToLabel(condition: string | null): string | undefined {

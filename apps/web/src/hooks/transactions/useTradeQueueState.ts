@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import type { CardCondition, CardLanguage, CardPrinting } from '@tcg/shared';
+import type { CardCondition, CardGradingCompany, CardLanguage, CardPrinting } from '@tcg/shared';
 
 export interface TradeQueueItem {
   id: string;
@@ -10,6 +10,9 @@ export interface TradeQueueItem {
   condition: CardCondition;
   printing: CardPrinting;
   language: CardLanguage;
+  gradingCompany?: CardGradingCompany;
+  grade?: string;
+  certNumber?: string;
   quantity: number;
   payoutModifierPercent: number;
   overrideValueCents?: number;
@@ -23,6 +26,8 @@ function sameQueueIdentity(a: TradeQueueItem, b: TradeQueueItem): boolean {
     a.condition === b.condition &&
     a.printing === b.printing &&
     a.language === b.language &&
+    (a.gradingCompany ?? null) === (b.gradingCompany ?? null) &&
+    (a.grade ?? null) === (b.grade ?? null) &&
     a.payoutModifierPercent === b.payoutModifierPercent &&
     (a.overrideValueCents ?? null) === (b.overrideValueCents ?? null)
   );

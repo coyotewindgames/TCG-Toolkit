@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type {
   CardCondition,
+  CardGradingCompany,
   CardLanguage,
   CardPrinting,
   CatalogCard,
@@ -12,6 +13,7 @@ import type {
 } from '@tcg/shared';
 import {
   CARD_CONDITIONS,
+  CARD_GRADING_COMPANIES,
   CARD_LANGUAGES,
   CARD_PRINTINGS,
   CATALOG_LANGUAGE_OPTIONS,
@@ -23,7 +25,8 @@ import type { TransactionMode } from '../../lib/transactions';
 import { useTransactionSearchController } from './useTransactionSearchController';
 import { useTradeQueueState, type TradeQueueItem } from './useTradeQueueState';
 import { useTradeCardSelection } from './useTradeCardSelection';
-import { useTradePayoutCalculation } from './useTradePayoutCalculation';
+import { GRADE_OPTIONS, suggestedGradedUnitValueCents, useTradePayoutCalculation } from './useTradePayoutCalculation';
+import { useTradeGradedPrice, type TradeGradedPriceResponse } from './useTradeGradedPrice';
 import { useTradeSearchQuery } from './useTradeSearchQuery';
 import { openOrDownloadBlob } from '../../lib/downloadBlob';
 
@@ -97,6 +100,19 @@ export interface TradeModeTransactionController {
   setPayoutModifierPercent: (value: string) => void;
   overrideValue: string;
   setOverrideValue: (value: string) => void;
+  isGraded: boolean;
+  setIsGraded: (value: boolean) => void;
+  gradingCompany: CardGradingCompany;
+  setGradingCompany: (value: CardGradingCompany) => void;
+  gradingCompanyOptions: readonly CardGradingCompany[];
+  grade: string;
+  setGrade: (value: string) => void;
+  gradeOptions: string[];
+  certNumber: string;
+  setCertNumber: (value: string) => void;
+  gradedPrice: TradeGradedPriceResponse | undefined;
+  gradedPriceLoading: boolean;
+  gradedPriceError: boolean;
   tradeSubmitMsg: string | null;
   tradeSubmitErr: string | null;
   labelInfo: { skuIds: { skuId: string; quantity: number }[]; cardName: string } | null;
@@ -132,6 +148,25 @@ export function useTradeTransaction(active: boolean, mode: TransactionMode): Tra
   const queueState = useTradeQueueState();
   const cardSelection = useTradeCardSelection(active);
   const payoutState = useTradePayoutCalculation(cardSelection.selectedCardPrices);
+  const gradedPriceQuery = useTradeGradedPrice({
+    cardId: cardSelection.selectedCard?.id,
+    active,
+    isGraded: payoutState.isGraded,
+    company: payoutState.gradingCompany,
+    grade: payoutState.grade,
+  });
+
+  // Once a card is marked as a graded slab, the live eBay median replaces the
+  // raw ungraded TCGplayer price for both the suggested payout and the
+  // market-price signal stored with the SKU.
+  const effectiveMarketPriceCents = payoutState.isGraded
+    ? gradedPriceQuery.data?.medianCents ?? null
+    : payoutState.selectedMarketPriceCents;
+  const effectiveSuggestedTradeUnitCents = payoutState.isGraded
+    ? suggestedGradedUnitValueCents(gradedPriceQuery.data?.medianCents, payoutState.payout, payoutState.payoutModifier)
+    : payoutState.suggestedTradeUnitCents;
+  const effectivePendingLineTotalCents =
+    (payoutState.overrideCents ?? effectiveSuggestedTradeUnitCents) * payoutState.quantity;
 
   const mainSearch = useTransactionSearchController({
     initialQuery: '',
@@ -175,6 +210,9 @@ export function useTradeTransaction(active: boolean, mode: TransactionMode): Tra
           condition: item.condition,
           printing: item.printing,
           language: item.language,
+          gradingCompany: item.gradingCompany,
+          grade: item.grade,
+          certNumber: item.certNumber,
           quantity: item.quantity,
           payoutModifierPercent: item.payoutModifierPercent,
           overrideValueCents: item.overrideValueCents,
@@ -237,6 +275,10 @@ export function useTradeTransaction(active: boolean, mode: TransactionMode): Tra
     payoutState.setQuantity(1);
     payoutState.setPayoutModifierPercent('0');
     payoutState.setOverrideValue('');
+    payoutState.setIsGraded(false);
+    payoutState.setGradingCompany('psa');
+    payoutState.setGrade('10');
+    payoutState.setCertNumber('');
     setTradeSubmitMsg(null);
     setTradeSubmitErr(null);
     setLabelInfo(null);
@@ -256,17 +298,21 @@ export function useTradeTransaction(active: boolean, mode: TransactionMode): Tra
       condition: payoutState.condition,
       printing: payoutState.printing,
       language: payoutState.cardLanguage,
+      gradingCompany: payoutState.isGraded ? payoutState.gradingCompany : undefined,
+      grade: payoutState.isGraded ? payoutState.grade : undefined,
+      certNumber: payoutState.isGraded && payoutState.certNumber.trim() ? payoutState.certNumber.trim() : undefined,
       quantity: payoutState.quantity,
       payoutModifierPercent: payoutState.payoutModifier,
       overrideValueCents: payoutState.overrideCents ?? undefined,
-      marketPriceCents: payoutState.selectedMarketPriceCents,
-      estimatedUnitValueCents: payoutState.overrideCents ?? payoutState.suggestedTradeUnitCents,
+      marketPriceCents: effectiveMarketPriceCents,
+      estimatedUnitValueCents: payoutState.overrideCents ?? effectiveSuggestedTradeUnitCents,
     };
 
     queueState.addItem(next);
     payoutState.setQuantity(1);
     payoutState.setOverrideValue('');
     payoutState.setPayoutModifierPercent('0');
+    payoutState.setCertNumber('');
     setTradeSubmitMsg(null);
     setTradeSubmitErr(null);
     setLabelErr(null);
@@ -274,6 +320,10 @@ export function useTradeTransaction(active: boolean, mode: TransactionMode): Tra
 
   function clearTradeSelection() {
     cardSelection.selectCard(null);
+    payoutState.setIsGraded(false);
+    payoutState.setGradingCompany('psa');
+    payoutState.setGrade('10');
+    payoutState.setCertNumber('');
     setTradeSubmitMsg(null);
     setTradeSubmitErr(null);
     setLabelInfo(null);
@@ -342,9 +392,9 @@ export function useTradeTransaction(active: boolean, mode: TransactionMode): Tra
     setArtistFilter,
     resolvedArtistName: tradeSearch.resolvedArtistName,
     selectedCardPrices: cardSelection.selectedCardPrices,
-    selectedMarketPriceCents: payoutState.selectedMarketPriceCents,
-    suggestedTradeUnitCents: payoutState.suggestedTradeUnitCents,
-    pendingLineTotalCents: payoutState.pendingLineTotalCents,
+    selectedMarketPriceCents: effectiveMarketPriceCents,
+    suggestedTradeUnitCents: effectiveSuggestedTradeUnitCents,
+    pendingLineTotalCents: effectivePendingLineTotalCents,
     queuedTradeTotalCents: queueState.totalCents,
     queuedItems: queueState.items,
     condition: payoutState.condition,
@@ -361,6 +411,19 @@ export function useTradeTransaction(active: boolean, mode: TransactionMode): Tra
     setPayoutModifierPercent: payoutState.setPayoutModifierPercent,
     overrideValue: payoutState.overrideValue,
     setOverrideValue: payoutState.setOverrideValue,
+    isGraded: payoutState.isGraded,
+    setIsGraded: payoutState.setIsGraded,
+    gradingCompany: payoutState.gradingCompany,
+    setGradingCompany: payoutState.setGradingCompany,
+    gradingCompanyOptions: CARD_GRADING_COMPANIES,
+    grade: payoutState.grade,
+    setGrade: payoutState.setGrade,
+    gradeOptions: GRADE_OPTIONS[payoutState.gradingCompany],
+    certNumber: payoutState.certNumber,
+    setCertNumber: payoutState.setCertNumber,
+    gradedPrice: gradedPriceQuery.data,
+    gradedPriceLoading: gradedPriceQuery.isLoading,
+    gradedPriceError: gradedPriceQuery.isError,
     tradeSubmitMsg,
     tradeSubmitErr,
     labelInfo,
