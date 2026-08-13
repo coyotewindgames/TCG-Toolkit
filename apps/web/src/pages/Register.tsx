@@ -265,14 +265,14 @@ export default function RegisterPage() {
 
   return (
     <div className="grid grid-cols-12 gap-4 p-4 min-h-screen">
-      <section className="col-span-8 bg-slate-900 rounded-2xl p-4">
+      <section className="col-span-8 bg-card rounded-2xl p-4">
         <header className="flex items-center justify-between mb-4">
           <h1 className="text-2xl font-bold">Register</h1>
           <div className="text-sm opacity-70">Scan a label to add a card</div>
         </header>
         {remoteScanUrl && (
-          <div className="mb-3 rounded-lg border border-slate-800 bg-slate-950 p-4">
-            <p className="text-xs text-slate-400 mb-2">Scan this QR on your phone/scanner device:</p>
+          <div className="mb-3 rounded-lg border border-track bg-navy p-4">
+            <p className="text-xs text-ink-muted mb-2">Scan this QR on your phone/scanner device:</p>
             <div className="flex items-start justify-center">
               <div className="w-48 h-48 md:w-56 md:h-56 rounded bg-white p-2 shrink-0 flex items-center justify-center">
                 {remoteScanQr ? (
@@ -282,7 +282,7 @@ export default function RegisterPage() {
                     className="w-full h-full object-contain"
                   />
                 ) : (
-                  <span className="text-[10px] text-slate-500">QR unavailable</span>
+                  <span className="text-[10px] text-ink-dim">QR unavailable</span>
                 )}
               </div>
             </div>
@@ -294,8 +294,8 @@ export default function RegisterPage() {
             reachable URL (for example your deployed web URL or LAN IP host).
           </div>
         )}
-        <div className="mb-3 rounded-lg border border-slate-800 bg-slate-950 p-3 space-y-2">
-          <p className="text-xs text-slate-400">Search card name and add to cart without scanning</p>
+        <div className="mb-3 rounded-lg border border-track bg-navy p-3 space-y-2">
+          <p className="text-xs text-ink-muted">Search card name and add to cart without scanning</p>
           <input
             value={cardQuery}
             onChange={(e) => {
@@ -303,24 +303,24 @@ export default function RegisterPage() {
               setSelectedProduct(null);
             }}
             placeholder="Search by card name..."
-            className="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm outline-none focus:border-emerald-500"
+            className="w-full rounded-md border border-border bg-card px-3 py-2 text-sm outline-none focus:border-brand"
           />
-          {searchingCards && <p className="text-xs text-slate-400">Searching cards...</p>}
+          {searchingCards && <p className="text-xs text-ink-muted">Searching cards...</p>}
           {cardSearchError && <p className="text-xs text-rose-300">{cardSearchError}</p>}
           {!searchingCards && cardQuery.trim().length >= 2 && cardResults.length === 0 && !cardSearchError && (
-            <p className="text-xs text-slate-400">No matching cards found.</p>
+            <p className="text-xs text-ink-muted">No matching cards found.</p>
           )}
 
           {cardResults.length > 0 && (
-            <ul className="max-h-56 overflow-auto grid grid-cols-2 gap-2 rounded-md border border-slate-800 p-2 sm:grid-cols-3">
+            <ul className="max-h-56 overflow-auto grid grid-cols-2 gap-2 rounded-md border border-track p-2 sm:grid-cols-3">
               {cardResults.map((p) => (
                 <li key={p.id}>
                   <button
                     type="button"
                     onClick={() => void loadProductSkus(p)}
-                    className="w-full overflow-hidden rounded-xl border border-slate-800 bg-slate-900 text-left transition hover:border-emerald-500/60 hover:bg-slate-900/80"
+                    className="w-full overflow-hidden rounded-xl border border-track bg-card text-left transition hover:border-brand/60 hover:bg-card/80"
                   >
-                    <div className="h-24 bg-slate-800 flex items-center justify-center sm:h-28">
+                    <div className="h-24 bg-track flex items-center justify-center sm:h-28">
                       {p.imageSourceUrl ? (
                         <img
                           src={p.imageSourceUrl}
@@ -329,15 +329,15 @@ export default function RegisterPage() {
                           loading="lazy"
                         />
                       ) : (
-                        <span className="text-xs text-slate-500">No image</span>
+                        <span className="text-xs text-ink-dim">No image</span>
                       )}
                     </div>
                     <div className="space-y-1 p-2">
                       <div className="text-xs font-semibold leading-tight">{p.name}</div>
-                      <div className="text-xs text-slate-400">
+                      <div className="text-xs text-ink-muted">
                         {[p.setName, p.cardNumber].filter(Boolean).join(' • ') || 'Unknown set'}
                       </div>
-                      <div className="text-sm font-black tracking-tight text-emerald-300">
+                      <div className="text-sm font-black tracking-tight text-brand">
                         {formatCentsAsCurrency(p.minSellPriceCents ?? p.maxSellPriceCents ?? 0)}
                       </div>
                     </div>
@@ -348,16 +348,16 @@ export default function RegisterPage() {
           )}
 
           {selectedProduct && (
-            <div className="rounded-md border border-slate-800 bg-slate-900/60 p-2 space-y-2">
-              <p className="text-xs text-slate-300">SKUs for {selectedProduct.name}</p>
-              {loadingProductSkus && <p className="text-xs text-slate-400">Loading SKUs...</p>}
+            <div className="rounded-md border border-track bg-card/60 p-2 space-y-2">
+              <p className="text-xs text-ink-muted">SKUs for {selectedProduct.name}</p>
+              {loadingProductSkus && <p className="text-xs text-ink-muted">Loading SKUs...</p>}
               {productSkuError && <p className="text-xs text-rose-300">{productSkuError}</p>}
               {!loadingProductSkus && !productSkuError && selectedProductSkus.length === 0 && (
-                <p className="text-xs text-slate-400">No SKUs available for this card.</p>
+                <p className="text-xs text-ink-muted">No SKUs available for this card.</p>
               )}
               {selectedProductSkus.map((sku) => (
-                <div key={sku.id} className="flex items-center justify-between gap-2 rounded border border-slate-800 bg-slate-950 px-2 py-1">
-                  <div className="text-xs text-slate-300">
+                <div key={sku.id} className="flex items-center justify-between gap-2 rounded border border-track bg-navy px-2 py-1">
+                  <div className="text-xs text-ink-muted">
                     {sku.condition} • {sku.printing} • {sku.language} • Qty {sku.availableQty}
                     {typeof sku.sellPriceCents === 'number'
                       ? ` • ${formatCentsAsCurrency(sku.sellPriceCents)}`
@@ -376,7 +376,7 @@ export default function RegisterPage() {
             </div>
           )}
         </div>
-        <ul className="divide-y divide-slate-800">
+        <ul className="divide-y divide-track">
           {lines.length === 0 && <li className="py-8 text-center opacity-60">No items yet — scan to begin.</li>}
           {lines.map((l) => (
             <li key={l.skuId} className="flex items-center gap-4 py-3">
@@ -384,10 +384,10 @@ export default function RegisterPage() {
                 <img
                   src={l.imageUrl}
                   alt={l.name}
-                  className="w-20 h-28 rounded-lg border border-slate-700 object-contain bg-slate-800 p-1 shrink-0"
+                  className="w-20 h-28 rounded-lg border border-border object-contain bg-track p-1 shrink-0"
                 />
               ) : (
-                <div className="w-20 h-28 rounded-lg border border-dashed border-slate-700 bg-slate-800/50 shrink-0" />
+                <div className="w-20 h-28 rounded-lg border border-dashed border-border bg-track/50 shrink-0" />
               )}
               <div className="flex-1 min-w-0 flex flex-col justify-between self-stretch py-1">
                 <div>
@@ -397,7 +397,7 @@ export default function RegisterPage() {
                     {typeof l.qtyRemaining === 'number' ? ` • ${l.qtyRemaining} remaining` : ''}
                   </div>
                 </div>
-                <div className="mt-2 text-xl md:text-2xl font-black tracking-tight text-emerald-300">
+                <div className="mt-2 text-xl md:text-2xl font-black tracking-tight text-brand">
                   {formatCentsAsCurrency(l.unitPriceCents * l.qty)}
                 </div>
               </div>
@@ -406,24 +406,24 @@ export default function RegisterPage() {
           ))}
         </ul>
       </section>
-      <aside className="col-span-4 bg-slate-900 rounded-2xl p-4 flex flex-col">
+      <aside className="col-span-4 bg-card rounded-2xl p-4 flex flex-col">
         <h2 className="text-lg font-semibold mb-4">Totals</h2>
         <RegisterSummaryRow label="Subtotal" value={formatCentsAsCurrency(subtotal)} />
         <RegisterSummaryRow label="Tax" value={formatCentsAsCurrency(taxCents)} />
-        <div className="border-t border-slate-800 my-2" />
+        <div className="border-t border-track my-2" />
         <RegisterSummaryRow label="Total" value={formatCentsAsCurrency(total)} large />
         <div className="mt-auto grid grid-cols-2 gap-3">
           <button
             disabled={lines.length === 0 || status === 'checkout' || status === 'paid'}
             onClick={cancelTransaction}
-            className="bg-rose-600 hover:bg-rose-500 disabled:bg-slate-700 text-white font-bold rounded-xl py-4 text-lg"
+            className="bg-rose-600 hover:bg-rose-500 disabled:bg-track text-white font-bold rounded-xl py-4 text-lg"
           >
             {status === 'checkout' ? 'Cancelling…' : 'Cancel'}
           </button>
           <button
             disabled={lines.length === 0 || status === 'checkout' || status === 'paid'}
             onClick={checkout}
-            className="bg-emerald-500 hover:bg-emerald-400 disabled:bg-slate-700 text-slate-900 font-bold rounded-xl py-4 text-lg"
+            className="bg-brand hover:bg-brand-dark disabled:bg-track text-navy font-bold rounded-xl py-4 text-lg"
           >
             {status === 'checkout' ? 'Recording…' : status === 'paid' ? 'Sale recorded ✓' : 'Record Sale'}
           </button>

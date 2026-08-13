@@ -78,12 +78,12 @@ export default function SkuCostEditor({ sku, productName, onClose, onSaved }: Sk
         className="absolute inset-0 bg-black/70"
         onClick={() => (busy ? null : onClose())}
       />
-      <div className="relative w-full max-w-sm rounded-2xl border border-slate-700 bg-slate-900 p-5 shadow-xl">
+      <div className="relative w-full max-w-sm rounded-2xl border border-border bg-card p-5 shadow-xl">
         <div className="flex items-start justify-between gap-3">
           <div>
             <h2 className="text-lg font-semibold">Edit purchased-at price</h2>
-            <p className="text-sm text-slate-400 line-clamp-1">{productName}</p>
-            <p className="mt-1 text-xs text-slate-500">
+            <p className="text-sm text-ink-muted line-clamp-1">{productName}</p>
+            <p className="mt-1 text-xs text-ink-dim">
               {(sku.gradingCompany
                 ? `${sku.gradingCompany.toUpperCase()} ${sku.grade ?? ''}`.trim()
                 : sku.condition) ?? '—'}{' '}
@@ -92,7 +92,7 @@ export default function SkuCostEditor({ sku, productName, onClose, onSaved }: Sk
           </div>
           <button
             type="button"
-            className="text-slate-400 hover:text-slate-200 text-sm"
+            className="text-ink-muted hover:text-ink text-sm"
             onClick={onClose}
             disabled={busy}
           >
@@ -101,11 +101,11 @@ export default function SkuCostEditor({ sku, productName, onClose, onSaved }: Sk
         </div>
 
         <label className="mt-4 block">
-          <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-400">
+          <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-ink-muted">
             Cost per unit (USD)
           </span>
           <div className="relative">
-            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-muted">
               $
             </span>
             <input
@@ -117,7 +117,7 @@ export default function SkuCostEditor({ sku, productName, onClose, onSaved }: Sk
               value={value}
               onChange={(e) => setValue(e.target.value)}
               placeholder="0.00"
-              className="min-h-11 w-full rounded-xl border border-slate-700 bg-slate-950 pl-7 pr-3 text-base outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/40"
+              className="min-h-11 w-full rounded-xl border border-border bg-navy pl-7 pr-3 text-base outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/40"
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !busy) void onSave();
               }}
@@ -125,7 +125,7 @@ export default function SkuCostEditor({ sku, productName, onClose, onSaved }: Sk
           </div>
         </label>
 
-        <p className="mt-2 text-xs text-slate-500">
+        <p className="mt-2 text-xs text-ink-dim">
           Applies to every stock row for this SKU across all locations.
         </p>
 

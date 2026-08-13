@@ -24,13 +24,13 @@ export default function TransactionsPage() {
   const meta = MODE_META[mode];
 
   return (
-    <div className="min-h-full bg-slate-950 text-slate-100">
+    <div className="min-h-full bg-navy text-ink">
       {/* Sticky page header — keeps mode switch reachable while scrolling result grids */}
-      <header className="sticky top-0 z-20 border-b border-slate-800 bg-slate-950/85 backdrop-blur">
+      <header className="sticky top-0 z-20 border-b border-track bg-navy/85 backdrop-blur">
         <div className="mx-auto flex w-full max-w-7xl flex-col gap-3 px-4 py-3 sm:px-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="min-w-0">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.25em] text-emerald-300">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.25em] text-brand">
                 Transactions
               </p>
               <h1 className="mt-0.5 truncate text-xl font-semibold sm:text-2xl" title={meta.title}>
@@ -39,7 +39,7 @@ export default function TransactionsPage() {
             </div>
             <ModeSwitch value={mode} onChange={setMode} />
           </div>
-          <p className="text-sm text-slate-400">{meta.helper}</p>
+          <p className="text-sm text-ink-muted">{meta.helper}</p>
         </div>
       </header>
 

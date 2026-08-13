@@ -12,12 +12,12 @@ export interface SellSearchStatusProps {
 }
 
 export function SellSearchStatus({ fetching, error, hasQuery, resultCount }: SellSearchStatusProps) {
-  if (fetching) return <p className="mt-2 text-xs text-slate-400">Searching cards…</p>;
+  if (fetching) return <p className="mt-2 text-xs text-ink-muted">Searching cards…</p>;
   if (error) return <p className="mt-2 text-xs text-rose-300">{error}</p>;
   if (hasQuery && resultCount === 0)
-    return <p className="mt-2 text-xs text-slate-400">No matching cards found.</p>;
+    return <p className="mt-2 text-xs text-ink-muted">No matching cards found.</p>;
   if (!hasQuery)
-    return <p className="mt-2 text-xs text-slate-500">Type 2+ characters to search inventory.</p>;
+    return <p className="mt-2 text-xs text-ink-dim">Type 2+ characters to search inventory.</p>;
   return null;
 }
 
@@ -41,26 +41,26 @@ export function SellSkuList({
   onAdd,
 }: SellSkuListProps) {
   return (
-    <div className="mt-4 rounded-xl border border-slate-800 bg-slate-950/80 p-3">
-      <p className="mb-2 text-xs text-slate-300">
-        SKUs for <span className="font-semibold text-slate-100">{productName}</span>
+    <div className="mt-4 rounded-xl border border-track bg-navy/80 p-3">
+      <p className="mb-2 text-xs text-ink-muted">
+        SKUs for <span className="font-semibold text-ink">{productName}</span>
       </p>
-      {loading && <p className="text-xs text-slate-400">Loading SKUs…</p>}
+      {loading && <p className="text-xs text-ink-muted">Loading SKUs…</p>}
       {error && <p className="text-xs text-rose-300">{error}</p>}
       {!loading && skus.length === 0 && !error && (
-        <p className="text-xs text-slate-500">No SKUs available for this product.</p>
+        <p className="text-xs text-ink-dim">No SKUs available for this product.</p>
       )}
       <ul className="space-y-1.5">
         {skus.map((sku) => (
           <li
             key={sku.id}
-            className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2"
+            className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-track bg-card px-3 py-2"
           >
-            <div className="min-w-0 flex-1 text-xs text-slate-300">
-              <p className="font-medium text-slate-100">
+            <div className="min-w-0 flex-1 text-xs text-ink-muted">
+              <p className="font-medium text-ink">
                 {sku.condition} • {sku.printing} • {sku.language}
               </p>
-              <p className="text-slate-400">
+              <p className="text-ink-muted">
                 Qty {sku.availableQty}
                 {typeof sku.sellPriceCents === 'number' ? ` • ${formatCentsAsCurrency(sku.sellPriceCents)}` : ''}
               </p>
@@ -69,7 +69,7 @@ export function SellSkuList({
               type="button"
               disabled={sku.availableQty <= 0 || !!addingSkuId || disabled}
               onClick={() => onAdd(sku.barcode, sku.id)}
-              className="min-h-9 rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-slate-900 transition hover:bg-emerald-400 disabled:bg-slate-700 disabled:text-slate-400"
+              className="min-h-9 rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-navy transition hover:bg-brand-dark disabled:bg-track disabled:text-ink-muted"
             >
               {addingSkuId === sku.id ? 'Adding…' : 'Add'}
             </button>
@@ -96,7 +96,7 @@ export function SellRemoteScanPanel({ remoteScanUrl, remoteScanQr }: SellRemoteS
     );
   }
   return (
-    <div className="flex flex-col gap-3 rounded-2xl border border-slate-800 bg-slate-900/60 p-4 sm:flex-row sm:items-center">
+    <div className="flex flex-col gap-3 rounded-2xl border border-track bg-card/60 p-4 sm:flex-row sm:items-center">
       <div className="flex h-40 w-40 shrink-0 items-center justify-center rounded-xl bg-white p-2 sm:h-44 sm:w-44">
         {remoteScanQr ? (
           <img
@@ -105,12 +105,12 @@ export function SellRemoteScanPanel({ remoteScanUrl, remoteScanQr }: SellRemoteS
             className="h-full w-full object-contain"
           />
         ) : (
-          <span className="text-[10px] text-slate-500">QR unavailable</span>
+          <span className="text-[10px] text-ink-dim">QR unavailable</span>
         )}
       </div>
-      <div className="text-sm text-slate-300">
-        <p className="text-sm font-semibold text-slate-100">Remote scanner</p>
-        <p className="mt-1 text-xs text-slate-400">
+      <div className="text-sm text-ink-muted">
+        <p className="text-sm font-semibold text-ink">Remote scanner</p>
+        <p className="mt-1 text-xs text-ink-muted">
           Scan this QR from a phone or tablet to add SKUs into this order without touching the POS.
         </p>
       </div>
@@ -148,49 +148,49 @@ export function SellCartSidebar({
       <div
         onClick={onCloseMobile}
         aria-hidden={!openOnMobile}
-        className={`fixed inset-0 z-30 bg-slate-950/60 transition-opacity lg:hidden ${
+        className={`fixed inset-0 z-30 bg-navy/60 transition-opacity lg:hidden ${
           openOnMobile ? 'opacity-100' : 'pointer-events-none opacity-0'
         }`}
       />
       <aside
         aria-label="Current sale"
-        className={`fixed inset-y-0 right-0 z-40 flex w-full max-w-md flex-col border-l border-slate-800 bg-slate-900 shadow-2xl transition-transform lg:static lg:col-span-4 lg:z-auto lg:max-w-none lg:translate-x-0 lg:rounded-2xl lg:border lg:shadow-none ${
+        className={`fixed inset-y-0 right-0 z-40 flex w-full max-w-md flex-col border-l border-track bg-card shadow-2xl transition-transform lg:static lg:col-span-4 lg:z-auto lg:max-w-none lg:translate-x-0 lg:rounded-2xl lg:border lg:shadow-none ${
           openOnMobile ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'
         }`}
       >
         <div className="flex h-full flex-col lg:sticky lg:top-24 lg:max-h-[calc(100vh-8rem)]">
-          <header className="flex items-center justify-between gap-2 border-b border-slate-800 px-4 py-3 lg:border-b-0 lg:pb-2">
+          <header className="flex items-center justify-between gap-2 border-b border-track px-4 py-3 lg:border-b-0 lg:pb-2">
             <h2 className="text-base font-semibold">Current sale</h2>
             <button
               type="button"
               onClick={onCloseMobile}
               aria-label="Close cart"
-              className="rounded p-1 text-slate-400 hover:text-slate-100 lg:hidden"
+              className="rounded p-1 text-ink-muted hover:text-ink lg:hidden"
             >
               ✕
             </button>
           </header>
           <div className="flex-1 space-y-2 overflow-y-auto px-4 py-2 text-sm">
             {lines.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-slate-700 bg-slate-950/60 p-4 text-center text-xs text-slate-400">
+              <div className="rounded-xl border border-dashed border-border bg-navy/60 p-4 text-center text-xs text-ink-muted">
                 Scan a barcode or add SKUs — items will show up here.
               </div>
             ) : (
               <ul className="space-y-2">
                 {lines.map((line) => (
-                  <li key={line.id} className="rounded-xl border border-slate-800 bg-slate-950/70 p-3">
-                    <p className="truncate font-medium text-slate-100" title={line.name}>
+                  <li key={line.id} className="rounded-xl border border-track bg-navy/70 p-3">
+                    <p className="truncate font-medium text-ink" title={line.name}>
                       {line.name}
                     </p>
-                    <p className="text-xs text-slate-400">
+                    <p className="text-xs text-ink-muted">
                       {line.condition}
                       {typeof line.qtyRemaining === 'number' ? ` • ${line.qtyRemaining} remaining` : ''}
                     </p>
                     <div className="mt-1 flex items-center justify-between text-xs">
-                      <span className="text-slate-300">
+                      <span className="text-ink-muted">
                         {line.qty} × {formatCentsAsCurrency(line.unitPriceCents)}
                       </span>
-                      <span className="font-mono text-emerald-300">
+                      <span className="font-mono text-brand">
                         {formatCentsAsCurrency(line.qty * line.unitPriceCents)}
                       </span>
                     </div>
@@ -200,13 +200,13 @@ export function SellCartSidebar({
             )}
             {error && <p className="mt-2 break-all text-xs text-rose-300">{error}</p>}
           </div>
-          <footer className="space-y-3 border-t border-slate-800 px-4 py-3">
+          <footer className="space-y-3 border-t border-track px-4 py-3">
             <div className="flex items-baseline justify-between">
               <div>
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Total</p>
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-ink-muted">Total</p>
                 <p className="text-xl font-semibold">{formatCentsAsCurrency(totals.totalCents)}</p>
               </div>
-              <p className="text-right text-xs text-slate-400">
+              <p className="text-right text-xs text-ink-muted">
                 {itemCount} item{itemCount === 1 ? '' : 's'}
                 <br />
                 Tax {formatCentsAsCurrency(totals.taxCents)}
@@ -225,7 +225,7 @@ export function SellCartSidebar({
                 type="button"
                 onClick={onCheckout}
                 disabled={commitDisabled}
-                className="min-h-11 rounded-lg bg-emerald-500 px-4 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400 disabled:bg-slate-700 disabled:text-slate-400"
+                className="min-h-11 rounded-lg bg-brand px-4 text-sm font-semibold text-navy transition hover:bg-brand-dark disabled:bg-track disabled:text-ink-muted"
               >
                 {checkoutStatus === 'checkout'
                   ? 'Recording…'
@@ -259,26 +259,26 @@ export function SellMobileActionBar({
   onCheckout,
 }: SellMobileActionBarProps) {
   return (
-    <div className="fixed inset-x-0 bottom-0 z-20 border-t border-slate-800 bg-slate-950/95 p-3 backdrop-blur supports-[padding:max(0px)]:pb-[max(0.75rem,env(safe-area-inset-bottom))] lg:hidden">
+    <div className="fixed inset-x-0 bottom-0 z-20 border-t border-track bg-navy/95 p-3 backdrop-blur supports-[padding:max(0px)]:pb-[max(0.75rem,env(safe-area-inset-bottom))] lg:hidden">
       <div className="mx-auto flex w-full max-w-3xl items-center gap-2">
         <button
           type="button"
           onClick={onOpenCart}
-          className="flex min-h-11 flex-1 items-center justify-between rounded-lg border border-slate-700 bg-slate-900 px-3 text-left text-sm"
+          className="flex min-h-11 flex-1 items-center justify-between rounded-lg border border-border bg-card px-3 text-left text-sm"
         >
           <span>
-            <span className="block text-[10px] uppercase tracking-wide text-slate-400">Cart</span>
-            <span className="font-semibold text-slate-100">
+            <span className="block text-[10px] uppercase tracking-wide text-ink-muted">Cart</span>
+            <span className="font-semibold text-ink">
               {itemCount} item{itemCount === 1 ? '' : 's'}
             </span>
           </span>
-          <span className="font-mono text-emerald-300">{formatCentsAsCurrency(totalCents)}</span>
+          <span className="font-mono text-brand">{formatCentsAsCurrency(totalCents)}</span>
         </button>
         <button
           type="button"
           onClick={onCheckout}
           disabled={commitDisabled}
-          className="min-h-11 rounded-lg bg-emerald-500 px-4 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400 disabled:bg-slate-700 disabled:text-slate-400"
+          className="min-h-11 rounded-lg bg-brand px-4 text-sm font-semibold text-navy transition hover:bg-brand-dark disabled:bg-track disabled:text-ink-muted"
         >
           {checkoutStatus === 'checkout' ? 'Recording…' : checkoutStatus === 'paid' ? 'Sale recorded' : 'Complete'}
         </button>

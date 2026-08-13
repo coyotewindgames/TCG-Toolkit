@@ -32,9 +32,9 @@ export default function SellModeAdapter({ active }: SellModeAdapterProps) {
       <div className="space-y-4 lg:col-span-8">
         <SellRemoteScanPanel remoteScanUrl={sell.remoteScanUrl} remoteScanQr={sell.remoteScanQr} />
 
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 shadow-sm">
+        <div className="rounded-2xl border border-track bg-card/60 p-4 shadow-sm">
           <label className="block">
-            <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-400">
+            <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-ink-muted">
               Search inventory
             </span>
             <input
@@ -44,7 +44,7 @@ export default function SellModeAdapter({ active }: SellModeAdapterProps) {
                 sell.selectProduct(null);
               }}
               placeholder="Search by card name..."
-              className="min-h-11 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 text-base outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/40"
+              className="min-h-11 w-full rounded-xl border border-border bg-navy px-4 text-base outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/40"
             />
           </label>
 
@@ -65,22 +65,22 @@ export default function SellModeAdapter({ active }: SellModeAdapterProps) {
                     aria-pressed={sell.selectedProduct?.id === product.id}
                     className={`group w-full overflow-hidden rounded-xl border text-left transition ${
                       sell.selectedProduct?.id === product.id
-                        ? 'border-emerald-500 ring-2 ring-emerald-500/40'
-                        : 'border-slate-800 bg-slate-900 hover:border-emerald-500/40 hover:bg-slate-900/80'
+                        ? 'border-brand ring-2 ring-brand/40'
+                        : 'border-track bg-card hover:border-brand/40 hover:bg-card/80'
                     }`}
                   >
-                    <div className="flex aspect-[3/4] items-center justify-center bg-slate-800">
+                    <div className="flex aspect-[3/4] items-center justify-center bg-track">
                       <CardImage src={product.imageSourceUrl} alt={product.name} />
                     </div>
                     <div className="space-y-0.5 p-2 text-xs">
-                      <p className="truncate font-semibold text-slate-100" title={product.name}>
+                      <p className="truncate font-semibold text-ink" title={product.name}>
                         {product.name}
                       </p>
-                      <p className="truncate text-slate-400">
+                      <p className="truncate text-ink-muted">
                         {[product.setName, product.cardNumber].filter(Boolean).join(' • ') ||
                           'Unknown set'}
                       </p>
-                      <p className="pt-1 font-mono text-emerald-300">
+                      <p className="pt-1 font-mono text-brand">
                         {formatCentsAsCurrency(product.minSellPriceCents ?? product.maxSellPriceCents ?? 0)}
                       </p>
                     </div>

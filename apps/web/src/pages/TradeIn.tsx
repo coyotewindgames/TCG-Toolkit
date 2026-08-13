@@ -260,9 +260,9 @@ export default function TradeInPage() {
     <div className="p-4 md:p-6 max-w-6xl mx-auto space-y-6">
       <header>
         <h1 className="text-2xl font-bold">Trade-In / Buy Intake</h1>
-        <p className="text-sm text-slate-400">
+        <p className="text-sm text-ink-muted">
           Search the PkmnPrices.com catalog by card name, by number (e.g.{' '}
-          <code className="px-1 rounded bg-slate-800">025/189</code> — pick a set first), or browse
+          <code className="px-1 rounded bg-track">025/189</code> — pick a set first), or browse
           a set. Then choose a printing, payout, and add to inventory.
         </p>
       </header>
@@ -273,7 +273,7 @@ export default function TradeInPage() {
           value={searchText}
           onChange={(e) => setSearchText(e.target.value)}
           placeholder="Card name or number (e.g. “Charizard” or “025/189”)…"
-          className="bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-base outline-none focus:border-emerald-500"
+          className="bg-card border border-border rounded-xl px-4 py-3 text-base outline-none focus:border-brand"
         />
         <SearchableSelect
           value={language}
@@ -335,17 +335,17 @@ export default function TradeInPage() {
       )}
 
       {!searchEnabled && !needsSetScope && (
-        <p className="text-sm text-slate-500">
+        <p className="text-sm text-ink-dim">
           Start typing to search the catalog, or pick a set to browse it.
         </p>
       )}
 
       {searchEnabled && search.isFetching && (
-        <p className="text-sm text-slate-500">Searching…</p>
+        <p className="text-sm text-ink-dim">Searching…</p>
       )}
 
       {!search.isFetching && searchEnabled && filteredResults.length === 0 && (
-        <p className="text-sm text-slate-500">No matches.</p>
+        <p className="text-sm text-ink-dim">No matches.</p>
       )}
 
       {filteredResults.length > 0 && (
@@ -355,13 +355,13 @@ export default function TradeInPage() {
               <button
                 type="button"
                 onClick={() => setSelected(card)}
-                className={`w-full text-left bg-slate-900 hover:bg-slate-800 border ${
+                className={`w-full text-left bg-card hover:bg-track border ${
                   selected?.id === card.id
-                    ? 'border-emerald-500 ring-2 ring-emerald-500/40'
-                    : 'border-slate-800'
+                    ? 'border-brand ring-2 ring-brand/40'
+                    : 'border-track'
                 } rounded-xl overflow-hidden transition`}
               >
-                <div className="aspect-[3/4] bg-slate-800 flex items-center justify-center">
+                <div className="aspect-[3/4] bg-track flex items-center justify-center">
                   {card.imageUrl ? (
                     <img
                       src={card.imageUrl}
@@ -370,19 +370,19 @@ export default function TradeInPage() {
                       className="w-full h-full object-contain"
                     />
                   ) : (
-                    <span className="text-xs text-slate-500">No image</span>
+                    <span className="text-xs text-ink-dim">No image</span>
                   )}
                 </div>
                 <div className="p-2">
                   <div className="text-sm font-semibold leading-tight truncate" title={card.name}>
                     {card.name}
                   </div>
-                  <div className="text-[11px] text-slate-400 truncate">
+                  <div className="text-[11px] text-ink-muted truncate">
                     {card.setName ?? card.gameName ?? ''}
                     {card.number ? ` · #${card.number}` : ''}
                   </div>
                   {card.rarity && (
-                    <div className="text-[11px] text-slate-500 truncate">{card.rarity}</div>
+                    <div className="text-[11px] text-ink-dim truncate">{card.rarity}</div>
                   )}
                 </div>
               </button>
@@ -418,7 +418,7 @@ function IntakeDetail({ card, locationId, queuedItems, setQueuedItems, onClose }
           eat clicks. */}
       <div
         onClick={onClose}
-        className={`fixed inset-0 bg-slate-950/60 z-30 transition-opacity ${
+        className={`fixed inset-0 bg-navy/60 z-30 transition-opacity ${
           open ? 'opacity-100' : 'opacity-0 pointer-events-none'
         }`}
         aria-hidden={!open}
@@ -427,7 +427,7 @@ function IntakeDetail({ card, locationId, queuedItems, setQueuedItems, onClose }
         role="dialog"
         aria-modal="true"
         aria-label="Trade-in intake"
-        className={`fixed inset-y-0 right-0 z-40 w-full sm:w-[480px] lg:w-[560px] bg-slate-900 border-l border-slate-800 shadow-2xl flex flex-col transition-transform ${
+        className={`fixed inset-y-0 right-0 z-40 w-full sm:w-[480px] lg:w-[560px] bg-card border-l border-track shadow-2xl flex flex-col transition-transform ${
           open ? 'translate-x-0' : 'translate-x-full'
         }`}
       >
@@ -697,12 +697,12 @@ function IntakeDetailBody({
   return (
     <>
       {/* Sticky header keeps Close button visible while body scrolls. */}
-      <header className="flex items-start justify-between gap-2 p-4 border-b border-slate-800">
+      <header className="flex items-start justify-between gap-2 p-4 border-b border-track">
         <div className="min-w-0">
           <h2 className="text-lg font-bold truncate" title={activeCard.name}>
             {activeCard.name}
           </h2>
-          <p className="text-xs text-slate-400 truncate">
+          <p className="text-xs text-ink-muted truncate">
             {[activeCard.setName, activeCard.gameName, activeCard.number ? `#${activeCard.number}` : null, activeCard.rarity]
               .filter(Boolean)
               .join(' · ')}
@@ -711,7 +711,7 @@ function IntakeDetailBody({
         <button
           type="button"
           onClick={onClose}
-          className="shrink-0 text-slate-400 hover:text-slate-200 -m-1 p-1"
+          className="shrink-0 text-ink-muted hover:text-ink -m-1 p-1"
           aria-label="Close"
         >
           ✕
@@ -721,7 +721,7 @@ function IntakeDetailBody({
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         <div className="flex gap-3">
           <div className="w-32 shrink-0">
-            <div className="aspect-[3/4] bg-slate-800 rounded-lg overflow-hidden flex items-center justify-center">
+            <div className="aspect-[3/4] bg-track rounded-lg overflow-hidden flex items-center justify-center">
               {activeCard.imageUrl ? (
                 <img
                   src={activeCard.imageUrl}
@@ -729,26 +729,26 @@ function IntakeDetailBody({
                   className="w-full h-full object-contain"
                 />
               ) : (
-                <span className="text-xs text-slate-500">No image</span>
+                <span className="text-xs text-ink-dim">No image</span>
               )}
             </div>
           </div>
         </div>
 
         <div>
-          <h3 className="text-xs uppercase tracking-wide text-slate-400 mb-2">Market prices</h3>
+          <h3 className="text-xs uppercase tracking-wide text-ink-muted mb-2">Market prices</h3>
           {prices.isLoading ? (
-            <p className="text-sm text-slate-500">Loading prices…</p>
+            <p className="text-sm text-ink-dim">Loading prices…</p>
           ) : prices.isError ? (
             <p className="text-sm text-rose-300">
               {(prices.error as Error).message || 'Could not fetch prices.'}
             </p>
           ) : (prices.data?.prices.length ?? 0) === 0 ? (
-            <p className="text-sm text-slate-500">No pricing available.</p>
+            <p className="text-sm text-ink-dim">No pricing available.</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <thead className="text-xs text-slate-400 text-left">
+                <thead className="text-xs text-ink-muted text-left">
                   <tr>
                     <th className="font-medium pb-1">Printing</th>
                     <th className="font-medium pb-1 text-right">Market</th>
@@ -761,7 +761,7 @@ function IntakeDetailBody({
                   {prices.data!.prices.map((p, i) => (
                     <tr
                       key={`${p.printing}-${i}`}
-                      className="border-t border-slate-800 text-slate-200"
+                      className="border-t border-track text-ink"
                     >
                       <td className="py-1">{p.printing}</td>
                       <td className="py-1 text-right font-mono">{formatCentsAsCurrency(p.marketCents)}</td>
@@ -778,7 +778,7 @@ function IntakeDetailBody({
 
         {rarityVariants.length > 1 && (
           <div>
-            <h3 className="text-xs uppercase tracking-wide text-slate-400 mb-2">Rarity variant</h3>
+            <h3 className="text-xs uppercase tracking-wide text-ink-muted mb-2">Rarity variant</h3>
             <div className="flex flex-wrap gap-2">
               {rarityVariants.map((v) => (
                 <button
@@ -795,8 +795,8 @@ function IntakeDetailBody({
                   }}
                   className={`text-xs px-2.5 py-1 rounded-full border transition ${
                     activeCard.id === v.id
-                      ? 'bg-emerald-500 border-emerald-500 text-slate-900 font-semibold'
-                      : 'bg-slate-800 border-slate-700 text-slate-200 hover:border-emerald-500'
+                      ? 'bg-brand border-brand text-navy font-semibold'
+                      : 'bg-track border-border text-ink hover:border-brand'
                   }`}
                 >
                   {v.rarity ?? 'Unknown'}
@@ -807,18 +807,18 @@ function IntakeDetailBody({
         )}
 
         {/* Graded card section */}
-        <label className="flex items-center gap-2 cursor-pointer select-none text-sm text-slate-300">
+        <label className="flex items-center gap-2 cursor-pointer select-none text-sm text-ink-muted">
           <input
             type="checkbox"
             checked={isGraded}
             onChange={(e) => setIsGraded(e.target.checked)}
-            className="rounded accent-emerald-500"
+            className="rounded accent-brand"
           />
           Graded card (PSA / CGC / Beckett / TAG)
         </label>
 
         {isGraded && (
-          <div className="bg-slate-950 border border-slate-700 rounded-xl p-3 space-y-3">
+          <div className="bg-navy border border-border rounded-xl p-3 space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <TradeInField label="Grading company">
                 <select
@@ -866,7 +866,7 @@ function IntakeDetailBody({
                 View {gradingCompany} {gradedGrade} recently sold on eBay
               </a>
             )}
-            <p className="text-[11px] text-slate-500">
+            <p className="text-[11px] text-ink-dim">
               Graded card prices vary by pop report — use Override unit value to set the exact payout.
             </p>
           </div>
@@ -934,8 +934,8 @@ function IntakeDetailBody({
                   onClick={() => setPayout(p)}
                   className={`flex-1 px-3 py-2 rounded-lg text-sm border ${
                     payout === p
-                      ? 'bg-emerald-500 text-slate-900 border-emerald-500 font-semibold'
-                      : 'bg-slate-950 border-slate-700 text-slate-300'
+                      ? 'bg-brand text-navy border-brand font-semibold'
+                      : 'bg-navy border-border text-ink-muted'
                   }`}
                 >
                   {p === 'cash' ? 'Cash' : 'Store credit'}
@@ -960,7 +960,7 @@ function IntakeDetailBody({
             label={`Suggested unit value (${payout === 'cash' ? 'cash' : 'credit'})`}
             hint={`Computed from the lowest of market/median × payout multiplier${payoutModifier ? ` × ${((1 + payoutModifier / 100) * 100).toFixed(1)}%` : ''}.`}
           >
-            <div className="input bg-slate-950 text-slate-200 font-mono">
+            <div className="input bg-navy text-ink font-mono">
               {formatCentsAsCurrency(suggested)}
             </div>
           </TradeInField>
@@ -977,16 +977,16 @@ function IntakeDetailBody({
           </TradeInField>
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-950 border border-slate-700 rounded-lg p-3">
-          <div className="text-xs text-slate-300">
-            Pending line total: <span className="font-mono text-emerald-300">{formatCentsAsCurrency(pendingLineTotalCents)}</span>
-            <span className="text-slate-500"> ({quantity} × {formatCentsAsCurrency(effectiveCents)})</span>
+        <div className="flex flex-wrap items-center justify-between gap-2 bg-navy border border-border rounded-lg p-3">
+          <div className="text-xs text-ink-muted">
+            Pending line total: <span className="font-mono text-brand">{formatCentsAsCurrency(pendingLineTotalCents)}</span>
+            <span className="text-ink-dim"> ({quantity} × {formatCentsAsCurrency(effectiveCents)})</span>
           </div>
           <button
             type="button"
             onClick={addCurrentToBatch}
             disabled={quantity < 1}
-            className="text-xs bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-semibold rounded-md px-3 py-1.5 disabled:bg-slate-700 disabled:text-slate-400"
+            className="text-xs bg-brand hover:bg-brand-dark text-navy font-semibold rounded-md px-3 py-1.5 disabled:bg-track disabled:text-ink-muted"
           >
             Add line item
           </button>
@@ -994,44 +994,44 @@ function IntakeDetailBody({
 
         <div className="space-y-2">
           <div className="flex items-center justify-between gap-3">
-            <h3 className="text-xs uppercase tracking-wide text-slate-400">Trade batch</h3>
+            <h3 className="text-xs uppercase tracking-wide text-ink-muted">Trade batch</h3>
             {queuedItems.length > 0 && (
               <button
                 type="button"
                 onClick={clearQueuedItems}
-                className="text-xs text-slate-400 hover:text-rose-300"
+                className="text-xs text-ink-muted hover:text-rose-300"
               >
                 Clear all
               </button>
             )}
           </div>
           {queuedItems.length === 0 ? (
-            <p className="text-sm text-slate-500">No line items yet. Configure the card and click Add line item.</p>
+            <p className="text-sm text-ink-dim">No line items yet. Configure the card and click Add line item.</p>
           ) : (
             <ul className="space-y-2">
               {queuedItems.map((item) => (
                 <li
                   key={item.id}
-                  className="rounded-lg border border-slate-700 bg-slate-950/70 p-2.5 flex items-start justify-between gap-2"
+                  className="rounded-lg border border-border bg-navy/70 p-2.5 flex items-start justify-between gap-2"
                 >
                   <div className="min-w-0">
-                    <p className="text-sm text-slate-100 truncate" title={item.name}>{item.name}</p>
-                    <p className="text-[11px] text-slate-400">
+                    <p className="text-sm text-ink truncate" title={item.name}>{item.name}</p>
+                    <p className="text-[11px] text-ink-muted">
                       {item.condition} / {item.printing} / {item.language}
                     </p>
-                    <p className="text-[11px] text-slate-500">
+                    <p className="text-[11px] text-ink-dim">
                       {item.quantity} × {formatCentsAsCurrency(item.estimatedUnitValueCents)}
                       {item.overrideValueCents != null ? ' (override)' : ''}
                     </p>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    <span className="font-mono text-xs text-emerald-300">
+                    <span className="font-mono text-xs text-brand">
                       {formatCentsAsCurrency(item.estimatedUnitValueCents * item.quantity)}
                     </span>
                     <button
                       type="button"
                       onClick={() => removeQueuedItem(item.id)}
-                      className="text-xs text-slate-400 hover:text-rose-300"
+                      className="text-xs text-ink-muted hover:text-rose-300"
                     >
                       Remove
                     </button>
@@ -1047,11 +1047,11 @@ function IntakeDetailBody({
             No location selected. Use the location switcher in the header first.
           </p>
         )}
-        {submitMsg && <p className="text-sm text-emerald-300">{submitMsg}</p>}
+        {submitMsg && <p className="text-sm text-brand">{submitMsg}</p>}
         {submitErr && <p className="text-sm text-rose-300">{submitErr}</p>}
         {labelInfo && (
-          <div className="flex items-center justify-between gap-2 bg-slate-950 border border-slate-700 rounded-lg p-3">
-            <div className="text-xs text-slate-300">
+          <div className="flex items-center justify-between gap-2 bg-navy border border-border rounded-lg p-3">
+            <div className="text-xs text-ink-muted">
               QR labels ready for {labelInfo.skuIds.reduce((s, r) => s + r.quantity, 0)} card
               {labelInfo.skuIds.reduce((s, r) => s + r.quantity, 0) === 1 ? '' : 's'}.
               {labelErr && <span className="block text-rose-300">{labelErr}</span>}
@@ -1060,7 +1060,7 @@ function IntakeDetailBody({
               type="button"
               onClick={onPrintLabels}
               disabled={printingLabels}
-              className="text-xs bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-md px-3 py-1.5"
+              className="text-xs bg-track hover:bg-track border border-border rounded-md px-3 py-1.5"
             >
               {printingLabels ? 'Generating…' : 'Print labels'}
             </button>
@@ -1069,18 +1069,18 @@ function IntakeDetailBody({
       </div>
 
       {/* Sticky action footer so the Add button is always reachable. */}
-      <footer className="border-t border-slate-800 p-4 bg-slate-900">
+      <footer className="border-t border-track p-4 bg-card">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="text-sm text-slate-300">
+          <div className="text-sm text-ink-muted">
             Trade total:{' '}
-            <span className="font-mono font-semibold text-emerald-300">
+            <span className="font-mono font-semibold text-brand">
               {formatCentsAsCurrency(itemsTotalPayoutCents)}
             </span>
-            <span className="text-slate-500">
+            <span className="text-ink-dim">
               {' '}({queuedItems.reduce((sum, item) => sum + item.quantity, 0)} cards, {queuedItems.length} lines)
             </span>
             {queuedItems.length > 0 && (
-              <span className="block text-xs text-slate-500 mt-0.5">
+              <span className="block text-xs text-ink-dim mt-0.5">
                 + current unsaved line {formatCentsAsCurrency(pendingLineTotalCents)} = {formatCentsAsCurrency(projectedTradeTotalCents)} projected
               </span>
             )}
@@ -1089,7 +1089,7 @@ function IntakeDetailBody({
             type="button"
             onClick={() => add.mutate()}
             disabled={!locationId || add.isPending || queuedItems.length === 0}
-            className="bg-emerald-500 hover:bg-emerald-400 disabled:bg-slate-700 disabled:text-slate-400 text-slate-900 font-bold rounded-lg px-5 py-2.5 transition"
+            className="bg-brand hover:bg-brand-dark disabled:bg-track disabled:text-ink-muted text-navy font-bold rounded-lg px-5 py-2.5 transition"
           >
             {add.isPending ? 'Submitting…' : 'Submit trade batch'}
           </button>

@@ -91,7 +91,7 @@ export function AuthGuard({ children }: { children: ReactNode }) {
 
   if (session.bootstrapping) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-950 text-slate-400">
+      <div className="min-h-screen flex items-center justify-center bg-navy text-ink-muted">
         Loading…
       </div>
     );

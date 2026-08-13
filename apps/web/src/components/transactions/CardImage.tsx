@@ -33,10 +33,10 @@ export default function CardImage({
 
   return (
     <div
-      className={`flex h-full w-full items-center justify-center bg-slate-800 ${className ?? ''}`}
+      className={`flex h-full w-full items-center justify-center bg-track ${className ?? ''}`}
     >
       {showPlaceholder ? (
-        <span className="px-2 text-center text-[10px] uppercase tracking-wide text-slate-500">
+        <span className="px-2 text-center text-[10px] uppercase tracking-wide text-ink-dim">
           {placeholderLabel}
         </span>
       ) : (

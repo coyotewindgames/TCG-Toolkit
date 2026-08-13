@@ -242,21 +242,21 @@ export default function RemoteScanPage() {
   );
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-6">
+    <div className="min-h-screen bg-navy text-ink p-4 md:p-6">
       <div
         aria-hidden="true"
-        className={`pointer-events-none fixed inset-0 z-50 bg-emerald-400/30 transition-opacity duration-200 ease-out ${
+        className={`pointer-events-none fixed inset-0 z-50 bg-brand-dark/30 transition-opacity duration-200 ease-out ${
           showSuccessFlash ? 'opacity-100' : 'opacity-0'
         }`}
       />
       <div className="mx-auto w-full max-w-2xl space-y-5">
         <header className="space-y-1">
           <h1 className="text-2xl font-bold">Remote Barcode Scanner</h1>
-          <p className="text-sm text-slate-400">
+          <p className="text-sm text-ink-muted">
             Point your phone camera at a card barcode/QR label to add it directly to this register cart.
           </p>
           {orderId ? (
-            <p className="text-xs text-slate-500 break-all">Order: {orderId}</p>
+            <p className="text-xs text-ink-dim break-all">Order: {orderId}</p>
           ) : (
             <p className="text-xs text-rose-300">
               Missing order id. Open this page using the QR code from Register.
@@ -264,8 +264,8 @@ export default function RemoteScanPage() {
           )}
         </header>
 
-        <section className="rounded-xl border border-slate-800 bg-slate-900 p-3 space-y-3">
-          <div className="overflow-hidden rounded-lg border border-slate-700 bg-black">
+        <section className="rounded-xl border border-track bg-card p-3 space-y-3">
+          <div className="overflow-hidden rounded-lg border border-border bg-black">
             <video
               ref={videoRef}
               className="block h-[320px] w-full object-cover"
@@ -294,7 +294,7 @@ export default function RemoteScanPage() {
             </button>
           </div>
 
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-ink-muted">
             Status:{' '}
             {cameraStatus === 'scanning'
               ? 'Scanning'
@@ -305,14 +305,14 @@ export default function RemoteScanPage() {
                   : 'Idle'}
           </p>
 
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-ink-dim">
             Tap Start camera to trigger the browser permission prompt on your phone.
           </p>
 
           {cameraError && <p className="text-xs text-rose-300">{cameraError}</p>}
         </section>
 
-        <section className="rounded-xl border border-slate-800 bg-slate-900 p-3 space-y-3">
+        <section className="rounded-xl border border-track bg-card p-3 space-y-3">
           <h2 className="text-sm font-semibold">Manual barcode entry</h2>
           <form onSubmit={onManualSubmit} className="flex gap-2">
             <input
@@ -329,14 +329,14 @@ export default function RemoteScanPage() {
           </form>
         </section>
 
-        <section className="rounded-xl border border-slate-800 bg-slate-900 p-3 space-y-2 text-sm">
+        <section className="rounded-xl border border-track bg-card p-3 space-y-2 text-sm">
           <h2 className="text-sm font-semibold">Scan activity</h2>
-          <p className="text-slate-300">Successful scans: {scanCount}</p>
-          {lastScan && <p className="text-slate-400 break-all">Last barcode: {lastScan}</p>}
+          <p className="text-ink-muted">Successful scans: {scanCount}</p>
+          {lastScan && <p className="text-ink-muted break-all">Last barcode: {lastScan}</p>}
           {submitError && <p className="text-rose-300">{submitError}</p>}
 
           {lastAdded && (
-            <div className="rounded-lg border border-emerald-900/60 bg-emerald-950/30 p-3 text-emerald-200">
+            <div className="rounded-lg border border-brand/60 bg-brand/30 p-3 text-brand">
               <div className="font-semibold">Added: {lastAdded.name}</div>
               <div className="text-xs mt-1">Qty: {lastAdded.quantity}</div>
               <div className="text-xs">Unit: {formatCentsAsCurrency(lastAdded.unitPriceCents)}</div>
@@ -345,16 +345,16 @@ export default function RemoteScanPage() {
 
           {totals && (
             <div className="grid grid-cols-3 gap-2 text-xs">
-              <div className="rounded border border-slate-700 p-2">
-                <div className="text-slate-400">Subtotal</div>
+              <div className="rounded border border-border p-2">
+                <div className="text-ink-muted">Subtotal</div>
                 <div className="font-semibold">{formatCentsAsCurrency(totals.subtotalCents)}</div>
               </div>
-              <div className="rounded border border-slate-700 p-2">
-                <div className="text-slate-400">Tax</div>
+              <div className="rounded border border-border p-2">
+                <div className="text-ink-muted">Tax</div>
                 <div className="font-semibold">{formatCentsAsCurrency(totals.taxCents)}</div>
               </div>
-              <div className="rounded border border-slate-700 p-2">
-                <div className="text-slate-400">Total</div>
+              <div className="rounded border border-border p-2">
+                <div className="text-ink-muted">Total</div>
                 <div className="font-semibold">{formatCentsAsCurrency(totals.totalCents)}</div>
               </div>
             </div>

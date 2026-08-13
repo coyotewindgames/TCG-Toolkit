@@ -39,7 +39,7 @@ export default function SidePanel({
       <div
         aria-hidden={!open}
         onClick={onClose}
-        className={`fixed inset-0 z-30 bg-slate-950/60 backdrop-blur-sm transition-opacity ${
+        className={`fixed inset-0 z-30 bg-navy/60 backdrop-blur-sm transition-opacity ${
           open ? 'opacity-100' : 'pointer-events-none opacity-0'
         }`}
       />
@@ -49,21 +49,21 @@ export default function SidePanel({
         aria-modal="true"
         aria-label={title}
         className={`fixed right-0 top-0 z-40 h-screen ${widthClass} max-w-full
-                    bg-slate-900 border-l border-slate-700 shadow-2xl
+                    bg-card border-l border-border shadow-2xl
                     flex flex-col
                     transform transition-transform duration-200 ease-out
                     ${open ? 'translate-x-0' : 'translate-x-full'}`}
       >
-        <header className="px-5 py-4 border-b border-slate-800 flex items-start justify-between gap-3">
+        <header className="px-5 py-4 border-b border-track flex items-start justify-between gap-3">
           <div className="min-w-0">
             <h2 className="text-lg font-semibold truncate">{title}</h2>
-            {subtitle && <p className="text-xs text-slate-400 mt-0.5">{subtitle}</p>}
+            {subtitle && <p className="text-xs text-ink-muted mt-0.5">{subtitle}</p>}
           </div>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close panel"
-            className="shrink-0 rounded-lg p-1.5 text-slate-400 hover:text-slate-100 hover:bg-slate-800"
+            className="shrink-0 rounded-lg p-1.5 text-ink-muted hover:text-ink hover:bg-track"
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M18 6 6 18M6 6l12 12" />
@@ -87,7 +87,7 @@ export function PanelSection({ title, defaultOpen = true, children }: PanelSecti
   return (
     <details
       open={defaultOpen}
-      className="group border border-slate-700 rounded-xl bg-slate-800/40 mb-4 last:mb-0 open:bg-slate-800/60"
+      className="group border border-border rounded-xl bg-track/40 mb-4 last:mb-0 open:bg-track/60"
     >
       <summary className="cursor-pointer list-none px-4 py-3 flex items-center justify-between gap-2 select-none">
         <span className="font-semibold text-sm">{title}</span>
@@ -100,7 +100,7 @@ export function PanelSection({ title, defaultOpen = true, children }: PanelSecti
           strokeWidth="2"
           strokeLinecap="round"
           strokeLinejoin="round"
-          className="text-slate-400 transition-transform group-open:rotate-180"
+          className="text-ink-muted transition-transform group-open:rotate-180"
         >
           <path d="m6 9 6 6 6-6" />
         </svg>

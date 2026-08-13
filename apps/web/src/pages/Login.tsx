@@ -24,50 +24,50 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-950 text-slate-100 p-4">
+    <div className="min-h-screen flex items-center justify-center bg-navy text-ink p-4">
       <form
         onSubmit={onSubmit}
-        className="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4"
+        className="w-full max-w-sm bg-card border border-track rounded-2xl p-6 space-y-4"
       >
         <div>
           <h1 className="text-2xl font-bold">Sign in</h1>
-          <p className="text-sm text-slate-400">Welcome back to TCG Toolkit.</p>
+          <p className="text-sm text-ink-muted">Welcome back to Turbocomp.</p>
         </div>
         <label className="block">
-          <span className="block text-xs uppercase tracking-wide text-slate-400 mb-1">Email</span>
+          <span className="block text-xs uppercase tracking-wide text-ink-muted mb-1">Email</span>
           <input
             autoFocus
             type="email"
             required
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 outline-none focus:border-emerald-500"
+            className="w-full bg-track border border-border rounded-lg px-3 py-2 outline-none focus:border-brand"
           />
         </label>
         <label className="block">
-          <span className="block text-xs uppercase tracking-wide text-slate-400 mb-1">Password</span>
+          <span className="block text-xs uppercase tracking-wide text-ink-muted mb-1">Password</span>
           <input
             type="password"
             required
             minLength={8}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 outline-none focus:border-emerald-500"
+            className="w-full bg-track border border-border rounded-lg px-3 py-2 outline-none focus:border-brand"
           />
         </label>
         {error && <p className="text-sm text-rose-400">{error}</p>}
         <button
           type="submit"
           disabled={submitting}
-          className="w-full bg-emerald-500 text-slate-900 font-semibold rounded-lg py-2 disabled:opacity-50"
+          className="w-full bg-brand text-navy font-semibold rounded-lg py-2 disabled:opacity-50"
         >
           {submitting ? 'Signing in…' : 'Sign in'}
         </button>
         <div className="flex items-center justify-between text-sm">
-          <Link to="/forgot-password" className="text-slate-400 hover:text-emerald-400">
+          <Link to="/forgot-password" className="text-ink-muted hover:text-brand">
             Forgot password?
           </Link>
-          <Link to="/signup" className="text-emerald-400 hover:underline">
+          <Link to="/signup" className="text-brand hover:underline">
             Create a shop
           </Link>
         </div>

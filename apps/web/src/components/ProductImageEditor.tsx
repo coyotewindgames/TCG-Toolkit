@@ -120,15 +120,15 @@ export default function ProductImageEditor({ product, onClose, onSaved }: Produc
         className="absolute inset-0 bg-black/70"
         onClick={() => (busy ? null : onClose())}
       />
-      <div className="relative w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900 p-5 shadow-xl">
+      <div className="relative w-full max-w-md rounded-2xl border border-border bg-card p-5 shadow-xl">
         <div className="flex items-start justify-between gap-3">
           <div>
             <h2 className="text-lg font-semibold">Edit image</h2>
-            <p className="text-sm text-slate-400 line-clamp-1">{product.name}</p>
+            <p className="text-sm text-ink-muted line-clamp-1">{product.name}</p>
           </div>
           <button
             type="button"
-            className="text-slate-400 hover:text-slate-200 text-sm"
+            className="text-ink-muted hover:text-ink text-sm"
             onClick={onClose}
             disabled={!!busy}
           >
@@ -141,10 +141,10 @@ export default function ProductImageEditor({ product, onClose, onSaved }: Produc
             <img
               src={preview}
               alt="Product preview"
-              className="max-h-72 w-auto rounded-md object-contain bg-slate-950 border border-slate-800"
+              className="max-h-72 w-auto rounded-md object-contain bg-navy border border-track"
             />
           ) : (
-            <div className="w-32 h-48 rounded-md bg-slate-800 border border-dashed border-slate-700 flex items-center justify-center text-xs text-slate-500">
+            <div className="w-32 h-48 rounded-md bg-track border border-dashed border-border flex items-center justify-center text-xs text-ink-dim">
               No image
             </div>
           )}
@@ -191,7 +191,7 @@ export default function ProductImageEditor({ product, onClose, onSaved }: Produc
 
         {error && <p className="mt-3 text-sm text-rose-300 text-center">{error}</p>}
 
-        <p className="mt-3 text-xs text-slate-500 text-center">
+        <p className="mt-3 text-xs text-ink-dim text-center">
           Images are resized to ~480 px and stored with your inventory. The auto-image
           job will leave this row alone until you clear the lock.
         </p>

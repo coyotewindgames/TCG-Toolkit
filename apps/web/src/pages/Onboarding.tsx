@@ -48,12 +48,12 @@ export default function OnboardingPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-8">
+    <div className="min-h-screen bg-navy text-ink p-4 md:p-8">
       <div className="max-w-2xl mx-auto space-y-6">
         {/* Header */}
         <header className="space-y-1">
           <h1 className="text-2xl font-bold">Welcome, {name} 👋</h1>
-          <p className="text-slate-400 text-sm">
+          <p className="text-ink-muted text-sm">
             Let's get your shop running. You can skip any step and come back later.
           </p>
         </header>
@@ -68,21 +68,21 @@ export default function OnboardingPage() {
                   onClick={() => step > s.n && setStep(s.n)}
                   className={`flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded-lg transition-colors ${
                     step === s.n
-                      ? 'bg-emerald-500 text-slate-900'
+                      ? 'bg-brand text-navy'
                       : step > s.n
-                        ? 'text-emerald-400 hover:text-emerald-300'
-                        : 'text-slate-500 cursor-default'
+                        ? 'text-brand hover:text-brand-dark'
+                        : 'text-ink-dim cursor-default'
                   }`}
                 >
                   <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 ${
-                    step > s.n ? 'bg-emerald-700 text-emerald-200' : step === s.n ? 'bg-slate-900 text-emerald-400' : 'bg-slate-800 text-slate-500'
+                    step > s.n ? 'bg-brand-dark text-brand' : step === s.n ? 'bg-card text-brand' : 'bg-track text-ink-dim'
                   }`}>
                     {step > s.n ? '✓' : s.n}
                   </span>
                   {s.label}
                 </button>
                 {i < steps.length - 1 && (
-                  <div className={`flex-1 h-px ${step > s.n ? 'bg-emerald-700' : 'bg-slate-800'}`} />
+                  <div className={`flex-1 h-px ${step > s.n ? 'bg-brand-dark' : 'bg-track'}`} />
                 )}
               </div>
             ))}
@@ -168,16 +168,16 @@ function StepShopBasics({ onNext }: { onNext: () => void }) {
   return (
     <Card title="Step 1 — Your shop" subtitle="Confirm your store details.">
       {locationsQuery.isLoading ? (
-        <p className="text-slate-400 text-sm">Loading…</p>
+        <p className="text-ink-muted text-sm">Loading…</p>
       ) : (
         <div className="space-y-4">
-          <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 space-y-1">
-            <p className="text-xs text-slate-400 uppercase tracking-wide">Store</p>
+          <div className="bg-card/60 border border-track rounded-xl p-4 space-y-1">
+            <p className="text-xs text-ink-muted uppercase tracking-wide">Store</p>
             <p className="font-semibold">{session.user?.displayName ? `${session.user.displayName}'s shop` : '—'}</p>
           </div>
 
           <label className="block text-sm">
-            <span className="text-slate-300 block mb-1">Location name</span>
+            <span className="text-ink-muted block mb-1">Location name</span>
             <input
               className="input w-full"
               value={locationName}
@@ -187,11 +187,11 @@ function StepShopBasics({ onNext }: { onNext: () => void }) {
           </label>
 
           <div>
-            <p className="text-sm text-slate-300 mb-2">Address <span className="text-slate-500">(optional)</span></p>
+            <p className="text-sm text-ink-muted mb-2">Address <span className="text-ink-dim">(optional)</span></p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {(['street', 'city', 'state', 'zip'] as const).map((f) => (
                 <label key={f} className="block text-sm capitalize">
-                  <span className="text-slate-400 block mb-0.5">{f}</span>
+                  <span className="text-ink-muted block mb-0.5">{f}</span>
                   <input
                     className="input w-full"
                     value={address[f]}
@@ -262,7 +262,7 @@ function StepPkmnprices({ onNext, onSkip }: { onNext: () => void; onSkip: () => 
     >
       {alreadyConfigured ? (
         <div className="space-y-4">
-          <p className="text-sm text-slate-300">
+          <p className="text-sm text-ink-muted">
             PkmnPrices is already configured for your store. You can update it later in Settings.
           </p>
           <div className="flex gap-3">
@@ -272,16 +272,16 @@ function StepPkmnprices({ onNext, onSkip }: { onNext: () => void; onSkip: () => 
         </div>
       ) : (
         <div className="space-y-4">
-          <p className="text-sm text-slate-400">
+          <p className="text-sm text-ink-muted">
             Sign up at{' '}
-            <a href="https://pkmnprices.com" target="_blank" rel="noopener noreferrer" className="text-emerald-400 hover:underline">
+            <a href="https://pkmnprices.com" target="_blank" rel="noopener noreferrer" className="text-brand hover:underline">
               pkmnprices.com
             </a>{' '}
             to get an API key. The free tier is plenty to get started.
           </p>
 
           <label className="block text-sm">
-            <span className="text-slate-300 block mb-1">API key</span>
+            <span className="text-ink-muted block mb-1">API key</span>
             <input
               className="input w-full"
               type="password"
@@ -293,7 +293,7 @@ function StepPkmnprices({ onNext, onSkip }: { onNext: () => void; onSkip: () => 
           </label>
 
           <label className="block text-sm">
-            <span className="text-slate-300 block mb-1">Plan tier</span>
+            <span className="text-ink-muted block mb-1">Plan tier</span>
             <select
               className="input w-full"
               value={tier}
@@ -306,7 +306,7 @@ function StepPkmnprices({ onNext, onSkip }: { onNext: () => void; onSkip: () => 
           </label>
 
           {msg && (
-            <p className={`text-sm ${msg.kind === 'ok' ? 'text-emerald-300' : 'text-rose-300'}`}>
+            <p className={`text-sm ${msg.kind === 'ok' ? 'text-brand' : 'text-rose-300'}`}>
               {msg.text}
             </p>
           )}
@@ -341,7 +341,7 @@ function StepInventory({ onNext, onSkip }: { onNext: () => void; onSkip: () => v
       <div className="space-y-4">
         <CsvImporterPanel hideDryRun onImportSuccess={() => setTimeout(onNext, 600)} />
         <div className="pt-1">
-          <button type="button" className="text-sm text-slate-400 hover:text-slate-200" onClick={onSkip}>
+          <button type="button" className="text-sm text-ink-muted hover:text-ink" onClick={onSkip}>
             Skip — I'll add inventory manually →
           </button>
         </div>
@@ -356,21 +356,21 @@ function StepClover({ onFinish }: { onFinish: () => void }) {
   return (
     <Card
       title="Step 4 — Clover POS"
-      subtitle="Optional — only needed if you take card payments through Toolkit."
+      subtitle="Optional — only needed if you take card payments through Turbocomp."
       optionalBadge
     >
       <div className="space-y-4">
-        <p className="text-sm text-slate-300">
+        <p className="text-sm text-ink-muted">
           Clover lets customers pay by card directly from the Register page. You'll need:
         </p>
-        <ul className="list-disc list-inside text-sm text-slate-400 space-y-1">
+        <ul className="list-disc list-inside text-sm text-ink-muted space-y-1">
           <li>Your Clover merchant ID</li>
           <li>An access token from your Clover developer dashboard</li>
           <li>A webhook signing secret</li>
         </ul>
-        <p className="text-sm text-slate-400">
+        <p className="text-sm text-ink-muted">
           You can set this up any time from{' '}
-          <Link to="/settings/integrations" className="text-emerald-400 hover:underline">
+          <Link to="/settings/integrations" className="text-brand hover:underline">
             Settings → Integrations
           </Link>
           .
@@ -404,7 +404,7 @@ function StepDone({
       <div className="text-center py-6">
         <div className="text-5xl mb-3">🎉</div>
         <h2 className="text-2xl font-bold">Your shop is ready!</h2>
-        <p className="text-slate-400 mt-1 text-sm">Here's a summary of what's set up.</p>
+        <p className="text-ink-muted mt-1 text-sm">Here's a summary of what's set up.</p>
       </div>
 
       <ul className="space-y-2">
@@ -431,9 +431,9 @@ function StepDone({
       </div>
 
       {(!pricingDone || !inventoryDone) && (
-        <p className="text-xs text-slate-500 text-center">
+        <p className="text-xs text-ink-dim text-center">
           You can finish the remaining steps any time from{' '}
-          <Link to="/settings/integrations" className="text-emerald-400 hover:underline">
+          <Link to="/settings/integrations" className="text-brand hover:underline">
             Settings
           </Link>
           .
@@ -455,22 +455,22 @@ interface CardProps {
 
 function Card({ title, subtitle, children, badge, optionalBadge }: CardProps) {
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
+    <div className="bg-card border border-track rounded-2xl p-6 space-y-4">
       <div>
         <div className="flex items-center gap-2 flex-wrap">
           <h2 className="text-xl font-bold">{title}</h2>
           {badge && (
-            <span className={`text-xs px-2 py-0.5 rounded-full ${badge.ok ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-300'}`}>
+            <span className={`text-xs px-2 py-0.5 rounded-full ${badge.ok ? 'bg-brand/20 text-brand' : 'bg-rose-500/20 text-rose-300'}`}>
               {badge.text}
             </span>
           )}
           {optionalBadge && (
-            <span className="text-xs px-2 py-0.5 rounded-full bg-slate-700 text-slate-300">
+            <span className="text-xs px-2 py-0.5 rounded-full bg-track text-ink-muted">
               optional
             </span>
           )}
         </div>
-        <p className="text-sm text-slate-400 mt-0.5">{subtitle}</p>
+        <p className="text-sm text-ink-muted mt-0.5">{subtitle}</p>
       </div>
       {children}
     </div>
@@ -479,8 +479,8 @@ function Card({ title, subtitle, children, badge, optionalBadge }: CardProps) {
 
 function SummaryRow({ icon, text, done }: { icon: string; text: string; done: boolean }) {
   return (
-    <li className={`flex items-center gap-3 text-sm px-4 py-2 rounded-lg ${done ? 'text-slate-200' : 'text-slate-500'}`}>
-      <span className={`font-bold ${done ? 'text-emerald-400' : 'text-slate-600'}`}>{icon}</span>
+    <li className={`flex items-center gap-3 text-sm px-4 py-2 rounded-lg ${done ? 'text-ink' : 'text-ink-dim'}`}>
+      <span className={`font-bold ${done ? 'text-brand' : 'text-ink-dim'}`}>{icon}</span>
       {text}
     </li>
   );

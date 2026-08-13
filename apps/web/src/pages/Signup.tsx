@@ -15,7 +15,7 @@ function passwordStrength(pw: string): { label: string; color: string; width: st
   if (/[^A-Za-z0-9]/.test(pw)) score++;
   if (score <= 1) return { label: 'Weak', color: 'bg-rose-500', width: '33%' };
   if (score <= 3) return { label: 'Fair', color: 'bg-amber-400', width: '66%' };
-  return { label: 'Strong', color: 'bg-emerald-500', width: '100%' };
+  return { label: 'Strong', color: 'bg-brand', width: '100%' };
 }
 
 export default function SignupPage() {
@@ -86,27 +86,27 @@ export default function SignupPage() {
   }
 
   const inputCls =
-    'w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 outline-none focus:border-emerald-500';
-  const labelCls = 'block text-xs uppercase tracking-wide text-slate-400 mb-1';
+    'w-full bg-navy border border-border rounded-lg px-3 py-2 outline-none focus:border-brand';
+  const labelCls = 'block text-xs uppercase tracking-wide text-ink-muted mb-1';
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-950 text-slate-100 p-4">
+    <div className="min-h-screen flex items-center justify-center bg-navy text-ink p-4">
       <div className="w-full max-w-md space-y-4">
         {/* Step indicator */}
         <div className="flex items-center gap-2 justify-center text-sm">
           <StepDot n={1} active={panel === 'store'} done={panel === 'account'} label="Your shop" />
-          <div className="flex-1 h-px bg-slate-800" />
+          <div className="flex-1 h-px bg-track" />
           <StepDot n={2} active={panel === 'account'} done={false} label="Your account" />
         </div>
 
         {panel === 'store' && (
           <form
             onSubmit={onStoreNext}
-            className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4"
+            className="bg-card border border-track rounded-2xl p-6 space-y-4"
           >
             <div>
               <h1 className="text-2xl font-bold">Create your shop</h1>
-              <p className="text-sm text-slate-400">Tell us about your store first.</p>
+              <p className="text-sm text-ink-muted">Tell us about your store first.</p>
             </div>
 
             <label className="block">
@@ -123,7 +123,7 @@ export default function SignupPage() {
 
             <label className="block">
               <span className={labelCls}>
-                Location name <span className="text-slate-500">(optional)</span>
+                Location name <span className="text-ink-dim">(optional)</span>
               </span>
               <input
                 value={locationName}
@@ -131,21 +131,21 @@ export default function SignupPage() {
                 placeholder="Main (default)"
                 className={inputCls}
               />
-              <span className="text-xs text-slate-500">
+              <span className="text-xs text-ink-dim">
                 The name of your first physical location — you can add more later.
               </span>
             </label>
 
             <button
               type="submit"
-              className="w-full bg-emerald-500 text-slate-900 font-semibold rounded-lg py-2"
+              className="w-full bg-brand text-navy font-semibold rounded-lg py-2"
             >
               Continue →
             </button>
 
-            <p className="text-sm text-slate-400 text-center">
+            <p className="text-sm text-ink-muted text-center">
               Already have an account?{' '}
-              <Link to="/login" className="text-emerald-400 hover:underline">
+              <Link to="/login" className="text-brand hover:underline">
                 Sign in
               </Link>
             </p>
@@ -155,20 +155,20 @@ export default function SignupPage() {
         {panel === 'account' && (
           <form
             onSubmit={onAccountSubmit}
-            className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4"
+            className="bg-card border border-track rounded-2xl p-6 space-y-4"
           >
             <div>
               <button
                 type="button"
                 onClick={() => setPanel('store')}
-                className="text-xs text-slate-400 hover:text-slate-200 mb-2 flex items-center gap-1"
+                className="text-xs text-ink-muted hover:text-ink mb-2 flex items-center gap-1"
               >
                 ← Back
               </button>
               <h1 className="text-2xl font-bold">Your account</h1>
-              <p className="text-sm text-slate-400">
+              <p className="text-sm text-ink-muted">
                 Creating the owner account for{' '}
-                <span className="text-slate-200 font-medium">{storeName}</span>.
+                <span className="text-ink font-medium">{storeName}</span>.
               </p>
             </div>
 
@@ -194,7 +194,7 @@ export default function SignupPage() {
                 className={`${inputCls} ${emailAvailable === false ? 'border-rose-500' : ''}`}
               />
               {emailChecking && (
-                <span className="text-xs text-slate-400">Checking…</span>
+                <span className="text-xs text-ink-muted">Checking…</span>
               )}
               {!emailChecking && emailAvailable === false && (
                 <span className="text-xs text-rose-400">
@@ -203,7 +203,7 @@ export default function SignupPage() {
                 </span>
               )}
               {!emailChecking && emailAvailable === true && (
-                <span className="text-xs text-emerald-400">✓ Available</span>
+                <span className="text-xs text-brand">✓ Available</span>
               )}
             </label>
 
@@ -219,7 +219,7 @@ export default function SignupPage() {
               />
               {ownerPassword && (
                 <div className="mt-1 space-y-0.5">
-                  <div className="h-1.5 w-full rounded-full bg-slate-800 overflow-hidden">
+                  <div className="h-1.5 w-full rounded-full bg-track overflow-hidden">
                     <div
                       className={`h-full rounded-full transition-all ${pwStrength.color}`}
                       style={{ width: pwStrength.width }}
@@ -231,7 +231,7 @@ export default function SignupPage() {
                 </div>
               )}
               {!ownerPassword && (
-                <span className="text-xs text-slate-500">At least 8 characters.</span>
+                <span className="text-xs text-ink-dim">At least 8 characters.</span>
               )}
             </label>
 
@@ -240,7 +240,7 @@ export default function SignupPage() {
             <button
               type="submit"
               disabled={submitting || emailAvailable === false || ownerPassword.length < 8}
-              className="w-full bg-emerald-500 text-slate-900 font-semibold rounded-lg py-2 disabled:opacity-50"
+              className="w-full bg-brand text-navy font-semibold rounded-lg py-2 disabled:opacity-50"
             >
               {submitting ? 'Creating shop…' : 'Create shop'}
             </button>
@@ -267,15 +267,15 @@ function StepDot({
       <div
         className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${
           active
-            ? 'bg-emerald-500 text-slate-900'
+            ? 'bg-brand text-navy'
             : done
-              ? 'bg-emerald-700 text-emerald-200'
-              : 'bg-slate-800 text-slate-400'
+              ? 'bg-brand-dark text-brand'
+              : 'bg-track text-ink-muted'
         }`}
       >
         {done ? '✓' : n}
       </div>
-      <span className={`text-xs ${active ? 'text-slate-200' : 'text-slate-500'}`}>{label}</span>
+      <span className={`text-xs ${active ? 'text-ink' : 'text-ink-dim'}`}>{label}</span>
     </div>
   );
 }

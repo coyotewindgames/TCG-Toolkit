@@ -14,9 +14,9 @@ interface TradeSearchPanelProps {
  */
 export default function TradeSearchPanel({ trade }: TradeSearchPanelProps) {
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 shadow-sm">
+    <div className="rounded-2xl border border-track bg-card/60 p-4 shadow-sm">
       <label className="block">
-        <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-400">
+        <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-ink-muted">
           Search catalog
         </span>
         <input
@@ -24,7 +24,7 @@ export default function TradeSearchPanel({ trade }: TradeSearchPanelProps) {
           value={trade.query}
           onChange={(event) => trade.setQuery(event.target.value)}
           placeholder='Card name or number (e.g. "Charizard" or "025/189")'
-          className="min-h-11 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 text-base outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/40"
+          className="min-h-11 w-full rounded-xl border border-border bg-navy px-4 text-base outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/40"
         />
       </label>
 
@@ -70,7 +70,7 @@ export default function TradeSearchPanel({ trade }: TradeSearchPanelProps) {
             value={trade.artistFilter}
             onChange={(event) => trade.setArtistFilter(event.target.value)}
             placeholder="Artist (e.g. Ken Sugimori)"
-            className="min-h-11 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 text-sm outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/40"
+            className="min-h-11 w-full rounded-xl border border-border bg-navy px-3 text-sm outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/40"
           />
         </div>
       </div>
@@ -125,7 +125,7 @@ function ActiveFilterChips({ trade }: { trade: TradeModeTransactionController })
       {!trade.setId && trade.inferredSetName && (
         // Inferred set has no clear button — clearing would need the user to
         // remove the set name from their query. The chip is informational.
-        <span className="inline-flex items-center gap-1 rounded-full border border-emerald-800/60 bg-emerald-950/50 px-2 py-1 text-emerald-200">
+        <span className="inline-flex items-center gap-1 rounded-full border border-brand-dark/60 bg-brand/50 px-2 py-1 text-brand">
           Detected set: {trade.inferredSetName}
         </span>
       )}
@@ -146,16 +146,16 @@ function SearchResults({ trade }: { trade: TradeModeTransactionController }) {
   const artistOnlySearch = !!trade.artistFilter;
   if (!trade.searchEnabled && !trade.looksLikeNumber && !artistOnlySearch) {
     return (
-      <div className="mt-4 rounded-xl border border-dashed border-slate-700 bg-slate-950/50 p-6 text-center text-sm text-slate-400">
+      <div className="mt-4 rounded-xl border border-dashed border-border bg-navy/50 p-6 text-center text-sm text-ink-muted">
         Start typing to search the catalog, or pick a set to browse it.
       </div>
     );
   }
   if (trade.searchFetching) {
-    return <p className="mt-4 text-sm text-slate-400">Searching…</p>;
+    return <p className="mt-4 text-sm text-ink-muted">Searching…</p>;
   }
   if (trade.searchResults.length === 0) {
-    return <p className="mt-4 text-sm text-slate-400">No matches.</p>;
+    return <p className="mt-4 text-sm text-ink-muted">No matches.</p>;
   }
   return (
     <ul className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5">
@@ -167,24 +167,24 @@ function SearchResults({ trade }: { trade: TradeModeTransactionController }) {
             aria-pressed={trade.selectedCard?.id === card.id}
             className={`w-full overflow-hidden rounded-xl border text-left transition ${
               trade.selectedCard?.id === card.id
-                ? 'border-emerald-500 ring-2 ring-emerald-500/40'
-                : 'border-slate-800 bg-slate-900 hover:border-emerald-500/40 hover:bg-slate-800/80'
+                ? 'border-brand ring-2 ring-brand/40'
+                : 'border-track bg-card hover:border-brand/40 hover:bg-track/80'
             }`}
           >
-            <div className="aspect-[3/4] bg-slate-800">
+            <div className="aspect-[3/4] bg-track">
               <CardImage src={card.imageUrl} alt={card.name} />
             </div>
             <div className="p-2">
               <p className="truncate text-sm font-semibold" title={card.name}>
                 {card.name}
               </p>
-              <p className="truncate text-[11px] text-slate-400">
+              <p className="truncate text-[11px] text-ink-muted">
                 {card.setName ?? ''}
                 {card.number ? ` • #${card.number}` : ''}
               </p>
-              {card.rarity && <p className="truncate text-[11px] text-slate-500">{card.rarity}</p>}
+              {card.rarity && <p className="truncate text-[11px] text-ink-dim">{card.rarity}</p>}
               {card.artist && (
-                <p className="truncate text-[11px] text-slate-500" title={card.artist}>
+                <p className="truncate text-[11px] text-ink-dim" title={card.artist}>
                   Art: {card.artist}
                 </p>
               )}
@@ -198,12 +198,12 @@ function SearchResults({ trade }: { trade: TradeModeTransactionController }) {
 
 function Chip({ onClear, children }: { onClear: () => void; children: React.ReactNode }) {
   return (
-    <span className="inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-800 px-2 py-1 text-slate-200">
+    <span className="inline-flex items-center gap-1 rounded-full border border-border bg-track px-2 py-1 text-ink">
       {children}
       <button
         type="button"
         onClick={onClear}
-        className="leading-none text-slate-400 hover:text-rose-300"
+        className="leading-none text-ink-muted hover:text-rose-300"
         aria-label="Clear filter"
       >
         ✕

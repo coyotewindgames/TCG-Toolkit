@@ -3,6 +3,7 @@ import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useSession } from '../hooks/useSession';
 import { logout, getOnboardingStatus } from '../lib/api';
+import turbocompIcon from '../assets/turbocomp-icon.svg';
 
 interface NavItem {
   to: string;
@@ -106,11 +107,11 @@ export default function AppLayout() {
   }
 
   return (
-    <div className="min-h-screen flex bg-slate-950 text-slate-100">
+    <div className="min-h-screen flex bg-navy text-ink">
       {/* Mobile overlay */}
       {mobileOpen && (
         <div
-          className="fixed inset-0 z-20 bg-slate-950/70 md:hidden"
+          className="fixed inset-0 z-20 bg-navy/70 md:hidden"
           onClick={() => setMobileOpen(false)}
         />
       )}
@@ -118,24 +119,22 @@ export default function AppLayout() {
       {/* Sidebar */}
       <aside
         className={`fixed md:static z-30 h-screen md:h-auto md:min-h-screen
-                    bg-slate-900 border-r border-slate-800
+                    bg-navy border-r border-track
                     flex flex-col
                     transition-[width,transform] duration-200 ease-out
                     ${collapsed ? 'md:w-16' : 'md:w-60'}
                     ${mobileOpen ? 'translate-x-0 w-60' : '-translate-x-full md:translate-x-0'}`}
       >
-        <div className="h-14 px-3 flex items-center gap-2 border-b border-slate-800">
+        <div className="h-14 px-3 flex items-center gap-2 border-b border-track">
           <Link
             to="/"
             className={`flex items-center gap-2 font-bold text-base whitespace-nowrap overflow-hidden ${
               collapsed ? 'md:justify-center md:w-full' : ''
             }`}
-            title="TCG Toolkit"
+            title="Turbocomp"
           >
-            <span className="text-xl leading-none" aria-hidden>
-              🃏
-            </span>
-            <span className={collapsed ? 'md:hidden' : ''}>TCG Toolkit</span>
+            <img src={turbocompIcon} alt="" className="h-6 w-6 shrink-0" aria-hidden />
+            <span className={collapsed ? 'md:hidden' : ''}>Turbocomp</span>
           </Link>
         </div>
 
@@ -149,8 +148,8 @@ export default function AppLayout() {
               className={({ isActive }: { isActive: boolean }) =>
                 `flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors ${
                   isActive
-                    ? 'bg-emerald-500 text-slate-900 font-medium'
-                    : 'text-slate-300 hover:bg-slate-800 hover:text-slate-100'
+                    ? 'bg-brand text-navy font-medium'
+                    : 'text-ink-muted hover:bg-card hover:text-ink'
                 } ${collapsed ? 'md:justify-center md:px-2' : ''}`
               }
             >
@@ -161,15 +160,15 @@ export default function AppLayout() {
 
           {/* Getting Started checklist — owners only, until onboarding is done */}
           {showChecklist && !collapsed && (
-            <div className="mt-4 mx-1 rounded-xl border border-slate-700 bg-slate-800/60 p-3 space-y-2">
+            <div className="mt-4 mx-1 rounded-xl border border-track bg-card/60 p-3 space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-slate-300 uppercase tracking-wide">
+                <span className="text-xs font-semibold text-ink-muted uppercase tracking-wide">
                   Getting started
                 </span>
                 <button
                   type="button"
                   onClick={dismissChecklist}
-                  className="text-slate-500 hover:text-slate-300 text-xs leading-none"
+                  className="text-ink-dim hover:text-ink-muted text-xs leading-none"
                   title="Dismiss"
                 >
                   ✕
@@ -199,15 +198,15 @@ export default function AppLayout() {
         </nav>
 
         {session.user && (
-          <div className={`border-t border-slate-800 px-3 py-2 ${collapsed ? 'md:px-2' : ''}`}>
-            <div className={`text-xs text-slate-400 ${collapsed ? 'md:hidden' : ''}`}>
+          <div className={`border-t border-track px-3 py-2 ${collapsed ? 'md:px-2' : ''}`}>
+            <div className={`text-xs text-ink-muted ${collapsed ? 'md:hidden' : ''}`}>
               <div className="truncate" title={session.user.email}>
                 {session.user.displayName}
               </div>
               <button
                 type="button"
                 onClick={() => navigate('/locations/pick')}
-                className="text-emerald-400 hover:underline truncate"
+                className="text-brand hover:underline truncate"
                 title="Switch location"
               >
                 Switch location
@@ -217,14 +216,14 @@ export default function AppLayout() {
               type="button"
               onClick={onLogout}
               title="Sign out"
-              className={`mt-2 w-full text-xs rounded-md bg-slate-800 hover:bg-slate-700 text-slate-200 py-1 ${
+              className={`mt-2 w-full text-xs rounded-md bg-track hover:bg-card text-ink py-1 ${
                 collapsed ? 'md:px-1' : 'px-2'
               }`}
             >
               {collapsed ? '⎋' : 'Sign out'}
             </button>
             <div
-              className={`mt-2 text-[10px] leading-tight text-slate-500 font-mono ${
+              className={`mt-2 text-[10px] leading-tight text-ink-dim font-mono ${
                 collapsed ? 'md:hidden' : ''
               }`}
               title={`Built ${__APP_BUILD_TIME__}`}
@@ -237,7 +236,7 @@ export default function AppLayout() {
         <button
           type="button"
           onClick={() => setCollapsed((c) => !c)}
-          className="hidden md:flex items-center justify-center h-10 border-t border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800/60"
+          className="hidden md:flex items-center justify-center h-10 border-t border-track text-ink-muted hover:text-ink hover:bg-card/60"
           aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >
@@ -259,19 +258,20 @@ export default function AppLayout() {
 
       <div className="flex-1 flex flex-col min-w-0">
         {/* Mobile top bar */}
-        <header className="md:hidden h-14 px-3 flex items-center gap-3 border-b border-slate-800 bg-slate-900">
+        <header className="md:hidden h-14 px-3 flex items-center gap-3 border-b border-track bg-navy">
           <button
             type="button"
             onClick={() => setMobileOpen(true)}
             aria-label="Open navigation"
-            className="p-2 rounded-lg hover:bg-slate-800"
+            className="p-2 rounded-lg hover:bg-card"
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M3 6h18M3 12h18M3 18h18" />
             </svg>
           </button>
-          <Link to="/" className="font-bold">
-            🃏 TCG Toolkit
+          <Link to="/" className="font-bold flex items-center gap-2">
+            <img src={turbocompIcon} alt="" className="h-6 w-6" aria-hidden />
+            Turbocomp
           </Link>
         </header>
 
@@ -295,16 +295,16 @@ function ChecklistItem({
   optional?: boolean;
 }) {
   const inner = (
-    <li className={`flex items-center gap-2 ${done ? 'text-slate-400 line-through' : 'text-slate-200'}`}>
-      <span className={`text-[10px] font-bold ${done ? 'text-emerald-400' : 'text-slate-600'}`}>
+    <li className={`flex items-center gap-2 ${done ? 'text-ink-dim line-through' : 'text-ink'}`}>
+      <span className={`text-[10px] font-bold ${done ? 'text-brand' : 'text-ink-dim'}`}>
         {done ? '✓' : '○'}
       </span>
       {label}
-      {optional && <span className="text-slate-500 text-[10px]">(opt)</span>}
+      {optional && <span className="text-ink-dim text-[10px]">(opt)</span>}
     </li>
   );
   if (!done && to) {
-    return <Link to={to} className="hover:text-emerald-300">{inner}</Link>;
+    return <Link to={to} className="hover:text-brand">{inner}</Link>;
   }
   return inner;
 }

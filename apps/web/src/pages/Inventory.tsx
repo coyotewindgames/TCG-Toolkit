@@ -135,7 +135,7 @@ function QrImage({ skuId, label }: { skuId: string; label: string }) {
   }
 
   if (!src) {
-    return <div className="w-full max-w-xl h-20 rounded-md bg-slate-800 animate-pulse" />;
+    return <div className="w-full max-w-xl h-20 rounded-md bg-track animate-pulse" />;
   }
 
   return (
@@ -336,7 +336,7 @@ export default function InventoryPage() {
     if (!m) return null;
     const positive = m.profitCents >= 0;
     const cls = positive
-      ? 'border-emerald-600/60 bg-emerald-950/40 text-emerald-200'
+      ? 'border-brand/60 bg-brand/40 text-brand'
       : 'border-rose-600/60 bg-rose-950/40 text-rose-200';
     const sign = positive ? '+' : '';
     return (
@@ -351,7 +351,7 @@ export default function InventoryPage() {
       <header className="flex items-center justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold">Inventory</h1>
-          <p className="text-sm text-slate-400">Search products, import CSVs, and backfill images.</p>
+          <p className="text-sm text-ink-muted">Search products, import CSVs, and backfill images.</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <button
@@ -377,9 +377,9 @@ export default function InventoryPage() {
       </header>
 
       <section>
-        <div className="mb-4 rounded-2xl border border-emerald-900/50 bg-emerald-950/20 px-4 py-3">
+        <div className="mb-4 rounded-2xl border border-brand/50 bg-brand/20 px-4 py-3">
           {summaryQuery.isLoading ? (
-            <p className="text-2xl font-semibold text-emerald-100">Loading…</p>
+            <p className="text-2xl font-semibold text-brand">Loading…</p>
           ) : summaryQuery.isError ? (
             <p className="text-sm text-rose-300">Could not load inventory summary.</p>
           ) : (
@@ -389,10 +389,10 @@ export default function InventoryPage() {
               return (
                 <div className="grid gap-3 sm:grid-cols-3">
                   <div>
-                    <div className="text-xs uppercase tracking-wide text-emerald-300/80">
+                    <div className="text-xs uppercase tracking-wide text-brand/80">
                       Estimated market value
                     </div>
-                    <div className="mt-1 text-2xl font-semibold text-emerald-100">
+                    <div className="mt-1 text-2xl font-semibold text-brand">
                       {formatCentsAsCurrencyWithGrouping(marketCents)}
                     </div>
                   </div>
@@ -407,14 +407,14 @@ export default function InventoryPage() {
                   <div>
                     <div
                       className={`text-xs uppercase tracking-wide ${
-                        positive ? 'text-amber-300/80' : 'text-rose-300/80'
+                        positive ? 'text-accent/80' : 'text-rose-300/80'
                       }`}
                     >
                       Profit potential
                     </div>
                     <div
                       className={`mt-1 text-2xl font-semibold ${
-                        positive ? 'text-amber-100' : 'text-rose-100'
+                        positive ? 'text-accent' : 'text-rose-100'
                       }`}
                     >
                       {costCents > 0
@@ -422,12 +422,12 @@ export default function InventoryPage() {
                         : '—'}
                     </div>
                     {costCents > 0 && marketCents > 0 && (
-                      <div className="text-xs text-slate-400 mt-0.5">
+                      <div className="text-xs text-ink-muted mt-0.5">
                         {marginPercent?.toFixed(1)}% margin
                       </div>
                     )}
                   </div>
-                  <div className="sm:col-span-3 text-sm text-emerald-200/80 -mt-1">
+                  <div className="sm:col-span-3 text-sm text-brand/80 -mt-1">
                     {s.qtyOnHand.toLocaleString()} items on hand across{' '}
                     {s.skuCount.toLocaleString()} inventory rows
                   </div>
@@ -442,13 +442,13 @@ export default function InventoryPage() {
           value={searchText}
           onChange={(e) => setSearchText(e.target.value)}
           placeholder="Search by name, set, card number, or artist…"
-          className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 outline-none focus:border-emerald-500"
+          className="w-full bg-card border border-border rounded-xl px-4 py-3 outline-none focus:border-brand"
         />
         <div className="mt-3 grid gap-2 md:grid-cols-6 xl:grid-cols-7">
-          <label className="text-xs text-slate-300">
+          <label className="text-xs text-ink-muted">
             <span className="block mb-1">Sort</span>
             <select
-              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2"
+              className="w-full bg-card border border-border rounded-lg px-3 py-2"
               value={sort}
               onChange={(e) => setSort(e.target.value as ProductSort)}
             >
@@ -458,7 +458,7 @@ export default function InventoryPage() {
             </select>
           </label>
 
-          <div className="text-xs text-slate-300">
+          <div className="text-xs text-ink-muted">
             <span className="block mb-1">Game</span>
             <SearchableSelect
               value={gameFilter}
@@ -472,7 +472,7 @@ export default function InventoryPage() {
             />
           </div>
 
-          <div className="text-xs text-slate-300">
+          <div className="text-xs text-ink-muted">
             <span className="block mb-1">Language</span>
             <SearchableSelect
               value={languageFilter}
@@ -486,7 +486,7 @@ export default function InventoryPage() {
             />
           </div>
 
-          <div className="text-xs text-slate-300">
+          <div className="text-xs text-ink-muted">
             <span className="block mb-1">Set</span>
             <SearchableSelect
               value={cardSetFilter}
@@ -500,7 +500,7 @@ export default function InventoryPage() {
             />
           </div>
 
-          <div className="text-xs text-slate-300">
+          <div className="text-xs text-ink-muted">
             <span className="block mb-1">Rarity</span>
             <SearchableSelect
               value={rarityFilter}
@@ -514,7 +514,7 @@ export default function InventoryPage() {
             />
           </div>
 
-          <div className="text-xs text-slate-300">
+          <div className="text-xs text-ink-muted">
             <span className="block mb-1">Artist</span>
             <SearchableSelect
               value={artistFilter}
@@ -528,10 +528,10 @@ export default function InventoryPage() {
             />
           </div>
 
-          <label className="text-xs text-slate-300">
+          <label className="text-xs text-ink-muted">
             <span className="block mb-1">Per page</span>
             <select
-              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2"
+              className="w-full bg-card border border-border rounded-lg px-3 py-2"
               value={String(pageSize)}
               onChange={(e) => {
                 const next = Number(e.target.value) || 25;
@@ -546,7 +546,7 @@ export default function InventoryPage() {
           </label>
         </div>
         {!isLoading && data?.pagination && (
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-ink-muted">
             <p>
               Showing page {data.pagination.page.toLocaleString()} of{' '}
               {data.pagination.totalPages.toLocaleString()} ({data.pagination.total.toLocaleString()}{' '}
@@ -590,37 +590,37 @@ export default function InventoryPage() {
             </div>
             <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
               {data.parse.inferred.setName && (
-                <span className="rounded-full border border-emerald-700/60 bg-emerald-950/40 px-2 py-0.5 text-emerald-200">
+                <span className="rounded-full border border-brand/60 bg-brand/40 px-2 py-0.5 text-brand">
                   Inferred set: {data.parse.inferred.setName}
                 </span>
               )}
               {data.parse.inferred.nameQuery && (
-                <span className="rounded-full border border-slate-600 bg-slate-900/80 px-2 py-0.5 text-slate-200">
+                <span className="rounded-full border border-border bg-card/80 px-2 py-0.5 text-ink">
                   Name query: {data.parse.inferred.nameQuery}
                 </span>
               )}
               {data.parse.explicit.setName && (
-                <span className="rounded-full border border-slate-600 bg-slate-900/80 px-2 py-0.5 text-slate-200">
+                <span className="rounded-full border border-border bg-card/80 px-2 py-0.5 text-ink">
                   Set filter: {data.parse.explicit.setName}
                 </span>
               )}
               {data.parse.explicit.game && (
-                <span className="rounded-full border border-slate-600 bg-slate-900/80 px-2 py-0.5 text-slate-200">
+                <span className="rounded-full border border-border bg-card/80 px-2 py-0.5 text-ink">
                   Game: {data.parse.explicit.game}
                 </span>
               )}
               {data.parse.explicit.language && (
-                <span className="rounded-full border border-slate-600 bg-slate-900/80 px-2 py-0.5 text-slate-200">
+                <span className="rounded-full border border-border bg-card/80 px-2 py-0.5 text-ink">
                   Language: {data.parse.explicit.language}
                 </span>
               )}
               {data.parse.explicit.rarity && (
-                <span className="rounded-full border border-slate-600 bg-slate-900/80 px-2 py-0.5 text-slate-200">
+                <span className="rounded-full border border-border bg-card/80 px-2 py-0.5 text-ink">
                   Rarity: {data.parse.explicit.rarity}
                 </span>
               )}
               {data.parse.explicit.artist && (
-                <span className="rounded-full border border-slate-600 bg-slate-900/80 px-2 py-0.5 text-slate-200">
+                <span className="rounded-full border border-border bg-card/80 px-2 py-0.5 text-ink">
                   Artist: {data.parse.explicit.artist}
                 </span>
               )}
@@ -646,18 +646,18 @@ export default function InventoryPage() {
         )}
         <ul className="mt-4 space-y-2">
           {data?.results.map((p) => (
-            <li key={p.id} className="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden">
+            <li key={p.id} className="bg-card rounded-xl border border-track overflow-hidden">
               <div className="p-3 flex gap-4">
                 <div className="relative w-16 h-24 shrink-0 group">
                   {p.imageSourceUrl ? (
                     <img
                       src={p.imageSourceUrl}
                       alt={p.name}
-                      className="w-16 h-24 rounded object-cover bg-slate-800"
+                      className="w-16 h-24 rounded object-cover bg-track"
                       loading="lazy"
                     />
                   ) : (
-                    <div className="w-16 h-24 rounded bg-slate-800 border border-dashed border-slate-700 flex items-center justify-center text-[10px] text-slate-500 text-center px-1">
+                    <div className="w-16 h-24 rounded bg-track border border-dashed border-border flex items-center justify-center text-[10px] text-ink-dim text-center px-1">
                       No image
                     </div>
                   )}
@@ -667,7 +667,7 @@ export default function InventoryPage() {
                       e.stopPropagation();
                       setImageEditorProduct(p);
                     }}
-                    className="absolute inset-x-0 bottom-0 rounded-b bg-slate-950/80 py-0.5 text-[10px] text-slate-200 opacity-100 md:opacity-0 md:group-hover:opacity-100 focus:opacity-100 transition"
+                    className="absolute inset-x-0 bottom-0 rounded-b bg-navy/80 py-0.5 text-[10px] text-ink opacity-100 md:opacity-0 md:group-hover:opacity-100 focus:opacity-100 transition"
                     title="Edit image"
                     aria-label={`Edit image for ${p.name}`}
                   >
@@ -683,17 +683,17 @@ export default function InventoryPage() {
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <div className="font-semibold text-base leading-tight">{p.name}</div>
-                      <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-300">
-                        <span className="rounded-full border border-slate-700 px-2 py-1 bg-slate-950/80">
+                      <div className="mt-2 flex flex-wrap gap-2 text-xs text-ink-muted">
+                        <span className="rounded-full border border-border px-2 py-1 bg-navy/80">
                           Set: {p.setName || 'Unknown set'}
                         </span>
-                        <span className="rounded-full border border-slate-700 px-2 py-1 bg-slate-950/80">
+                        <span className="rounded-full border border-border px-2 py-1 bg-navy/80">
                           Card #: {p.cardNumber || 'N/A'}
                         </span>
                         <span className="rounded-full border border-cyan-700/60 px-2 py-1 bg-cyan-950/40 text-cyan-200">
                           Available: {p.availableQty.toLocaleString()}
                         </span>
-                        <span className="rounded-full border border-emerald-700/60 px-2 py-1 bg-emerald-950/40 text-emerald-200">
+                        <span className="rounded-full border border-brand/60 px-2 py-1 bg-brand/40 text-brand">
                           Price: {formatPriceSummary(p)}
                         </span>
                         {formatCostSummary(p) && (
@@ -703,7 +703,7 @@ export default function InventoryPage() {
                         )}
                         {renderMarginBadge(p)}
                         {p.rarity && (
-                          <span className="rounded-full border border-slate-700 px-2 py-1 bg-slate-950/80">
+                          <span className="rounded-full border border-border px-2 py-1 bg-navy/80">
                             {p.rarity}
                           </span>
                         )}
@@ -714,7 +714,7 @@ export default function InventoryPage() {
                         )}
                       </div>
                     </div>
-                    <span className="text-xs text-slate-400 shrink-0 pt-1">
+                    <span className="text-xs text-ink-muted shrink-0 pt-1">
                       {expandedProductId === p.id ? 'Hide details' : 'Show details'}
                     </span>
                   </div>
@@ -722,8 +722,8 @@ export default function InventoryPage() {
               </div>
 
               {expandedProductId === p.id && (
-                <div className="border-t border-slate-800 bg-slate-950/50 px-4 py-3 space-y-3">
-                  <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+                <div className="border-t border-track bg-navy/50 px-4 py-3 space-y-3">
+                  <div className="flex flex-wrap items-center gap-2 text-xs text-ink-muted">
                     <span>Product ID: {p.id}</span>
                     <span>•</span>
                     <span>Set: {p.setName || 'Unknown set'}</span>
@@ -752,26 +752,26 @@ export default function InventoryPage() {
                   </div>
 
                   {expandedSkuQuery.isLoading && (
-                    <p className="text-sm text-slate-400">Loading item details…</p>
+                    <p className="text-sm text-ink-muted">Loading item details…</p>
                   )}
                   {expandedSkuQuery.error && (
                     <p className="text-sm text-rose-300">{String(expandedSkuQuery.error)}</p>
                   )}
                   {!expandedSkuQuery.isLoading && !expandedSkuQuery.error && (
                     <div className="space-y-2">
-                      <p className="text-xs uppercase tracking-wide text-slate-400">
+                      <p className="text-xs uppercase tracking-wide text-ink-muted">
                         SKU details ({expandedSkuQuery.data?.skus.length ?? 0})
                       </p>
                       {(expandedSkuQuery.data?.skus.length ?? 0) === 0 ? (
-                        <p className="text-sm text-slate-400">No SKUs found for this product yet.</p>
+                        <p className="text-sm text-ink-muted">No SKUs found for this product yet.</p>
                       ) : (
                         <div className="space-y-2">
                           {(expandedSkuQuery.data?.skus ?? []).map((sku) => (
                             <div
                               key={sku.id}
-                              className="rounded-lg border border-slate-800 bg-slate-950 px-3 py-2"
+                              className="rounded-lg border border-track bg-navy px-3 py-2"
                             >
-                              <div className="flex flex-wrap gap-2 text-sm text-slate-200">
+                              <div className="flex flex-wrap gap-2 text-sm text-ink">
                                 <span>{skuGradeLabel(sku)}</span>
                                 <span>• {sku.printing}</span>
                                 <span>• {sku.language}</span>
@@ -785,7 +785,7 @@ export default function InventoryPage() {
                                     • Purchased at ${(sku.avgCostCents / 100).toFixed(2)}
                                   </span>
                                 ) : (
-                                  <span className="text-slate-500">• Purchased at —</span>
+                                  <span className="text-ink-dim">• Purchased at —</span>
                                 )}
                                 {typeof sku.avgCostCents === 'number' &&
                                   sku.avgCostCents > 0 &&
@@ -794,7 +794,7 @@ export default function InventoryPage() {
                                     <span
                                       className={
                                         sku.sellPriceCents - sku.avgCostCents >= 0
-                                          ? 'text-emerald-300'
+                                          ? 'text-brand'
                                           : 'text-rose-300'
                                       }
                                     >
@@ -813,14 +813,14 @@ export default function InventoryPage() {
                                     onClick={() =>
                                       setCostEditorTarget({ sku, productName: p.name })
                                     }
-                                    className="ml-auto rounded-md border border-slate-700 bg-slate-900 px-2 py-0.5 text-xs text-slate-300 hover:border-emerald-500 hover:text-emerald-200"
+                                    className="ml-auto rounded-md border border-border bg-card px-2 py-0.5 text-xs text-ink-muted hover:border-brand hover:text-brand"
                                     title="Correct the purchased-at (cost basis) price for this SKU"
                                   >
                                     Edit cost
                                   </button>
                                 )}
                               </div>
-                              <p className="mt-1 text-xs text-slate-400 break-all">
+                              <p className="mt-1 text-xs text-ink-muted break-all">
                                 Barcode: {sku.barcode}
                               </p>
                             </div>
@@ -844,11 +844,11 @@ export default function InventoryPage() {
             className="absolute inset-0 bg-black/70"
             onClick={() => setBarcodeProduct(null)}
           />
-          <div className="absolute inset-x-4 top-8 bottom-8 md:inset-x-12 md:top-12 md:bottom-12 bg-slate-900 border border-slate-700 rounded-2xl overflow-hidden flex flex-col">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800">
+          <div className="absolute inset-x-4 top-8 bottom-8 md:inset-x-12 md:top-12 md:bottom-12 bg-card border border-border rounded-2xl overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-track">
               <div>
                 <h2 className="text-lg font-semibold">Barcodes</h2>
-                <p className="text-sm text-slate-400">{barcodeProduct.name}</p>
+                <p className="text-sm text-ink-muted">{barcodeProduct.name}</p>
               </div>
               <div className="flex items-center gap-2">
                 <button
@@ -866,21 +866,21 @@ export default function InventoryPage() {
             </div>
 
             <div className="p-4 overflow-auto space-y-3">
-              {skuQuery.isLoading && <p className="text-slate-400">Loading barcodes…</p>}
+              {skuQuery.isLoading && <p className="text-ink-muted">Loading barcodes…</p>}
               {skuQuery.error && (
                 <p className="text-rose-300 text-sm">{String(skuQuery.error)}</p>
               )}
               {printErr && <p className="text-rose-300 text-sm">{printErr}</p>}
               {!skuQuery.isLoading && (skuQuery.data?.skus.length ?? 0) === 0 && (
-                <p className="text-slate-400">No SKUs found for this product yet.</p>
+                <p className="text-ink-muted">No SKUs found for this product yet.</p>
               )}
 
               {(skuQuery.data?.skus ?? []).map((sku) => (
                 <article
                   key={sku.id}
-                  className="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-2"
+                  className="bg-navy border border-track rounded-xl p-3 space-y-2"
                 >
-                  <div className="text-sm text-slate-300 flex flex-wrap gap-2">
+                  <div className="text-sm text-ink-muted flex flex-wrap gap-2">
                     <span>{skuGradeLabel(sku)}</span>
                     <span>• {sku.printing}</span>
                     <span>• {sku.language}</span>
@@ -896,7 +896,7 @@ export default function InventoryPage() {
                     )}
                   </div>
                   <QrImage skuId={sku.id} label={`QR code for ${barcodeProduct.name}`} />
-                  <p className="font-mono text-xs text-slate-400 break-all">{sku.barcode}</p>
+                  <p className="font-mono text-xs text-ink-muted break-all">{sku.barcode}</p>
                   <div>
                     <button
                       type="button"
@@ -1079,11 +1079,11 @@ function CsvImporter() {
 
   return (
     <div className="space-y-3">
-      <p className="text-xs text-slate-400">Collectr / TCGplayer / Deckbox / generic CSV or XLSX exports</p>
+      <p className="text-xs text-ink-muted">Collectr / TCGplayer / Deckbox / generic CSV or XLSX exports</p>
 
-      <p className="text-sm text-slate-400">
+      <p className="text-sm text-ink-muted">
         Recognised columns (case-insensitive, any subset):{' '}
-        <code className="text-slate-300">
+        <code className="text-ink-muted">
           Name, Set, Set Code, Card Number, Game, Variant/Foil, Condition, Language, Quantity,
           Purchase Price/Cost, Market Price
         </code>
@@ -1101,7 +1101,7 @@ function CsvImporter() {
           className="text-sm"
         />
         <label className="text-sm">
-          <span className="block text-slate-300 mb-1">Default condition (when missing)</span>
+          <span className="block text-ink-muted mb-1">Default condition (when missing)</span>
           <select
             className="input"
             value={defaultCondition}
@@ -1113,7 +1113,7 @@ function CsvImporter() {
           </select>
         </label>
         <label className="text-sm">
-          <span className="block text-slate-300 mb-1">Default printing (when missing)</span>
+          <span className="block text-ink-muted mb-1">Default printing (when missing)</span>
           <select
             className="input"
             value={defaultPrinting}
@@ -1127,8 +1127,8 @@ function CsvImporter() {
       </div>
 
       {filename && (
-        <p className="text-xs text-slate-400">
-          Loaded: <span className="text-slate-200">{filename}</span> ({((file?.size ?? 0) / (1024 * 1024)).toFixed(2)} MB)
+        <p className="text-xs text-ink-muted">
+          Loaded: <span className="text-ink">{filename}</span> ({((file?.size ?? 0) / (1024 * 1024)).toFixed(2)} MB)
         </p>
       )}
 
@@ -1152,8 +1152,8 @@ function CsvImporter() {
       </div>
 
       {submit.isPending && (
-        <div className="space-y-1 rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2">
-          <p className="text-xs text-slate-300">
+        <div className="space-y-1 rounded-lg border border-border bg-card/60 px-3 py-2">
+          <p className="text-xs text-ink-muted">
             {importProgress.phase === 'uploading'
               ? `Uploading file... ${importProgress.percent}%`
               : 'Upload complete. Processing import...'}
@@ -1166,7 +1166,7 @@ function CsvImporter() {
           )}
 
           {importProgress.phase === 'uploading' && importProgress.total ? (
-            <p className="text-[11px] text-slate-400">
+            <p className="text-[11px] text-ink-muted">
               {(importProgress.loaded / (1024 * 1024)).toFixed(2)} MB /{' '}
               {(importProgress.total / (1024 * 1024)).toFixed(2)} MB
             </p>
@@ -1185,7 +1185,7 @@ function CsvImporter() {
       {result && (
         <div className="grid grid-cols-2 gap-3 text-sm">
           {!result.dryRun && (
-            <p className="col-span-full text-emerald-300 text-xs">
+            <p className="col-span-full text-brand text-xs">
               Import complete. Processed {result.totalRows.toLocaleString()} row
               {result.totalRows === 1 ? '' : 's'} with{' '}
               {(result.totalRows - result.errors.length).toLocaleString()} successful row
@@ -1216,7 +1216,7 @@ function CsvImporter() {
               <summary className="cursor-pointer text-rose-300">
                 {result.errors.length} row{result.errors.length === 1 ? '' : 's'} failed
               </summary>
-              <ul className="mt-2 space-y-1 text-xs text-slate-300 max-h-60 overflow-auto">
+              <ul className="mt-2 space-y-1 text-xs text-ink-muted max-h-60 overflow-auto">
                 {result.errors.slice(0, 100).map((er) => (
                   <li key={er.row}>
                     Row {er.row}: {er.message}
@@ -1272,7 +1272,7 @@ function WipeInventoryPanel() {
     <div className="space-y-3 border border-rose-900/50 bg-rose-950/20 rounded-lg p-3">
       <div>
         <h3 className="text-sm font-semibold text-rose-300">Wipe all inventory</h3>
-        <p className="text-xs text-slate-400 mt-1">
+        <p className="text-xs text-ink-muted mt-1">
           Zeroes out every on-hand row across every location in this store. The product
           catalog and any sales / trade-in history are preserved, so re-importing a CSV
           will restore quantities without re-creating SKUs. There is no undo.
@@ -1280,13 +1280,13 @@ function WipeInventoryPanel() {
       </div>
 
       <label className="block text-xs">
-        <span className="block text-slate-300 mb-1">
+        <span className="block text-ink-muted mb-1">
           Type <code className="text-rose-300">{WIPE_PHRASE}</code> to enable the button.
         </span>
         <input
           value={confirm}
           onChange={(e) => setConfirm(e.target.value)}
-          className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 outline-none focus:border-rose-500 font-mono text-sm"
+          className="w-full bg-navy border border-border rounded-lg px-3 py-2 outline-none focus:border-rose-500 font-mono text-sm"
           placeholder={WIPE_PHRASE}
           autoComplete="off"
           spellCheck={false}
@@ -1297,14 +1297,14 @@ function WipeInventoryPanel() {
         type="button"
         onClick={() => wipe.mutate()}
         disabled={!armed || wipe.isPending}
-        className="w-full bg-rose-600 hover:bg-rose-500 disabled:bg-slate-700 disabled:text-slate-400 text-white font-semibold rounded-lg py-2 transition"
+        className="w-full bg-rose-600 hover:bg-rose-500 disabled:bg-track disabled:text-ink-muted text-white font-semibold rounded-lg py-2 transition"
       >
         {wipe.isPending ? 'Wiping…' : 'Wipe all inventory'}
       </button>
 
       {error && <p className="text-xs text-rose-300">{error}</p>}
       {done && (
-        <p className="text-xs text-emerald-300">
+        <p className="text-xs text-brand">
           Deleted {done.deleted.toLocaleString()} inventory row{done.deleted === 1 ? '' : 's'}.
         </p>
       )}

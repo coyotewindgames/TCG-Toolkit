@@ -54,16 +54,16 @@ export default function PickLocationPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-950 text-slate-100 p-4">
-      <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
+    <div className="min-h-screen flex items-center justify-center bg-navy text-ink p-4">
+      <div className="w-full max-w-md bg-card border border-track rounded-2xl p-6 space-y-4">
         <div>
           <h1 className="text-2xl font-bold">Choose a location</h1>
-          <p className="text-sm text-slate-400">
+          <p className="text-sm text-ink-muted">
             Pick which store location you're working from. We'll remember it on this device.
           </p>
         </div>
 
-        {isLoading && <p className="text-sm text-slate-400">Loading…</p>}
+        {isLoading && <p className="text-sm text-ink-muted">Loading…</p>}
 
         {data && data.locations.length > 0 && (
           <ul className="space-y-2">
@@ -72,7 +72,7 @@ export default function PickLocationPage() {
                 <button
                   type="button"
                   onClick={() => pick(l.id)}
-                  className="w-full text-left bg-slate-950 hover:bg-slate-800 border border-slate-700 rounded-lg px-3 py-2"
+                  className="w-full text-left bg-navy hover:bg-track border border-border rounded-lg px-3 py-2"
                 >
                   {l.name}
                 </button>
@@ -82,19 +82,19 @@ export default function PickLocationPage() {
         )}
 
         {(session.user?.role === 'owner' || session.user?.role === 'manager') && (
-          <form onSubmit={createLocation} className="space-y-2 pt-2 border-t border-slate-800">
-            <span className="block text-xs uppercase tracking-wide text-slate-400">Add a location</span>
+          <form onSubmit={createLocation} className="space-y-2 pt-2 border-t border-track">
+            <span className="block text-xs uppercase tracking-wide text-ink-muted">Add a location</span>
             <div className="flex gap-2">
               <input
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
                 placeholder="e.g. Downtown"
-                className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 outline-none focus:border-emerald-500"
+                className="flex-1 bg-navy border border-border rounded-lg px-3 py-2 outline-none focus:border-brand"
               />
               <button
                 type="submit"
                 disabled={!newName.trim() || creating}
-                className="bg-emerald-500 text-slate-900 font-semibold rounded-lg px-3 disabled:opacity-50"
+                className="bg-brand text-navy font-semibold rounded-lg px-3 disabled:opacity-50"
               >
                 {creating ? '…' : 'Add'}
               </button>

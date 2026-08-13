@@ -49,15 +49,15 @@ export default function ImageBackfillPanel() {
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-slate-400">
+      <p className="text-sm text-ink-muted">
         Fills missing product images for Pokemon inventory from PkmnCards. Each click
         processes up to <strong>50 products</strong>.
       </p>
 
       <div className="flex flex-wrap gap-3 items-center">
         <div className="text-sm">
-          <span className="text-slate-400">Missing images:</span>{' '}
-          <span className="text-slate-100 font-semibold">{pending.toLocaleString()}</span>
+          <span className="text-ink-muted">Missing images:</span>{' '}
+          <span className="text-ink font-semibold">{pending.toLocaleString()}</span>
         </div>
         <button
           type="button"
@@ -77,7 +77,7 @@ export default function ImageBackfillPanel() {
 
       {lastRun && (
         <div className="space-y-3">
-          <div className="text-xs text-slate-300">
+          <div className="text-xs text-ink-muted">
             Scanned <strong>{lastRun.scanned}</strong> · Matched{' '}
             <strong>{lastRun.matched}</strong> · Updated{' '}
             <strong>{lastRun.imagesUpdated}</strong> · Remaining{' '}
@@ -86,27 +86,27 @@ export default function ImageBackfillPanel() {
 
           {lastRun.matches.length > 0 && (
             <div>
-              <div className="text-xs text-slate-400 mb-2">Updated this batch:</div>
+              <div className="text-xs text-ink-muted mb-2">Updated this batch:</div>
               <ul className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 {lastRun.matches.map((m) => (
                   <li
                     key={m.productId}
-                    className="bg-slate-900/60 border border-slate-700 rounded-lg p-2 text-xs"
+                    className="bg-card/60 border border-border rounded-lg p-2 text-xs"
                   >
                     {m.imageSourceUrl ? (
                       <img
                         src={m.imageSourceUrl}
                         alt={m.name}
-                        className="w-full aspect-[5/7] object-cover rounded mb-1 bg-slate-800"
+                        className="w-full aspect-[5/7] object-cover rounded mb-1 bg-track"
                         loading="lazy"
                       />
                     ) : (
-                      <div className="w-full aspect-[5/7] rounded mb-1 bg-slate-800 border border-dashed border-slate-700" />
+                      <div className="w-full aspect-[5/7] rounded mb-1 bg-track border border-dashed border-border" />
                     )}
-                    <div className="font-semibold text-slate-100 truncate" title={m.name}>
+                    <div className="font-semibold text-ink truncate" title={m.name}>
                       {m.name}
                     </div>
-                    <div className="text-slate-400 truncate">
+                    <div className="text-ink-muted truncate">
                       {m.setName ?? '—'}
                       {m.cardNumber ? ` · #${m.cardNumber}` : ''}
                       {' · PkmnCards'}
@@ -122,7 +122,7 @@ export default function ImageBackfillPanel() {
               <summary className="cursor-pointer text-amber-300 text-sm">
                 {lastRun.unmatched.length} unmatched
               </summary>
-              <ul className="mt-2 space-y-1 text-xs text-slate-300 max-h-48 overflow-auto">
+              <ul className="mt-2 space-y-1 text-xs text-ink-muted max-h-48 overflow-auto">
                 {lastRun.unmatched.map((u) => (
                   <li key={u.productId}>
                     {u.name} — <span className="opacity-70">{u.reason}</span>
@@ -135,7 +135,7 @@ export default function ImageBackfillPanel() {
       )}
 
       {pending > 0 && (
-        <p className="text-xs text-slate-400">
+        <p className="text-xs text-ink-muted">
           {pending.toLocaleString()} products still need images.
         </p>
       )}

@@ -138,12 +138,12 @@ export default function AnalyticsPage() {
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Analytics</h1>
-          <p className="text-sm text-slate-400">Sales, trade-ins, card mix, and 7-day market movers.</p>
+          <p className="text-sm text-ink-muted">Sales, trade-ins, card mix, and 7-day market movers.</p>
         </div>
-        <label className="text-xs text-slate-300">
+        <label className="text-xs text-ink-muted">
           <span className="block mb-1">Range</span>
           <select
-            className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2"
+            className="bg-card border border-border rounded-lg px-3 py-2"
             value={range}
             onChange={(e) => setRange(e.target.value as RangeKey)}
           >
@@ -248,7 +248,7 @@ export default function AnalyticsPage() {
               Market movers unavailable right now. {marketMoversError ?? 'Please retry in a moment.'}
             </p>
           ) : movers.data && movers.data.gainers.length === 0 && movers.data.losers.length === 0 ? (
-            <p className="text-sm text-slate-400">
+            <p className="text-sm text-ink-muted">
               Not enough price history yet. Movers appear once SKUs have at least a week of price
               snapshots.
             </p>
@@ -266,8 +266,8 @@ export default function AnalyticsPage() {
 
 function Panel({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <article className="rounded-xl border border-slate-800 bg-slate-900 p-4 space-y-3">
-      <h2 className="text-sm uppercase tracking-wide text-slate-300">{title}</h2>
+    <article className="rounded-xl border border-track bg-card p-4 space-y-3">
+      <h2 className="text-sm uppercase tracking-wide text-ink-muted">{title}</h2>
       {children}
     </article>
   );
@@ -275,9 +275,9 @@ function Panel({ title, children }: { title: string; children: ReactNode }) {
 
 function KpiCard({ label, value, loading }: { label: string; value: string; loading: boolean }) {
   return (
-    <article className="rounded-xl border border-slate-800 bg-slate-900 p-3">
-      <p className="text-xs text-slate-400 uppercase tracking-wide">{label}</p>
-      <p className="mt-2 text-2xl font-black text-emerald-300">{loading ? '…' : value}</p>
+    <article className="rounded-xl border border-track bg-card p-3">
+      <p className="text-xs text-ink-muted uppercase tracking-wide">{label}</p>
+      <p className="mt-2 text-2xl font-black text-brand">{loading ? '…' : value}</p>
     </article>
   );
 }
@@ -292,14 +292,14 @@ function MoverList({
   positive: boolean;
 }) {
   return (
-    <div className="rounded-lg border border-slate-800 bg-slate-950 p-3">
-      <p className="text-xs text-slate-400 uppercase tracking-wide mb-2">{title}</p>
+    <div className="rounded-lg border border-track bg-navy p-3">
+      <p className="text-xs text-ink-muted uppercase tracking-wide mb-2">{title}</p>
       <ul className="space-y-2">
-        {rows.length === 0 && <li className="text-xs text-slate-500">No data.</li>}
+        {rows.length === 0 && <li className="text-xs text-ink-dim">No data.</li>}
         {rows.map((row) => (
           <li key={row.skuId} className="flex items-center justify-between gap-2 text-xs">
-            <span className="truncate text-slate-200">{row.name}</span>
-            <span className={positive ? 'text-emerald-300 font-semibold' : 'text-rose-300 font-semibold'}>
+            <span className="truncate text-ink">{row.name}</span>
+            <span className={positive ? 'text-brand font-semibold' : 'text-rose-300 font-semibold'}>
               {typeof row.priceChangePercent === 'number'
                 ? `${positive ? '+' : ''}${row.priceChangePercent.toFixed(2)}%`
                 : '—'}

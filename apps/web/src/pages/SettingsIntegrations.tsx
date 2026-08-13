@@ -36,7 +36,7 @@ export default function SettingsIntegrationsPage() {
     queryFn: () => api.get<IntegrationsResponse>('/settings/integrations'),
   });
 
-  if (isLoading) return <p className="p-6 text-slate-400">Loading…</p>;
+  if (isLoading) return <p className="p-6 text-ink-muted">Loading…</p>;
   if (error) {
     return (
       <p className="p-6 text-rose-400">
@@ -50,7 +50,7 @@ export default function SettingsIntegrationsPage() {
     <div className="p-6 max-w-3xl mx-auto space-y-8">
       <header>
         <h1 className="text-2xl font-bold">Integrations</h1>
-        <p className="text-sm text-slate-400 mt-1">
+        <p className="text-sm text-ink-muted mt-1">
           Credentials are encrypted at rest with AES-256-GCM and never displayed back to the
           browser. Existing secrets are kept when you save without re-entering them.
         </p>
@@ -72,7 +72,7 @@ function StatusBadge({ ok, label }: { ok: boolean; label: string }) {
   return (
     <span
       className={`text-xs px-2 py-0.5 rounded-full ${
-        ok ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-300'
+        ok ? 'bg-brand/20 text-brand' : 'bg-rose-500/20 text-rose-300'
       }`}
     >
       {label}
@@ -113,11 +113,11 @@ function PkmnpricesCard({ status, onSaved }: { status: PkmnpricesStatus; onSaved
   });
 
   return (
-    <section className="bg-slate-800/50 border border-slate-700 rounded-xl p-5">
+    <section className="bg-track/50 border border-border rounded-xl p-5">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold">PkmnPrices.com</h2>
-          <p className="text-xs text-slate-400 mt-1">
+          <p className="text-xs text-ink-muted mt-1">
             Primary price source for Pokémon. Pro tier is required for Japanese-language prices and
             EUR/Cardmarket data.
           </p>
@@ -127,9 +127,9 @@ function PkmnpricesCard({ status, onSaved }: { status: PkmnpricesStatus; onSaved
           {status.configured && (
             <StatusBadge ok={status.hasKey} label={status.hasKey ? 'key on file' : 'no key'} />
           )}
-          <span className="text-xs text-slate-400">tier: {status.tier}</span>
+          <span className="text-xs text-ink-muted">tier: {status.tier}</span>
           {status.lastVerifiedAt && (
-            <span className="text-xs text-slate-400">
+            <span className="text-xs text-ink-muted">
               verified {new Date(status.lastVerifiedAt).toLocaleString()}
             </span>
           )}
@@ -248,7 +248,7 @@ function PosCard({ status, onSaved }: { status: PosStatus; onSaved: () => void }
   });
 
   return (
-    <section className="bg-slate-800/50 border border-slate-700 rounded-xl p-5">
+    <section className="bg-track/50 border border-border rounded-xl p-5">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">Clover (POS)</h2>
         <div className="flex gap-2">
@@ -263,7 +263,7 @@ function PosCard({ status, onSaved }: { status: PosStatus; onSaved: () => void }
             </>
           )}
           {status.lastVerifiedAt && (
-            <span className="text-xs text-slate-400">
+            <span className="text-xs text-ink-muted">
               verified {new Date(status.lastVerifiedAt).toLocaleString()}
             </span>
           )}
@@ -364,7 +364,7 @@ function PosCard({ status, onSaved }: { status: PosStatus; onSaved: () => void }
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block text-sm">
-      <span className="text-slate-300">{label}</span>
+      <span className="text-ink-muted">{label}</span>
       <div className="mt-1">{children}</div>
     </label>
   );
@@ -375,7 +375,7 @@ function Message({ msg }: { msg: { kind: 'ok' | 'err'; text: string } | null }) 
   return (
     <p
       className={`text-sm ${
-        msg.kind === 'ok' ? 'text-emerald-300' : 'text-rose-300'
+        msg.kind === 'ok' ? 'text-brand' : 'text-rose-300'
       }`}
     >
       {msg.text}

@@ -118,7 +118,7 @@ export default function CsvImporterPanel({ onImportSuccess, hideDryRun }: Props)
 
   return (
     <div className="space-y-3">
-      <p className="text-xs text-slate-400">
+      <p className="text-xs text-ink-muted">
         Collectr / TCGplayer / Deckbox / generic CSV or XLSX exports
       </p>
 
@@ -130,23 +130,23 @@ export default function CsvImporterPanel({ onImportSuccess, hideDryRun }: Props)
         onClick={() => fileRef.current?.click()}
         className={`relative flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed px-4 py-6 cursor-pointer transition-colors ${
           dragging
-            ? 'border-emerald-400 bg-emerald-500/10'
-            : 'border-slate-700 hover:border-slate-500 bg-slate-900/40'
+            ? 'border-brand bg-brand/10'
+            : 'border-border hover:border-ink-dim bg-card/40'
         }`}
       >
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-slate-400">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-ink-muted">
           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
           <polyline points="17 8 12 3 7 8" />
           <line x1="12" y1="3" x2="12" y2="15" />
         </svg>
         {filename ? (
-          <p className="text-sm text-slate-200 text-center">
+          <p className="text-sm text-ink text-center">
             {filename}{' '}
-            <span className="text-slate-500">({((file?.size ?? 0) / (1024 * 1024)).toFixed(2)} MB)</span>
+            <span className="text-ink-dim">({((file?.size ?? 0) / (1024 * 1024)).toFixed(2)} MB)</span>
           </p>
         ) : (
-          <p className="text-sm text-slate-400 text-center">
-            Drop your CSV here or <span className="text-emerald-400">browse</span>
+          <p className="text-sm text-ink-muted text-center">
+            Drop your CSV here or <span className="text-brand">browse</span>
           </p>
         )}
         <input
@@ -160,7 +160,7 @@ export default function CsvImporterPanel({ onImportSuccess, hideDryRun }: Props)
 
       <div className="flex gap-3">
         <label className="flex-1 text-sm">
-          <span className="block text-slate-300 mb-1">Default condition</span>
+          <span className="block text-ink-muted mb-1">Default condition</span>
           <select
             className="input w-full"
             value={defaultCondition}
@@ -172,7 +172,7 @@ export default function CsvImporterPanel({ onImportSuccess, hideDryRun }: Props)
           </select>
         </label>
         <label className="flex-1 text-sm">
-          <span className="block text-slate-300 mb-1">Default printing</span>
+          <span className="block text-ink-muted mb-1">Default printing</span>
           <select
             className="input w-full"
             value={defaultPrinting}
@@ -211,8 +211,8 @@ export default function CsvImporterPanel({ onImportSuccess, hideDryRun }: Props)
       </div>
 
       {submit.isPending && (
-        <div className="space-y-1 rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2">
-          <p className="text-xs text-slate-300">
+        <div className="space-y-1 rounded-lg border border-border bg-card/60 px-3 py-2">
+          <p className="text-xs text-ink-muted">
             {importProgress.phase === 'uploading'
               ? `Uploading… ${importProgress.percent}%`
               : 'Processing import…'}
@@ -230,7 +230,7 @@ export default function CsvImporterPanel({ onImportSuccess, hideDryRun }: Props)
       {result && (
         <div className="space-y-2">
           {!result.dryRun && (
-            <p className="text-emerald-300 text-xs">
+            <p className="text-brand text-xs">
               ✓ Imported {result.totalRows.toLocaleString()} rows —{' '}
               {(result.totalRows - result.errors.length).toLocaleString()} successful.
             </p>
@@ -251,7 +251,7 @@ export default function CsvImporterPanel({ onImportSuccess, hideDryRun }: Props)
               <summary className="cursor-pointer text-rose-300 text-xs">
                 {result.errors.length} row{result.errors.length === 1 ? '' : 's'} failed
               </summary>
-              <ul className="mt-1 space-y-1 text-xs text-slate-300 max-h-40 overflow-auto">
+              <ul className="mt-1 space-y-1 text-xs text-ink-muted max-h-40 overflow-auto">
                 {result.errors.slice(0, 50).map((er) => (
                   <li key={er.row}>Row {er.row}: {er.message}</li>
                 ))}
@@ -266,8 +266,8 @@ export default function CsvImporterPanel({ onImportSuccess, hideDryRun }: Props)
 
 function Stat({ label, value }: { label: string; value: number }) {
   return (
-    <div className="bg-slate-900/60 border border-slate-700 rounded-lg px-3 py-2">
-      <div className="text-xs text-slate-400">{label}</div>
+    <div className="bg-card/60 border border-border rounded-lg px-3 py-2">
+      <div className="text-xs text-ink-muted">{label}</div>
       <div className="text-lg font-semibold">{value.toLocaleString()}</div>
     </div>
   );

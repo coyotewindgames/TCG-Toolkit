@@ -29,28 +29,28 @@ export default function TradeDetailDrawer({ trade }: TradeDetailDrawerProps) {
       <div
         onClick={trade.clearTradeSelection}
         aria-hidden={!open}
-        className={`fixed inset-0 z-40 bg-slate-950/70 transition-opacity ${
+        className={`fixed inset-0 z-40 bg-navy/70 transition-opacity ${
           open ? 'opacity-100' : 'pointer-events-none opacity-0'
         }`}
       />
       <aside
         aria-label="Configure trade item"
         aria-hidden={!open}
-        className={`fixed inset-y-0 right-0 z-50 flex w-full max-w-xl flex-col border-l border-slate-800 bg-slate-900 shadow-2xl transition-transform ${
+        className={`fixed inset-y-0 right-0 z-50 flex w-full max-w-xl flex-col border-l border-track bg-card shadow-2xl transition-transform ${
           open ? 'translate-x-0' : 'translate-x-full'
         }`}
       >
         {trade.selectedCard && (
           <>
-            <header className="flex items-start justify-between gap-3 border-b border-slate-800 px-4 py-3">
+            <header className="flex items-start justify-between gap-3 border-b border-track px-4 py-3">
               <div className="min-w-0">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-300">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-brand">
                   Configure line item
                 </p>
                 <h3 className="mt-0.5 truncate text-lg font-semibold" title={trade.selectedCard.name}>
                   {trade.selectedCard.name}
                 </h3>
-                <p className="truncate text-xs text-slate-400">
+                <p className="truncate text-xs text-ink-muted">
                   {trade.selectedCard.setName ?? ''}
                   {trade.selectedCard.number ? ` • #${trade.selectedCard.number}` : ''}
                   {trade.selectedCard.rarity ? ` • ${trade.selectedCard.rarity}` : ''}
@@ -60,7 +60,7 @@ export default function TradeDetailDrawer({ trade }: TradeDetailDrawerProps) {
                 type="button"
                 onClick={trade.clearTradeSelection}
                 aria-label="Close"
-                className="rounded p-1 text-slate-400 hover:bg-slate-800 hover:text-slate-100"
+                className="rounded p-1 text-ink-muted hover:bg-track hover:text-ink"
               >
                 ✕
               </button>
@@ -69,26 +69,26 @@ export default function TradeDetailDrawer({ trade }: TradeDetailDrawerProps) {
             <div className="flex-1 overflow-y-auto px-4 py-4">
               <div className="flex flex-col gap-4 sm:flex-row">
                 <div className="w-full sm:w-40">
-                  <div className="aspect-[3/4] overflow-hidden rounded-xl border border-slate-800 bg-slate-800">
+                  <div className="aspect-[3/4] overflow-hidden rounded-xl border border-track bg-track">
                     <CardImage
                       src={trade.selectedCard.imageUrl}
                       alt={trade.selectedCard.name}
                     />
                   </div>
-                  <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950/60 p-2 text-xs text-slate-300">
+                  <div className="mt-3 rounded-lg border border-track bg-navy/60 p-2 text-xs text-ink-muted">
                     <p>
                       Market:{' '}
                       <span className="font-mono">{formatCentsAsCurrency(trade.selectedMarketPriceCents)}</span>
                     </p>
                     <p>
                       Suggested:{' '}
-                      <span className="font-mono text-emerald-300">
+                      <span className="font-mono text-brand">
                         {formatCentsAsCurrency(trade.suggestedTradeUnitCents)}
                       </span>
                     </p>
                     <p>
                       Line total:{' '}
-                      <span className="font-mono text-emerald-300">
+                      <span className="font-mono text-brand">
                         {formatCentsAsCurrency(trade.pendingLineTotalCents)}
                       </span>
                     </p>
@@ -150,12 +150,12 @@ export default function TradeDetailDrawer({ trade }: TradeDetailDrawerProps) {
               </div>
             </div>
 
-            <footer className="border-t border-slate-800 px-4 py-3">
+            <footer className="border-t border-track px-4 py-3">
               <div className="flex items-center justify-between gap-2">
                 <button
                   type="button"
                   onClick={trade.clearTradeSelection}
-                  className="min-h-11 rounded-lg border border-slate-700 bg-slate-900 px-4 text-sm font-semibold text-slate-200 transition hover:bg-slate-800"
+                  className="min-h-11 rounded-lg border border-border bg-card px-4 text-sm font-semibold text-ink transition hover:bg-track"
                 >
                   Cancel
                 </button>
@@ -165,7 +165,7 @@ export default function TradeDetailDrawer({ trade }: TradeDetailDrawerProps) {
                     trade.addTradeItemToQueue();
                     trade.clearTradeSelection();
                   }}
-                  className="min-h-11 rounded-lg bg-emerald-500 px-4 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400"
+                  className="min-h-11 rounded-lg bg-brand px-4 text-sm font-semibold text-navy transition hover:bg-brand-dark"
                 >
                   Add to queue
                 </button>
@@ -195,13 +195,13 @@ function EnumSelect<T extends string>({
 }) {
   return (
     <label className="block text-xs">
-      <span className="mb-1 block font-medium uppercase tracking-wide text-slate-400">
+      <span className="mb-1 block font-medium uppercase tracking-wide text-ink-muted">
         {label}
       </span>
       <select
         value={value}
         onChange={(event) => onChange(event.target.value as T)}
-        className="min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm outline-none focus:border-emerald-500"
+        className="min-h-11 w-full rounded-lg border border-border bg-navy px-3 text-sm outline-none focus:border-brand"
       >
         {options.map((option) => (
           <option key={option} value={option}>
@@ -226,7 +226,7 @@ function NumberField({
 }) {
   return (
     <label className="block text-xs">
-      <span className="mb-1 block font-medium uppercase tracking-wide text-slate-400">
+      <span className="mb-1 block font-medium uppercase tracking-wide text-ink-muted">
         {label}
       </span>
       <input
@@ -234,7 +234,7 @@ function NumberField({
         min={min}
         value={value}
         onChange={(event) => onChange(Number(event.target.value) || 0)}
-        className="min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm outline-none focus:border-emerald-500"
+        className="min-h-11 w-full rounded-lg border border-border bg-navy px-3 text-sm outline-none focus:border-brand"
       />
     </label>
   );
@@ -255,7 +255,7 @@ function TextField({
 }) {
   return (
     <label className="block text-xs">
-      <span className="mb-1 block font-medium uppercase tracking-wide text-slate-400">
+      <span className="mb-1 block font-medium uppercase tracking-wide text-ink-muted">
         {label}
       </span>
       <input
@@ -263,7 +263,7 @@ function TextField({
         inputMode={inputMode}
         placeholder={placeholder}
         onChange={(event) => onChange(event.target.value)}
-        className="min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm outline-none focus:border-emerald-500"
+        className="min-h-11 w-full rounded-lg border border-border bg-navy px-3 text-sm outline-none focus:border-brand"
       />
     </label>
   );
