@@ -97,23 +97,6 @@ export default function TradeDetailDrawer({ trade }: TradeDetailDrawerProps) {
 
                 <div className="min-w-0 flex-1 space-y-3">
                   <GradedCardSection trade={trade} />
-
-                  {!trade.isGraded && (
-                    <Row>
-                      <EnumSelect
-                        label="Condition"
-                        value={trade.condition}
-                        options={trade.conditionOptions}
-                        onChange={trade.setCondition}
-                      />
-                      <EnumSelect
-                        label="Printing"
-                        value={trade.printing}
-                        options={trade.printingOptions}
-                        onChange={trade.setPrinting}
-                      />
-                    </Row>
-                  )}
                   <Row>
                     <EnumSelect
                       label="Language"
@@ -187,11 +170,12 @@ function Row({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * "Slabs" as a first-class option: lets the operator mark a card as a graded
- * slab, pick a grading company + grade, and see a live median pulled from
- * recent eBay sold comps (via `GET /pkmnprices/cards/:id/graded-price`)
- * instead of manually searching eBay. Selecting a grade also drives the
- * suggested payout for the queued line item.
+ * "Slabs" as a first-class option: lets the operator switch this line item
+ * between "Ungraded" (condition/printing) and "Graded" (grading company +
+ * grade, with a live median pulled from recent eBay sold comps via
+ * `GET /pkmnprices/cards/:id/graded-price` instead of manually searching
+ * eBay). Selecting a grade also drives the suggested payout for the queued
+ * line item.
  */
 function GradedCardSection({ trade }: { trade: TradeModeTransactionController }) {
   const ebayGradedUrl = trade.isGraded
@@ -202,15 +186,47 @@ function GradedCardSection({ trade }: { trade: TradeModeTransactionController })
 
   return (
     <div className="space-y-3">
-      <label className="flex cursor-pointer select-none items-center gap-2 text-sm text-ink-muted">
-        <input
-          type="checkbox"
-          checked={trade.isGraded}
-          onChange={(event) => trade.setIsGraded(event.target.checked)}
-          className="rounded accent-brand"
-        />
-        Graded card / slab (PSA, CGC, Beckett, TAG, SGC)
-      </label>
+      <div role="tablist" aria-label="Card condition type" className="grid grid-cols-2 gap-1 rounded-lg border border-border bg-navy p-1">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={!trade.isGraded}
+          onClick={() => trade.setIsGraded(false)}
+          className={`min-h-9 rounded-md text-sm font-semibold transition ${
+            !trade.isGraded ? 'bg-brand text-navy' : 'text-ink-muted hover:text-ink'
+          }`}
+        >
+          Ungraded
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={trade.isGraded}
+          onClick={() => trade.setIsGraded(true)}
+          className={`min-h-9 rounded-md text-sm font-semibold transition ${
+            trade.isGraded ? 'bg-brand text-navy' : 'text-ink-muted hover:text-ink'
+          }`}
+        >
+          Graded / slab
+        </button>
+      </div>
+
+      {!trade.isGraded && (
+        <Row>
+          <EnumSelect
+            label="Condition"
+            value={trade.condition}
+            options={trade.conditionOptions}
+            onChange={trade.setCondition}
+          />
+          <EnumSelect
+            label="Printing"
+            value={trade.printing}
+            options={trade.printingOptions}
+            onChange={trade.setPrinting}
+          />
+        </Row>
+      )}
 
       {trade.isGraded && (
         <div className="space-y-3 rounded-xl border border-border bg-navy p-3">
