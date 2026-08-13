@@ -4,7 +4,7 @@
  * These live here — rather than being retyped per page or per hook — so a
  * change to an endpoint's payload surfaces as a type error in every consumer.
  */
-import type { CardCondition, CardLanguage, CardPrinting, PayoutKind } from './index';
+import type { CardCondition, CardLanguage, CardPrinting, PayoutKind } from './index.js';
 
 /** A card as returned by the catalog proxy endpoints (`/pkmnprices/*`). */
 export interface CatalogCard {

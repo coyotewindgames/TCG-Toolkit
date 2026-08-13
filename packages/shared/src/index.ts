@@ -280,8 +280,8 @@ export function skuIdentityKey(args: {
 
 // ---------- API response shapes shared with the web client ----------
 
-export * from './dto';
+export * from './dto.js';
 
 // ---------- Text normalization ----------
 
-export * from './text';
+export * from './text.js';
