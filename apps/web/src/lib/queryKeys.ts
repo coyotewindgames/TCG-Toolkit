@@ -20,8 +20,14 @@ export const queryKeys = {
     skus: (productId: string | null | undefined) => ['transactions', 'sell', 'skus', productId ?? null] as const,
   },
   history: {
-    trades: (page: number, pageSize: number, status: string) =>
-      ['history', 'trades', page, pageSize, status] as const,
+    trades: (
+      page: number,
+      pageSize: number,
+      status: string,
+      payout = '',
+      dateFrom = '',
+      dateTo = '',
+    ) => ['history', 'trades', page, pageSize, status, payout, dateFrom, dateTo] as const,
   },
 } as const;
 

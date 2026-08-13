@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNull, lte, sql } from 'drizzle-orm';
 import type {
   CardCondition,
   CreateTradeRequest,
@@ -225,14 +225,31 @@ export class TradeinsService {
   }
 
   /** Paginated transaction history: trade-ins for the store, newest first. */
-  async list(args: { storeId: string; page: number; pageSize: number; status?: TradeStatus }) {
+  async list(args: {
+    storeId: string;
+    page: number;
+    pageSize: number;
+    status?: TradeStatus;
+    payout?: PayoutKind;
+    dateFrom?: string;
+    dateTo?: string;
+  }) {
     const page = Math.max(1, Math.floor(args.page) || 1);
     const pageSize = Math.min(100, Math.max(1, Math.floor(args.pageSize) || 25));
     const offset = (page - 1) * pageSize;
 
+    const dateFrom = args.dateFrom ? new Date(`${args.dateFrom}T00:00:00.000`) : undefined;
+    const dateTo = args.dateTo ? new Date(`${args.dateTo}T23:59:59.999`) : undefined;
+    // Trades are "dated" by completion time once finalized, falling back to
+    // creation time for drafts/pending/rejected trades that never completed.
+    const activityDate = sql`coalesce(${schema.tradeIns.completedAt}, ${schema.tradeIns.createdAt})`;
+
     const filters = [
       eq(schema.tradeIns.storeId, args.storeId),
       args.status ? eq(schema.tradeIns.status, args.status) : undefined,
+      args.payout ? eq(schema.tradeIns.payout, args.payout) : undefined,
+      dateFrom && !Number.isNaN(dateFrom.getTime()) ? gte(activityDate, dateFrom) : undefined,
+      dateTo && !Number.isNaN(dateTo.getTime()) ? lte(activityDate, dateTo) : undefined,
     ];
 
     const [{ total }] = await this.db

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { TradeListItem, TradeListResponse } from '@tcg/shared';
-import { TRADE_STATUSES } from '@tcg/shared';
+import { PAYOUT_KINDS, TRADE_STATUSES } from '@tcg/shared';
 import { api } from '../lib/api';
 import { queryKeys } from '../lib/queryKeys';
 import { formatCentsAsCurrency } from '../lib/format';
@@ -13,6 +13,11 @@ const STATUS_LABELS: Record<string, string> = {
   approved: 'Approved',
   rejected: 'Rejected',
   completed: 'Completed',
+};
+
+const PAYOUT_LABELS: Record<string, string> = {
+  cash: 'Buy (cash)',
+  store_credit: 'Trade (store credit)',
 };
 
 const STATUS_BADGE_CLASSES: Record<string, string> = {
@@ -65,14 +70,20 @@ export default function TransactionHistoryPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const [status, setStatus] = useState('');
+  const [payout, setPayout] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
 
   const { data, isLoading, isFetching, error } = useQuery<TradeListResponse>({
-    queryKey: queryKeys.history.trades(page, pageSize, status),
+    queryKey: queryKeys.history.trades(page, pageSize, status, payout, dateFrom, dateTo),
     queryFn: () => {
       const params = new URLSearchParams();
       params.set('page', String(page));
       params.set('pageSize', String(pageSize));
       if (status) params.set('status', status);
+      if (payout) params.set('payout', payout);
+      if (dateFrom) params.set('dateFrom', dateFrom);
+      if (dateTo) params.set('dateTo', dateTo);
       return api.get<TradeListResponse>(`/tradeins?${params.toString()}`);
     },
     placeholderData: (prev) => prev,
@@ -96,24 +107,89 @@ export default function TransactionHistoryPage() {
 
       <section className="mx-auto w-full max-w-7xl px-4 py-4 sm:px-6 sm:py-6">
         <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-          <label className="text-xs text-ink-muted">
-            <span className="mb-1 block">Status</span>
-            <select
-              value={status}
-              onChange={(e) => {
-                setStatus(e.target.value);
-                setPage(1);
-              }}
-              className="min-h-10 rounded-lg border border-border bg-card px-3 py-2 text-sm outline-none focus:border-brand"
-            >
-              <option value="">All statuses</option>
-              {TRADE_STATUSES.map((s) => (
-                <option key={s} value={s}>
-                  {STATUS_LABELS[s] ?? s}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="text-xs text-ink-muted">
+              <span className="mb-1 block">Status</span>
+              <select
+                value={status}
+                onChange={(e) => {
+                  setStatus(e.target.value);
+                  setPage(1);
+                }}
+                className="min-h-10 rounded-lg border border-border bg-card px-3 py-2 text-sm outline-none focus:border-brand"
+              >
+                <option value="">All statuses</option>
+                {TRADE_STATUSES.map((s) => (
+                  <option key={s} value={s}>
+                    {STATUS_LABELS[s] ?? s}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="text-xs text-ink-muted">
+              <span className="mb-1 block">Type</span>
+              <select
+                value={payout}
+                onChange={(e) => {
+                  setPayout(e.target.value);
+                  setPage(1);
+                }}
+                className="min-h-10 rounded-lg border border-border bg-card px-3 py-2 text-sm outline-none focus:border-brand"
+              >
+                <option value="">All types</option>
+                {PAYOUT_KINDS.map((p) => (
+                  <option key={p} value={p}>
+                    {PAYOUT_LABELS[p] ?? p}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="text-xs text-ink-muted">
+              <span className="mb-1 block">From</span>
+              <input
+                type="date"
+                value={dateFrom}
+                max={dateTo || undefined}
+                onChange={(e) => {
+                  setDateFrom(e.target.value);
+                  setPage(1);
+                }}
+                className="min-h-10 rounded-lg border border-border bg-card px-3 py-2 text-sm outline-none focus:border-brand"
+              />
+            </label>
+
+            <label className="text-xs text-ink-muted">
+              <span className="mb-1 block">To</span>
+              <input
+                type="date"
+                value={dateTo}
+                min={dateFrom || undefined}
+                onChange={(e) => {
+                  setDateTo(e.target.value);
+                  setPage(1);
+                }}
+                className="min-h-10 rounded-lg border border-border bg-card px-3 py-2 text-sm outline-none focus:border-brand"
+              />
+            </label>
+
+            {(status || payout || dateFrom || dateTo) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setStatus('');
+                  setPayout('');
+                  setDateFrom('');
+                  setDateTo('');
+                  setPage(1);
+                }}
+                className="min-h-10 rounded-lg border border-border bg-card px-3 py-2 text-xs font-semibold text-ink-muted transition hover:bg-track"
+              >
+                Clear filters
+              </button>
+            )}
+          </div>
 
           <label className="text-xs text-ink-muted">
             <span className="mb-1 block">Per page</span>
@@ -177,7 +253,7 @@ export default function TransactionHistoryPage() {
                     <td className="px-4 py-3 text-ink-muted">{trade.customerName ?? '—'}</td>
                     <td className="px-4 py-3 text-ink-muted">{trade.locationName}</td>
                     <td className="px-4 py-3 text-ink-muted">
-                      {trade.payout === 'cash' ? 'Buy (cash)' : 'Trade (store credit)'}
+                      {PAYOUT_LABELS[trade.payout] ?? trade.payout}
                     </td>
                     <td className="px-4 py-3">
                       <span

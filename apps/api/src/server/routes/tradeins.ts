@@ -1,5 +1,11 @@
 import { Router } from 'express';
-import { CreateTradeRequest, TRADE_STATUSES, type TradeStatus } from '@tcg/shared';
+import {
+  CreateTradeRequest,
+  PAYOUT_KINDS,
+  TRADE_STATUSES,
+  type PayoutKind,
+  type TradeStatus,
+} from '@tcg/shared';
 import { asyncHandler } from '../../common/async-handler';
 import { requireAuth, requireRole } from '../auth/middleware';
 import { validateBody } from '../middleware/validate';
@@ -18,12 +24,21 @@ export function tradeinsRouter(c: Container): Router {
       const status = (TRADE_STATUSES as readonly string[]).includes(statusRaw ?? '')
         ? (statusRaw as TradeStatus)
         : undefined;
+      const payoutRaw = req.query.payout as string | undefined;
+      const payout = (PAYOUT_KINDS as readonly string[]).includes(payoutRaw ?? '')
+        ? (payoutRaw as PayoutKind)
+        : undefined;
+      const dateFrom = typeof req.query.dateFrom === 'string' ? req.query.dateFrom : undefined;
+      const dateTo = typeof req.query.dateTo === 'string' ? req.query.dateTo : undefined;
 
       const out = await c.tradeins.list({
         storeId: req.user!.storeId,
         page: Number.isFinite(pageRaw) ? pageRaw : 1,
         pageSize: Number.isFinite(pageSizeRaw) ? pageSizeRaw : 25,
         status,
+        payout,
+        dateFrom,
+        dateTo,
       });
       res.json(out);
     }),
