@@ -100,6 +100,26 @@ The Render API service must run database migrations as a *pre-deploy* command
 before the worker/cron start; otherwise jobs that query `tcgapi_configs` or
 other newer tables will fail against a partially-migrated database.
 
+### Custom domain: theturbocomp.com
+
+Production is served from **theturbocomp.com**. `render.yaml` requests these
+custom domains directly on the Blueprint:
+- `tcg-web` → `theturbocomp.com` and `www.theturbocomp.com`
+- `tcg-api` → `api.theturbocomp.com`
+
+After the Blueprint syncs, each service's **Settings → Custom Domains** tab
+in Render shows the DNS records to create at the registrar:
+- `theturbocomp.com` (apex) → `ALIAS`/`ANAME` (or `A` records Render provides)
+- `www.theturbocomp.com` → `CNAME` to the Render-provided hostname
+- `api.theturbocomp.com` → `CNAME` to the Render-provided hostname
+
+Render auto-provisions and renews the TLS certificates once DNS verifies.
+Once the domains are live, set these `sync: false` env vars in the Render
+dashboard (not committed to the repo):
+- `tcg-api` → `CORS_ORIGIN=https://theturbocomp.com,https://www.theturbocomp.com`
+- `tcg-api` → `COOKIE_DOMAIN=.theturbocomp.com`
+- `tcg-web` → `VITE_API_URL=https://api.theturbocomp.com`
+
 ## High-level request flow
 
 ```

@@ -7,6 +7,8 @@ services:
     plan: starter
     region: oregon
     rootDir: .
+    domains:
+      - api.theturbocomp.com
     buildCommand: npm ci --include=dev && npm run build --workspace=@tcg/shared && npm run build --workspace=@tcg/api
     preDeployCommand: npm ci --include=dev && npm run build --workspace=@tcg/shared && npm run build --workspace=@tcg/api && npm run db:migrate:render --workspace=@tcg/api
     startCommand: node apps/api/dist/server/main.js
@@ -85,6 +87,9 @@ services:
     name: tcg-web
     runtime: static
     rootDir: .
+    domains:
+      - theturbocomp.com
+      - www.theturbocomp.com
     buildCommand: npm ci --include=dev && npm run build --workspace=@tcg/shared && npm run build --workspace=@tcg/web
     staticPublishPath: apps/web/dist
     routes:
