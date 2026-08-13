@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { CreateTradeRequest } from '@tcg/shared';
+import { CreateTradeRequest, TRADE_STATUSES, type TradeStatus } from '@tcg/shared';
 import { asyncHandler } from '../../common/async-handler';
 import { requireAuth, requireRole } from '../auth/middleware';
 import { validateBody } from '../middleware/validate';
@@ -8,6 +8,26 @@ import type { Container } from '../container';
 export function tradeinsRouter(c: Container): Router {
   const r = Router();
   r.use(requireAuth);
+
+  r.get(
+    '/',
+    asyncHandler(async (req, res) => {
+      const pageRaw = Number(req.query.page ?? 1);
+      const pageSizeRaw = Number(req.query.pageSize ?? 25);
+      const statusRaw = req.query.status as string | undefined;
+      const status = (TRADE_STATUSES as readonly string[]).includes(statusRaw ?? '')
+        ? (statusRaw as TradeStatus)
+        : undefined;
+
+      const out = await c.tradeins.list({
+        storeId: req.user!.storeId,
+        page: Number.isFinite(pageRaw) ? pageRaw : 1,
+        pageSize: Number.isFinite(pageSizeRaw) ? pageSizeRaw : 25,
+        status,
+      });
+      res.json(out);
+    }),
+  );
 
   r.post(
     '/',
@@ -32,6 +52,22 @@ export function tradeinsRouter(c: Container): Router {
         userId: req.user!.id,
       });
       res.json(out);
+    }),
+  );
+
+  r.get(
+    '/:id/bill-of-sale.pdf',
+    asyncHandler(async (req, res) => {
+      const pdf = await c.billOfSale.tradeInPdf({
+        storeId: req.user!.storeId,
+        tradeId: req.params.id,
+      });
+      res.type('application/pdf');
+      res.setHeader(
+        'Content-Disposition',
+        `inline; filename="bill-of-sale-${req.params.id.slice(0, 8)}.pdf"`,
+      );
+      res.send(pdf);
     }),
   );
 

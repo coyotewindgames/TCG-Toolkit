@@ -11,6 +11,7 @@ import { CloverClient } from '../integrations/pos/clover';
 import { PkmnCardsClient } from '../integrations/pkmncards/client';
 import { PkmnPricesClient } from '../integrations/pkmnprices/client';
 import { BarcodeService } from './services/barcode';
+import { BillOfSaleService } from './services/bill-of-sale';
 import { CheckoutService } from './services/checkout';
 import { ConfigService } from './services/config-service';
 import { InventoryService } from './services/inventory';
@@ -30,6 +31,7 @@ export interface Container {
   checkout: CheckoutService;
   tradeins: TradeinsService;
   barcode: BarcodeService;
+  billOfSale: BillOfSaleService;
   configs: ConfigService;
   /**
    * Shared unauthenticated pkmncards.com scraper — used for artist / set
@@ -57,6 +59,7 @@ export function buildContainer(): Container {
   const pricing = new PricingService(db);
   const tradeins = new TradeinsService(db, inventory);
   const barcode = new BarcodeService();
+  const billOfSale = new BillOfSaleService(db);
   const pkmncardsClient = new PkmnCardsClient();
 
   async function posFor(storeId: string): Promise<CloverClient> {
@@ -88,6 +91,7 @@ export function buildContainer(): Container {
     checkout,
     tradeins,
     barcode,
+    billOfSale,
     configs,
     pkmncardsClient,
     posFor,

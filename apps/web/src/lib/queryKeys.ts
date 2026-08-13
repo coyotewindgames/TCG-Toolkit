@@ -19,6 +19,10 @@ export const queryKeys = {
     search: (query: string) => ['transactions', 'sell', 'search', query.trim()] as const,
     skus: (productId: string | null | undefined) => ['transactions', 'sell', 'skus', productId ?? null] as const,
   },
+  history: {
+    trades: (page: number, pageSize: number, status: string) =>
+      ['history', 'trades', page, pageSize, status] as const,
+  },
 } as const;
 
 export { pkmnPricesSearchQueryKey, productsSearchQueryKey };

@@ -1,9 +1,10 @@
-import { and, eq, gte, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNull, sql } from 'drizzle-orm';
 import type {
   CardCondition,
   CreateTradeRequest,
   PayoutKind,
   TradeItemInput,
+  TradeStatus,
 } from '@tcg/shared';
 import { skuIdentityKey } from '@tcg/shared';
 import { schema, type Database } from '../../db/client';
@@ -221,6 +222,65 @@ export class TradeinsService {
       status: 'approved',
     });
     return { ok: true };
+  }
+
+  /** Paginated transaction history: trade-ins for the store, newest first. */
+  async list(args: { storeId: string; page: number; pageSize: number; status?: TradeStatus }) {
+    const page = Math.max(1, Math.floor(args.page) || 1);
+    const pageSize = Math.min(100, Math.max(1, Math.floor(args.pageSize) || 25));
+    const offset = (page - 1) * pageSize;
+
+    const filters = [
+      eq(schema.tradeIns.storeId, args.storeId),
+      args.status ? eq(schema.tradeIns.status, args.status) : undefined,
+    ];
+
+    const [{ total }] = await this.db
+      .select({ total: sql<number>`count(*)::int` })
+      .from(schema.tradeIns)
+      .where(and(...filters));
+
+    const rows = await this.db
+      .select({
+        id: schema.tradeIns.id,
+        createdAt: schema.tradeIns.createdAt,
+        completedAt: schema.tradeIns.completedAt,
+        status: schema.tradeIns.status,
+        payout: schema.tradeIns.payout,
+        totalValueCents: schema.tradeIns.totalValueCents,
+        customerName: schema.customers.name,
+        locationName: schema.locations.name,
+      })
+      .from(schema.tradeIns)
+      .leftJoin(schema.customers, eq(schema.customers.id, schema.tradeIns.customerId))
+      .innerJoin(schema.locations, eq(schema.locations.id, schema.tradeIns.locationId))
+      .where(and(...filters))
+      .orderBy(desc(schema.tradeIns.createdAt))
+      .limit(pageSize)
+      .offset(offset);
+
+    const tradeIds = rows.map((row) => row.id);
+    const itemCountRows = tradeIds.length
+      ? await this.db
+          .select({
+            tradeId: schema.tradeItems.tradeId,
+            itemCount: sql<number>`count(*)::int`,
+          })
+          .from(schema.tradeItems)
+          .where(inArray(schema.tradeItems.tradeId, tradeIds))
+          .groupBy(schema.tradeItems.tradeId)
+      : [];
+    const itemCountByTrade = new Map(itemCountRows.map((row) => [row.tradeId, row.itemCount]));
+
+    return {
+      results: rows.map((row) => ({ ...row, itemCount: itemCountByTrade.get(row.id) ?? 0 })),
+      pagination: {
+        page,
+        pageSize,
+        total,
+        totalPages: total > 0 ? Math.ceil(total / pageSize) : 1,
+      },
+    };
   }
 
   private async finalize(tradeId: string): Promise<void> {

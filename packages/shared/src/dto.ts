@@ -75,6 +75,30 @@ export interface CreateTradeResponse {
   skuIds: Array<{ skuId: string; quantity: number }>;
 }
 
+/** One row of `GET /tradeins` — the transaction history table. */
+export interface TradeListItem {
+  id: string;
+  createdAt: string;
+  completedAt: string | null;
+  status: string;
+  payout: string;
+  totalValueCents: number;
+  customerName: string | null;
+  locationName: string;
+  itemCount: number;
+}
+
+/** `GET /tradeins` */
+export interface TradeListResponse {
+  results: TradeListItem[];
+  pagination: {
+    page: number;
+    pageSize: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
 /** One line of the register cart, as rendered by the web client. */
 export interface OrderLineView {
   id: string;

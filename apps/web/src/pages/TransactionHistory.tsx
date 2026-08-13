@@ -1,0 +1,233 @@
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import type { TradeListItem, TradeListResponse } from '@tcg/shared';
+import { TRADE_STATUSES } from '@tcg/shared';
+import { api } from '../lib/api';
+import { queryKeys } from '../lib/queryKeys';
+import { formatCentsAsCurrency } from '../lib/format';
+import { openOrDownloadBlob } from '../lib/downloadBlob';
+
+const STATUS_LABELS: Record<string, string> = {
+  draft: 'Draft',
+  pending_approval: 'Pending approval',
+  approved: 'Approved',
+  rejected: 'Rejected',
+  completed: 'Completed',
+};
+
+const STATUS_BADGE_CLASSES: Record<string, string> = {
+  completed: 'border-emerald-800/60 bg-emerald-950/40 text-emerald-200',
+  pending_approval: 'border-amber-800/60 bg-amber-950/40 text-amber-200',
+  approved: 'border-sky-800/60 bg-sky-950/40 text-sky-200',
+  rejected: 'border-rose-800/60 bg-rose-950/40 text-rose-200',
+  draft: 'border-slate-700 bg-slate-800/60 text-slate-300',
+};
+
+function ViewBillOfSaleButton({ trade }: { trade: TradeListItem }) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleClick() {
+    setLoading(true);
+    setError(null);
+    try {
+      const blob = await api.getBlob(`/tradeins/${trade.id}/bill-of-sale.pdf`);
+      openOrDownloadBlob(blob, `bill-of-sale-${trade.id.slice(0, 8)}.pdf`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Bills of sale are only generated for finalized trades — draft/pending/rejected
+  // trades never reached the `completed` DB status the PDF endpoint requires.
+  if (trade.status !== 'completed') {
+    return <span className="text-xs text-slate-500">—</span>;
+  }
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => void handleClick()}
+        disabled={loading}
+        className="min-h-8 rounded-lg border border-slate-700 bg-slate-900 px-3 py-1 text-xs font-semibold text-slate-100 transition hover:bg-slate-800 disabled:opacity-50"
+      >
+        {loading ? 'Opening…' : 'View'}
+      </button>
+      {error && <p className="mt-1 text-[11px] text-rose-300">{error}</p>}
+    </div>
+  );
+}
+
+export default function TransactionHistoryPage() {
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [status, setStatus] = useState('');
+
+  const { data, isLoading, isFetching, error } = useQuery<TradeListResponse>({
+    queryKey: queryKeys.history.trades(page, pageSize, status),
+    queryFn: () => {
+      const params = new URLSearchParams();
+      params.set('page', String(page));
+      params.set('pageSize', String(pageSize));
+      if (status) params.set('status', status);
+      return api.get<TradeListResponse>(`/tradeins?${params.toString()}`);
+    },
+    placeholderData: (prev) => prev,
+  });
+
+  const pagination = data?.pagination;
+
+  return (
+    <div className="min-h-full bg-slate-950 text-slate-100">
+      <header className="sticky top-0 z-20 border-b border-slate-800 bg-slate-950/85 backdrop-blur">
+        <div className="mx-auto flex w-full max-w-7xl flex-col gap-1 px-4 py-3 sm:px-6">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.25em] text-emerald-300">
+            Transactions
+          </p>
+          <h1 className="text-xl font-semibold sm:text-2xl">History</h1>
+          <p className="text-sm text-slate-400">
+            Every buy and trade intake, with a printable bill of sale for completed ones.
+          </p>
+        </div>
+      </header>
+
+      <section className="mx-auto w-full max-w-7xl px-4 py-4 sm:px-6 sm:py-6">
+        <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+          <label className="text-xs text-slate-300">
+            <span className="mb-1 block">Status</span>
+            <select
+              value={status}
+              onChange={(e) => {
+                setStatus(e.target.value);
+                setPage(1);
+              }}
+              className="min-h-10 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm outline-none focus:border-emerald-500"
+            >
+              <option value="">All statuses</option>
+              {TRADE_STATUSES.map((s) => (
+                <option key={s} value={s}>
+                  {STATUS_LABELS[s] ?? s}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="text-xs text-slate-300">
+            <span className="mb-1 block">Per page</span>
+            <select
+              value={String(pageSize)}
+              onChange={(e) => {
+                setPageSize(Number(e.target.value) || 25);
+                setPage(1);
+              }}
+              className="min-h-10 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm outline-none focus:border-emerald-500"
+            >
+              <option value="25">25</option>
+              <option value="50">50</option>
+              <option value="100">100</option>
+            </select>
+          </label>
+        </div>
+
+        {error && (
+          <p className="mb-3 rounded-lg border border-rose-800/60 bg-rose-950/40 p-3 text-sm text-rose-200">
+            {error instanceof Error ? error.message : String(error)}
+          </p>
+        )}
+
+        <div className="overflow-x-auto rounded-xl border border-slate-800">
+          <table className="w-full min-w-[720px] text-left text-sm">
+            <thead className="bg-slate-900 text-xs uppercase tracking-wide text-slate-400">
+              <tr>
+                <th className="px-4 py-3 font-medium">Date</th>
+                <th className="px-4 py-3 font-medium">Customer</th>
+                <th className="px-4 py-3 font-medium">Location</th>
+                <th className="px-4 py-3 font-medium">Type</th>
+                <th className="px-4 py-3 font-medium">Status</th>
+                <th className="px-4 py-3 font-medium">Items</th>
+                <th className="px-4 py-3 text-right font-medium">Total</th>
+                <th className="px-4 py-3 font-medium">Bill of sale</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800">
+              {isLoading &&
+                Array.from({ length: 5 }, (_, i) => (
+                  <tr key={i}>
+                    <td colSpan={8} className="px-4 py-3">
+                      <div className="h-4 w-full animate-pulse rounded bg-slate-800" />
+                    </td>
+                  </tr>
+                ))}
+              {!isLoading && data?.results.length === 0 && (
+                <tr>
+                  <td colSpan={8} className="px-4 py-8 text-center text-slate-400">
+                    No transactions yet.
+                  </td>
+                </tr>
+              )}
+              {!isLoading &&
+                data?.results.map((trade) => (
+                  <tr key={trade.id} className="hover:bg-slate-900/60">
+                    <td className="whitespace-nowrap px-4 py-3 text-slate-300">
+                      {new Date(trade.completedAt ?? trade.createdAt).toLocaleDateString()}
+                    </td>
+                    <td className="px-4 py-3 text-slate-300">{trade.customerName ?? '—'}</td>
+                    <td className="px-4 py-3 text-slate-300">{trade.locationName}</td>
+                    <td className="px-4 py-3 text-slate-300">
+                      {trade.payout === 'cash' ? 'Buy (cash)' : 'Trade (store credit)'}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span
+                        className={`rounded-full border px-2 py-0.5 text-[11px] ${
+                          STATUS_BADGE_CLASSES[trade.status] ?? STATUS_BADGE_CLASSES.draft
+                        }`}
+                      >
+                        {STATUS_LABELS[trade.status] ?? trade.status}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-slate-300">{trade.itemCount}</td>
+                    <td className="px-4 py-3 text-right font-mono text-emerald-300">
+                      {formatCentsAsCurrency(trade.totalValueCents)}
+                    </td>
+                    <td className="px-4 py-3">
+                      <ViewBillOfSaleButton trade={trade} />
+                    </td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        </div>
+
+        {pagination && (
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
+            <p>
+              Showing page {pagination.page.toLocaleString()} of {pagination.totalPages.toLocaleString()} (
+              {pagination.total.toLocaleString()} transactions)
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={isFetching || page <= 1}
+                className="min-h-9 rounded-lg border border-slate-700 bg-slate-900 px-3 py-1 text-xs font-semibold text-slate-100 transition hover:bg-slate-800 disabled:opacity-50"
+              >
+                Previous
+              </button>
+              <button
+                type="button"
+                onClick={() => setPage((p) => Math.min(pagination.totalPages || 1, p + 1))}
+                disabled={isFetching || page >= (pagination.totalPages || 1)}
+                className="min-h-9 rounded-lg border border-slate-700 bg-slate-900 px-3 py-1 text-xs font-semibold text-slate-100 transition hover:bg-slate-800 disabled:opacity-50"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}

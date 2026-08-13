@@ -117,6 +117,24 @@ export default function TradeQueuePanel({ trade, openOnMobile, onCloseMobile }: 
                 {trade.labelErr && <p className="mt-2 text-rose-300">{trade.labelErr}</p>}
               </div>
             )}
+
+            {trade.completedTradeId && (
+              <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-xs text-slate-300">
+                <p className="mb-2 font-medium text-slate-100">Bill of sale</p>
+                <p className="mb-2 text-slate-400">
+                  A signed record of this transaction opened automatically. Reprint it here if needed.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void trade.printBillOfSaleForTrade()}
+                  disabled={trade.printingBillOfSale}
+                  className="min-h-9 rounded-lg bg-slate-700 px-3 py-1 text-xs font-semibold text-slate-100 transition hover:bg-slate-600 disabled:opacity-50"
+                >
+                  {trade.printingBillOfSale ? 'Opening…' : 'Print bill of sale'}
+                </button>
+                {trade.billOfSaleErr && <p className="mt-2 text-rose-300">{trade.billOfSaleErr}</p>}
+              </div>
+            )}
           </div>
         </div>
       </aside>

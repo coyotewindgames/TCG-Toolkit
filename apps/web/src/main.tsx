@@ -14,6 +14,7 @@ import PickLocationPage from './pages/PickLocation';
 import RemoteScanPage from './pages/RemoteScan';
 import InventoryPage from './pages/Inventory';
 import TransactionsPage from './pages/Transactions';
+import TransactionHistoryPage from './pages/TransactionHistory';
 import AnalyticsPage from './pages/Analytics';
 import SettingsIntegrationsPage from './pages/SettingsIntegrations';
 import { useQuery } from '@tanstack/react-query';
@@ -102,6 +103,7 @@ createRoot(root).render(
           >
             <Route path="/" element={<RootRedirect />} />
             <Route path="/transactions" element={<TransactionsPage />} />
+            <Route path="/history" element={<TransactionHistoryPage />} />
             <Route path="/inventory" element={<InventoryPage />} />
             <Route path="/analytics" element={<AnalyticsPage />} />
             <Route path="/settings/integrations" element={<SettingsIntegrationsPage />} />

@@ -25,6 +25,7 @@ import { useTradeQueueState, type TradeQueueItem } from './useTradeQueueState';
 import { useTradeCardSelection } from './useTradeCardSelection';
 import { useTradePayoutCalculation } from './useTradePayoutCalculation';
 import { useTradeSearchQuery } from './useTradeSearchQuery';
+import { openOrDownloadBlob } from '../../lib/downloadBlob';
 
 async function printQrLabels(
   skuIds: { skuId: string; quantity: number }[],
@@ -37,19 +38,14 @@ async function printQrLabels(
         sheet: 'nelko14x40',
         items: [{ skuId, copies: 1 }],
       });
-      const url = URL.createObjectURL(blob);
-      const win = window.open(url, '_blank', 'noopener,noreferrer');
-      if (!win) {
-        const anchor = document.createElement('a');
-        anchor.href = url;
-        anchor.download = `qr-labels-${cardName.replace(/[^a-z0-9]+/gi, '-').slice(0, 32)}.pdf`;
-        document.body.appendChild(anchor);
-        anchor.click();
-        anchor.remove();
-      }
-      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      openOrDownloadBlob(blob, `qr-labels-${cardName.replace(/[^a-z0-9]+/gi, '-').slice(0, 32)}.pdf`);
     }
   }
+}
+
+async function printBillOfSale(tradeId: string): Promise<void> {
+  const blob = await api.getBlob(`/tradeins/${tradeId}/bill-of-sale.pdf`);
+  openOrDownloadBlob(blob, `bill-of-sale-${tradeId.slice(0, 8)}.pdf`);
 }
 
 export interface TradeModeTransactionController {
@@ -107,6 +103,10 @@ export interface TradeModeTransactionController {
   labelErr: string | null;
   printingLabels: boolean;
   printLabels: () => Promise<void>;
+  completedTradeId: string | null;
+  billOfSaleErr: string | null;
+  printingBillOfSale: boolean;
+  printBillOfSaleForTrade: () => Promise<void>;
   addTradeItemToQueue: () => void;
   removeQueuedItem: (id: string) => void;
   submitTrade: () => void;
@@ -126,6 +126,9 @@ export function useTradeTransaction(active: boolean, mode: TransactionMode): Tra
   const [labelInfo, setLabelInfo] = useState<{ skuIds: { skuId: string; quantity: number }[]; cardName: string } | null>(null);
   const [labelErr, setLabelErr] = useState<string | null>(null);
   const [printingLabels, setPrintingLabels] = useState(false);
+  const [completedTradeId, setCompletedTradeId] = useState<string | null>(null);
+  const [billOfSaleErr, setBillOfSaleErr] = useState<string | null>(null);
+  const [printingBillOfSale, setPrintingBillOfSale] = useState(false);
   const queueState = useTradeQueueState();
   const cardSelection = useTradeCardSelection(active);
   const payoutState = useTradePayoutCalculation(cardSelection.selectedCardPrices);
@@ -191,6 +194,7 @@ export function useTradeTransaction(active: boolean, mode: TransactionMode): Tra
       payoutState.setOverrideValue('');
       payoutState.setPayoutModifierPercent('0');
       payoutState.setQuantity(1);
+      setBillOfSaleErr(null);
       if (result.skuIds?.length) {
         const cardName = queueState.items[0]?.name ?? cardSelection.selectedCard?.name ?? 'Card';
         setLabelInfo({ skuIds: result.skuIds, cardName });
@@ -200,6 +204,14 @@ export function useTradeTransaction(active: boolean, mode: TransactionMode): Tra
           );
         }
       }
+      if (result.status !== 'pending_approval') {
+        setCompletedTradeId(result.id);
+        void printBillOfSale(result.id).catch((e) =>
+          setBillOfSaleErr(e instanceof Error ? e.message : String(e)),
+        );
+      } else {
+        setCompletedTradeId(null);
+      }
       void qc.invalidateQueries({ queryKey: ['products'] });
       void qc.invalidateQueries({ queryKey: ['inventory'] });
     },
@@ -207,6 +219,8 @@ export function useTradeTransaction(active: boolean, mode: TransactionMode): Tra
       setTradeSubmitMsg(null);
       setTradeSubmitErr(error instanceof Error ? error.message : String(error));
       setLabelInfo(null);
+      setCompletedTradeId(null);
+      setBillOfSaleErr(null);
     },
   });
 
@@ -227,6 +241,8 @@ export function useTradeTransaction(active: boolean, mode: TransactionMode): Tra
     setTradeSubmitErr(null);
     setLabelInfo(null);
     setLabelErr(null);
+    setCompletedTradeId(null);
+    setBillOfSaleErr(null);
   }
 
   function addTradeItemToQueue() {
@@ -262,6 +278,8 @@ export function useTradeTransaction(active: boolean, mode: TransactionMode): Tra
     setTradeSubmitErr(null);
     setLabelInfo(null);
     setLabelErr(null);
+    setCompletedTradeId(null);
+    setBillOfSaleErr(null);
   }
 
   async function submitTrade() {
@@ -278,6 +296,19 @@ export function useTradeTransaction(active: boolean, mode: TransactionMode): Tra
       setLabelErr(error instanceof Error ? error.message : String(error));
     } finally {
       setPrintingLabels(false);
+    }
+  }
+
+  async function printBillOfSaleForTrade() {
+    if (!completedTradeId) return;
+    setPrintingBillOfSale(true);
+    setBillOfSaleErr(null);
+    try {
+      await printBillOfSale(completedTradeId);
+    } catch (error) {
+      setBillOfSaleErr(error instanceof Error ? error.message : String(error));
+    } finally {
+      setPrintingBillOfSale(false);
     }
   }
 
@@ -336,6 +367,10 @@ export function useTradeTransaction(active: boolean, mode: TransactionMode): Tra
     labelErr,
     printingLabels,
     printLabels,
+    completedTradeId,
+    billOfSaleErr,
+    printingBillOfSale,
+    printBillOfSaleForTrade,
     addTradeItemToQueue,
     removeQueuedItem: queueState.removeItem,
     submitTrade,
