@@ -1,0 +1,9 @@
+# iOS
+ios/App/Pods/
+ios/App/App.xcworkspace/xcuserdata/
+ios/App/App/public/
+
+# Android
+android/.gradle/
+android/app/src/main/assets/public/
+android/local.properties
