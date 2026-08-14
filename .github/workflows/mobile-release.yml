@@ -1,0 +1,111 @@
+name: Mobile Release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # ── iOS ────────────────────────────────────────────────────────────────
+  ios:
+    name: iOS (TestFlight)
+    runs-on: macos-latest
+    env:
+      MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+      MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
+      MATCH_GIT_BASIC_AUTHORIZATION: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
+      APP_STORE_CONNECT_API_KEY_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_KEY_ID }}
+      APP_STORE_CONNECT_API_KEY_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ISSUER_ID }}
+      APP_STORE_CONNECT_API_KEY_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci --no-audit --no-fund
+
+      - name: Build shared package
+        run: npm run build --workspace=packages/shared
+
+      - name: Build web app
+        run: npm run build --workspace=apps/web
+        env:
+          VITE_API_URL: ${{ secrets.VITE_API_URL }}
+
+      - name: Capacitor add iOS platform
+        working-directory: apps/mobile
+        run: test -d ios || npx cap add ios
+
+      - name: Capacitor sync iOS
+        working-directory: apps/mobile
+        run: npx cap sync ios
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+          working-directory: apps/mobile/ios/App
+
+      - name: Fastlane — build & upload to TestFlight
+        working-directory: apps/mobile/ios/App
+        run: bundle exec fastlane ios beta
+
+  # ── Android ────────────────────────────────────────────────────────────
+  android:
+    name: Android (Play Store)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci --no-audit --no-fund
+
+      - name: Build shared package
+        run: npm run build --workspace=packages/shared
+
+      - name: Build web app
+        run: npm run build --workspace=apps/web
+        env:
+          VITE_API_URL: ${{ secrets.VITE_API_URL }}
+
+      - name: Capacitor add Android platform
+        working-directory: apps/mobile
+        run: test -d android || npx cap add android
+
+      - name: Capacitor sync Android
+        working-directory: apps/mobile
+        run: npx cap sync android
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Decode keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: python3 -c "import base64, os; open(os.environ['RUNNER_TEMP'] + '/release.keystore', 'wb').write(base64.b64decode(os.environ['ANDROID_KEYSTORE_BASE64']))"
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+          working-directory: apps/mobile/android
+
+      - name: Fastlane — build & upload to Play Store
+        working-directory: apps/mobile/android
+        run: bundle exec fastlane android deploy
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/release.keystore
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          SUPPLY_JSON_KEY_DATA: ${{ secrets.PLAY_STORE_SERVICE_ACCOUNT_JSON }}
