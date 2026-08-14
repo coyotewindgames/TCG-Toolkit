@@ -6,6 +6,7 @@ import { loadEnv, isProd } from '../../config/env';
 import { getLogger } from '../../common/logger';
 import { duplicateRedis } from '../redis';
 import { verifyAccessToken, type JwtClaims } from '../auth/service';
+import { authenticateFirebaseToken, isFirebaseIdTokenCandidate } from '../auth/firebase-admin';
 
 interface HandshakeAuth {
   token?: string;
@@ -41,7 +42,7 @@ export async function initRealtime(http: HttpServer): Promise<Server> {
     getLogger().warn({ err }, '[socket.io] redis adapter unavailable, falling back to memory');
   }
 
-  io.use((socket, next) => {
+  io.use(async (socket, next) => {
     const auth = socket.handshake.auth as HandshakeAuth;
     // Dev shortcut: skip JWT in non-prod when only storeId is provided.
     if (!isProd() && auth?.storeId && !auth.token) {
@@ -51,6 +52,18 @@ export async function initRealtime(http: HttpServer): Promise<Server> {
     }
     if (!auth?.token) return next(new Error('missing token'));
     try {
+      if (isFirebaseIdTokenCandidate(auth.token)) {
+        const user = await authenticateFirebaseToken(auth.token);
+        socket.data.userId = user.id;
+        socket.data.storeId = user.storeId;
+        socket.data.role = user.role;
+        socket.data.registerId = auth.registerId ?? null;
+        if (auth.storeId && auth.storeId !== user.storeId) {
+          return next(new Error('store mismatch'));
+        }
+        return next();
+      }
+
       const claims: JwtClaims = verifyAccessToken(auth.token);
       socket.data.userId = claims.sub;
       socket.data.storeId = claims.sid;

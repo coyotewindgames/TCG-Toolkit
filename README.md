@@ -118,7 +118,23 @@ Once the domains are live, set these `sync: false` env vars in the Render
 dashboard (not committed to the repo):
 - `tcg-api` → `CORS_ORIGIN=https://theturbocomp.com,https://www.theturbocomp.com`
 - `tcg-api` → `COOKIE_DOMAIN=.theturbocomp.com`
+- `tcg-api` → `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, and `FIREBASE_PRIVATE_KEY`
 - `tcg-web` → `VITE_API_URL=https://api.theturbocomp.com`
+
+### Firebase Authentication migration foundation
+
+Migration `0021_firebase_uid_prep.sql` adds a nullable, unique Firebase UID
+mapping without disabling the existing JWT login. Once Firebase Admin is
+configured, the API accepts Firebase RS256 ID tokens alongside legacy HS256
+tokens and still resolves store membership, roles, and disabled state from
+Postgres.
+
+Before importing production users, take a database snapshot and run the
+dry-run command `npm run firebase:import-users --workspace=@tcg/api`. Review
+the redacted counts, then run the same command with `-- --apply`. The importer
+preserves existing passwords through Firebase's BCRYPT import and uses each
+existing application user UUID as its Firebase UID. Do not remove the legacy
+password/session schema until the import and sign-in have been reconciled.
 
 ## High-level request flow
 

@@ -83,6 +83,16 @@ export async function findUserById(id: string) {
   return rows[0] ?? null;
 }
 
+export async function findUserByFirebaseUid(firebaseUid: string) {
+  const db = getDb();
+  const rows = await db
+    .select()
+    .from(schema.users)
+    .where(eq(schema.users.firebaseUid, firebaseUid))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
 export function toAuthenticatedUser(row: typeof schema.users.$inferSelect): AuthenticatedUser {
   return {
     id: row.id,
