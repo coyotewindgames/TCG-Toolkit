@@ -38,7 +38,7 @@ jobs:
 
       - name: Capacitor add iOS platform
         working-directory: apps/mobile
-        run: npx cap add ios
+        run: test -d ios || npx cap add ios
 
       - name: Capacitor sync iOS
         working-directory: apps/mobile
@@ -78,7 +78,7 @@ jobs:
 
       - name: Capacitor add Android platform
         working-directory: apps/mobile
-        run: npx cap add android
+        run: test -d android || npx cap add android
 
       - name: Capacitor sync Android
         working-directory: apps/mobile
