@@ -2,7 +2,7 @@ import { Router } from 'express';
 import passport from 'passport';
 import rateLimit from 'express-rate-limit';
 import { eq } from 'drizzle-orm';
-import { ForgotPasswordRequest, LoginRequest, ResetPasswordRequest, SignupRequest } from '@tcg/shared';
+import { ForgotPasswordRequest, LoginRequest, LogoutRequest, RefreshRequest, ResetPasswordRequest, SignupRequest } from '@tcg/shared';
 import { asyncHandler } from '../../common/async-handler';
 import { Unauthorized } from '../../common/http-errors';
 import { loadEnv, isProd } from '../../config/env';
@@ -44,6 +44,17 @@ function clearRefreshCookie(res: import('express').Response) {
   });
 }
 
+/** Returns true when the request originates from a Capacitor native shell. */
+function isNativeRequest(req: import('express').Request): boolean {
+  return req.headers['x-client-platform'] === 'capacitor';
+}
+
+/** Resolves the raw refresh token from the HttpOnly cookie or request body. */
+function resolveRefreshToken(req: import('express').Request): string | undefined {
+  return req.cookies?.[env.REFRESH_COOKIE_NAME]
+    ?? (typeof req.body?.refreshToken === 'string' ? req.body.refreshToken : undefined);
+}
+
 router.post(
   '/login',
   validateBody(LoginRequest),
@@ -62,7 +73,12 @@ router.post(
           ipAddress: req.ip,
         });
         setRefreshCookie(res, refresh);
-        res.json({ accessToken: token, expiresIn, user, refreshToken: refresh });
+        res.json({
+          accessToken: token,
+          expiresIn,
+          user,
+          ...(isNativeRequest(req) ? { refreshToken: refresh } : {}),
+        });
       },
     )(req, res, next);
   }),
@@ -106,16 +122,16 @@ router.post(
       user: created.owner,
       store: created.store,
       location: created.location,
-      refreshToken: refresh,
+      ...(isNativeRequest(req) ? { refreshToken: refresh } : {}),
     });
   }),
 );
 
 router.post(
   '/refresh',
+  validateBody(RefreshRequest),
   asyncHandler(async (req, res) => {
-    const raw = req.cookies?.[env.REFRESH_COOKIE_NAME]
-      ?? (typeof req.body?.refreshToken === 'string' ? req.body.refreshToken : undefined);
+    const raw = resolveRefreshToken(req);
     if (!raw) throw Unauthorized('missing refresh token');
     const { newRaw, user } = await rotateRefreshToken(raw, {
       userAgent: req.header('user-agent') ?? undefined,
@@ -123,15 +139,20 @@ router.post(
     });
     const { token, expiresIn } = signAccessToken(user);
     setRefreshCookie(res, newRaw);
-    res.json({ accessToken: token, expiresIn, user, refreshToken: newRaw });
+    res.json({
+      accessToken: token,
+      expiresIn,
+      user,
+      ...(isNativeRequest(req) ? { refreshToken: newRaw } : {}),
+    });
   }),
 );
 
 router.post(
   '/logout',
+  validateBody(LogoutRequest),
   asyncHandler(async (req, res) => {
-    const raw = req.cookies?.[env.REFRESH_COOKIE_NAME]
-      ?? (typeof req.body?.refreshToken === 'string' ? req.body.refreshToken : undefined);
+    const raw = resolveRefreshToken(req);
     if (raw) await revokeRefreshToken(raw);
     clearRefreshCookie(res);
     res.json({ ok: true });

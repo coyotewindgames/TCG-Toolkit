@@ -5,6 +5,10 @@
  * - `user` and `accessToken` come from `/api/auth/login`, `/auth/signup`, or
  *   `/auth/refresh`. The token lives in memory only (refresh cookie is
  *   HttpOnly server-issued).
+ * - `refreshToken` (for Capacitor native) is stored only via a
+ *   `SecureTokenStore` adapter backed by the OS Keychain/Keystore. It is
+ *   never written to `localStorage`. On browser the HttpOnly cookie is used
+ *   instead and no refresh token is persisted at all.
  * - `locationId` and `registerId` are operator choices for the current shift
  *   and persist in `localStorage`, scoped per-store so switching tenants
  *   doesn't bleed selections across.
@@ -37,11 +41,60 @@ export interface SessionState {
   bootstrapping: boolean;
 }
 
+/**
+ * Asynchronous secure-token adapter. Native apps (Capacitor) must register an
+ * implementation backed by the OS Keychain/Keystore via `setSecureTokenStore`
+ * before any auth call. The browser leaves this unset — the HttpOnly refresh
+ * cookie is the secure credential there and no refresh token is persisted.
+ */
+export interface SecureTokenStore {
+  get(key: string): Promise<string | null>;
+  set(key: string, value: string): Promise<void>;
+  remove(key: string): Promise<void>;
+}
+
+let _secureStore: SecureTokenStore | null = null;
+/** In-memory cache of the refresh token, pre-loaded from the secure store. */
+let _cachedRefreshToken: string | null = null;
+const SECURE_REFRESH_KEY = 'tcg.refreshToken';
+
+export function setSecureTokenStore(store: SecureTokenStore): void {
+  _secureStore = store;
+}
+
+/**
+ * Must be called by native apps during startup (before any auth check) to
+ * pre-populate the in-memory refresh token cache from the Keychain/Keystore.
+ * After this call, `getSession().refreshToken` reflects the stored value.
+ */
+export async function preloadRefreshToken(): Promise<void> {
+  if (!_secureStore) return;
+  _cachedRefreshToken = await _secureStore.get(SECURE_REFRESH_KEY);
+  if (_cachedRefreshToken !== state.refreshToken) {
+    state = { ...state, refreshToken: _cachedRefreshToken };
+    emit();
+  }
+}
+
+function storeSecureRefreshToken(token: string): void {
+  _cachedRefreshToken = token;
+  void _secureStore?.set(SECURE_REFRESH_KEY, token);
+}
+
+function readSecureRefreshToken(): string | null {
+  return _cachedRefreshToken;
+}
+
+function clearSecureRefreshToken(): void {
+  _cachedRefreshToken = null;
+  void _secureStore?.remove(SECURE_REFRESH_KEY);
+}
+
+/** localStorage record — never contains the refresh token. */
 interface PersistedAuthSession {
   user: SessionUser;
   accessToken: string;
   sessionExpiresAt: number;
-  refreshToken?: string;
 }
 
 const LOC_KEY = (storeId: string) => `tcg.location.${storeId}`;
@@ -67,11 +120,30 @@ function clearExpiryTimer(): void {
   }
 }
 
+/**
+ * Called when the access-token TTL fires. Clears the access token and user
+ * from memory and removes the main localStorage record, but does NOT touch
+ * the secure-stored refresh token so a native client can still perform a
+ * body-based refresh on next resume.
+ */
+function expireAccessToken(): void {
+  clearExpiryTimer();
+  clearPersistedAuthSession();
+  state = {
+    ...state,
+    user: null,
+    accessToken: null,
+    sessionExpiresAt: null,
+    bootstrapping: false,
+  };
+  emit();
+}
+
 function scheduleExpiry(sessionExpiresAt: number): void {
   clearExpiryTimer();
   const delay = Math.max(0, sessionExpiresAt - Date.now());
   expiryTimer = setTimeout(() => {
-    clearSession();
+    expireAccessToken();
   }, delay);
 }
 
@@ -100,7 +172,6 @@ function readPersistedAuthSession(): PersistedAuthSession | null {
       user: parsed.user,
       accessToken: parsed.accessToken,
       sessionExpiresAt: parsed.sessionExpiresAt,
-      refreshToken: parsed.refreshToken,
     };
   } catch {
     clearPersistedAuthSession();
@@ -110,13 +181,18 @@ function readPersistedAuthSession(): PersistedAuthSession | null {
 
 function bootstrapSessionFromStorage(): SessionState {
   const persisted = readPersistedAuthSession();
-  if (!persisted) return state;
+  const refreshToken = readSecureRefreshToken();
+  if (!persisted) {
+    // No valid localStorage session; keep bootstrapping=true so AuthGuard
+    // can attempt a silent /auth/refresh (browser cookie or native token).
+    return { ...state, refreshToken };
+  }
   const { locationId, registerId } = loadPerStorePrefs(persisted.user.storeId);
   scheduleExpiry(persisted.sessionExpiresAt);
   return {
     user: persisted.user,
     accessToken: persisted.accessToken,
-    refreshToken: persisted.refreshToken ?? null,
+    refreshToken,
     locationId,
     registerId,
     sessionExpiresAt: persisted.sessionExpiresAt,
@@ -153,8 +229,10 @@ export function oneHourFromNow(): number {
 
 export function setUser(user: SessionUser, accessToken: string, sessionExpiresAt = oneHourFromNow(), refreshToken?: string): void {
   const { locationId, registerId } = loadPerStorePrefs(user.storeId);
-  state = { user, accessToken, refreshToken: refreshToken ?? state.refreshToken ?? null, locationId, registerId, sessionExpiresAt, bootstrapping: false };
-  persistAuthSession({ user, accessToken, sessionExpiresAt, refreshToken: state.refreshToken ?? undefined });
+  const resolvedRefreshToken = refreshToken ?? state.refreshToken ?? null;
+  state = { user, accessToken, refreshToken: resolvedRefreshToken, locationId, registerId, sessionExpiresAt, bootstrapping: false };
+  persistAuthSession({ user, accessToken, sessionExpiresAt });
+  if (refreshToken) storeSecureRefreshToken(refreshToken);
   scheduleExpiry(sessionExpiresAt);
   emit();
 }
@@ -167,6 +245,7 @@ export function setAccessToken(accessToken: string | null): void {
 export function clearSession(): void {
   clearExpiryTimer();
   clearPersistedAuthSession();
+  clearSecureRefreshToken();
   state = {
     user: null,
     accessToken: null,

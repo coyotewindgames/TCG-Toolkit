@@ -30,7 +30,11 @@ const BASE = import.meta.env.VITE_API_URL ?? '';
  * passing the refresh token in the request body.
  */
 function isNativePlatform(): boolean {
-  return typeof (window as Record<string, unknown>)?.Capacitor !== 'undefined';
+  return typeof window !== 'undefined' && 'Capacitor' in window;
+}
+
+function nativePlatformHeaders(): Record<string, string> {
+  return isNativePlatform() ? { 'x-client-platform': 'capacitor' } : {};
 }
 
 function normalizedAccessToken(raw: string | null | undefined): string | null {
@@ -131,16 +135,32 @@ interface RefreshResponse {
   refreshToken?: string;
 }
 
+let _refreshInFlight: Promise<string | null> | null = null;
+
 /**
  * Calls `/api/auth/refresh` to mint a new access token from the HttpOnly
  * refresh cookie (browser) or the stored refresh token sent in the body
  * (Capacitor native). Returns the new token on success, or null if the
  * user has no valid refresh token (logged out / expired).
+ *
+ * All concurrent callers share the same in-flight promise so a rotating
+ * refresh token is never used twice.
  */
 export async function refreshAccessToken(): Promise<string | null> {
+  if (_refreshInFlight) return _refreshInFlight;
+  // Capture in a local variable so the null reset inside `.finally()` does
+  // not affect callers that are already awaiting this promise instance.
+  const inflight = _doRefresh().finally(() => {
+    _refreshInFlight = null;
+  });
+  _refreshInFlight = inflight;
+  return inflight;
+}
+
+async function _doRefresh(): Promise<string | null> {
   const session = getSession();
   const body: Record<string, string> = {};
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = { ...nativePlatformHeaders() };
   if (isNativePlatform() && session.refreshToken) {
     body.refreshToken = session.refreshToken;
     headers['content-type'] = 'application/json';
@@ -339,7 +359,7 @@ export async function login(email: string, password: string): Promise<SessionUse
   const res = await fetch(`${BASE}/api/auth/login`, {
     method: 'POST',
     credentials: 'include',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...nativePlatformHeaders() },
     body: JSON.stringify({ email, password }),
   });
   if (!res.ok) {
@@ -372,7 +392,7 @@ export async function signup(input: SignupInput): Promise<SignupResult> {
   const res = await fetch(`${BASE}/api/auth/signup`, {
     method: 'POST',
     credentials: 'include',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...nativePlatformHeaders() },
     body: JSON.stringify(input),
   });
   if (!res.ok) {
@@ -388,7 +408,7 @@ export async function logout(): Promise<void> {
   try {
     const session = getSession();
     const body: Record<string, string> = {};
-    const headers: Record<string, string> = {};
+    const headers: Record<string, string> = { ...nativePlatformHeaders() };
     if (isNativePlatform() && session.refreshToken) {
       body.refreshToken = session.refreshToken;
       headers['content-type'] = 'application/json';
