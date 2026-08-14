@@ -25,6 +25,8 @@ const BUILD_TIME = new Date().toISOString();
 
 export default defineConfig({
   plugins: [react()],
+  // Local workspace secrets live in the repository-root .env.
+  envDir: '../../',
   define: {
     __APP_BUILD_ID__: JSON.stringify(BUILD_ID),
     __APP_BUILD_TIME__: JSON.stringify(BUILD_TIME),

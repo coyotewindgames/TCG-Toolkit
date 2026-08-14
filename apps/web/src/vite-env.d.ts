@@ -3,6 +3,10 @@
 interface ImportMetaEnv {
   /** Base URL of the API; empty string when same-origin via Vite proxy. */
   readonly VITE_API_URL?: string;
+  readonly VITE_FIREBASE_API_KEY?: string;
+  readonly VITE_FIREBASE_AUTH_DOMAIN?: string;
+  readonly VITE_FIREBASE_PROJECT_ID?: string;
+  readonly VITE_FIREBASE_APP_ID?: string;
   /** Optional Sentry DSN for the SPA. */
   readonly VITE_SENTRY_DSN?: string;
   /**

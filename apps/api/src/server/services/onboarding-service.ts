@@ -40,6 +40,15 @@ export interface CreateStoreInput {
   locationName?: string;
 }
 
+export interface CreateFirebaseStoreInput {
+  storeName: string;
+  ownerEmail: string;
+  ownerName: string;
+  firebaseUid: string;
+  timezone?: string;
+  locationName?: string;
+}
+
 export interface CreatedStore {
   store: { id: string; name: string };
   location: { id: string; name: string };
@@ -71,11 +80,29 @@ export async function createStoreWithOwner(
   db: Database,
   input: CreateStoreInput,
 ): Promise<CreatedStore> {
+  return createStore(db, input);
+}
+
+/** Creates a tenant for an owner whose credentials are managed by Firebase. */
+export async function createStoreWithFirebaseOwner(
+  db: Database,
+  input: CreateFirebaseStoreInput,
+): Promise<CreatedStore> {
+  if (!input.firebaseUid.trim()) throw BadRequest('firebaseUid required');
+  return createStore(db, input);
+}
+
+async function createStore(
+  db: Database,
+  input: CreateStoreInput | CreateFirebaseStoreInput,
+): Promise<CreatedStore> {
   const email = input.ownerEmail.trim().toLowerCase();
   const storeName = input.storeName.trim();
   const timezone = input.timezone ?? 'America/New_York';
   if (!email) throw BadRequest('email required');
-  if (input.ownerPassword.length < 8) throw BadRequest('password must be at least 8 characters');
+  if ('ownerPassword' in input && input.ownerPassword.length < 8) {
+    throw BadRequest('password must be at least 8 characters');
+  }
   if (!storeName) throw BadRequest('storeName required');
   if (!input.ownerName.trim()) throw BadRequest('ownerName required');
 
@@ -89,7 +116,10 @@ export async function createStoreWithOwner(
     .limit(1);
   if (existing.length > 0) throw Conflict('an account with that email already exists');
 
-  const passwordHash = await hashPassword(input.ownerPassword);
+  const passwordHash = 'ownerPassword' in input
+    ? await hashPassword(input.ownerPassword)
+    : null;
+  const firebaseUid = 'firebaseUid' in input ? input.firebaseUid : null;
 
   return db.transaction(async (tx) => {
     const dupe = await tx
@@ -139,6 +169,7 @@ export async function createStoreWithOwner(
     const [user] = await tx
       .insert(schema.users)
       .values({
+        firebaseUid,
         storeId: store.id,
         email,
         displayName: input.ownerName.trim(),

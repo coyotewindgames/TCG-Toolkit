@@ -2,9 +2,9 @@ import { Router } from 'express';
 import passport from 'passport';
 import rateLimit from 'express-rate-limit';
 import { eq } from 'drizzle-orm';
-import { ForgotPasswordRequest, LoginRequest, LogoutRequest, RefreshRequest, ResetPasswordRequest, SignupRequest } from '@tcg/shared';
+import { FirebaseProvisionRequest, ForgotPasswordRequest, LoginRequest, LogoutRequest, RefreshRequest, ResetPasswordRequest, SignupRequest } from '@tcg/shared';
 import { asyncHandler } from '../../common/async-handler';
-import { Unauthorized } from '../../common/http-errors';
+import { BadRequest, Unauthorized } from '../../common/http-errors';
 import { loadEnv, isProd } from '../../config/env';
 import { getDb, schema } from '../../db/client';
 import { validateBody } from '../middleware/validate';
@@ -14,8 +14,11 @@ import {
   revokeRefreshToken,
   rotateRefreshToken,
   signAccessToken,
+  findUserByFirebaseUid,
+  toAuthenticatedUser,
 } from './service';
-import { createStoreWithOwner } from '../services/onboarding-service';
+import { createStoreWithFirebaseOwner, createStoreWithOwner } from '../services/onboarding-service';
+import { verifyFirebaseIdToken } from './firebase-admin';
 import {
   consumePasswordReset,
   requestPasswordReset,
@@ -24,6 +27,21 @@ import type { AuthenticatedUser } from './types';
 
 const router = Router();
 const env = loadEnv();
+
+const signupLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+function bearerToken(req: import('express').Request): string {
+  const header = req.header('authorization');
+  if (!header?.startsWith('Bearer ')) throw Unauthorized('missing Firebase ID token');
+  const token = header.slice('Bearer '.length).trim();
+  if (!token) throw Unauthorized('missing Firebase ID token');
+  return token;
+}
 
 function setRefreshCookie(res: import('express').Response, raw: string) {
   const maxAge = env.REFRESH_TTL_DAYS * 24 * 3600 * 1000;
@@ -85,16 +103,54 @@ router.post(
 );
 
 /**
+ * Creates the Postgres tenant/profile for a newly authenticated Firebase
+ * owner. Repeating the request for an already provisioned UID is safe.
+ */
+router.post(
+  '/provision',
+  signupLimiter,
+  validateBody(FirebaseProvisionRequest),
+  asyncHandler(async (req, res) => {
+    const decoded = await verifyFirebaseIdToken(bearerToken(req));
+    const existing = await findUserByFirebaseUid(decoded.uid);
+    if (existing) {
+      const [store] = await getDb()
+        .select({ id: schema.stores.id, name: schema.stores.name })
+        .from(schema.stores)
+        .where(eq(schema.stores.id, existing.storeId))
+        .limit(1);
+      const [location] = await getDb()
+        .select({ id: schema.locations.id, name: schema.locations.name })
+        .from(schema.locations)
+        .where(eq(schema.locations.storeId, existing.storeId))
+        .limit(1);
+      return res.json({ user: toAuthenticatedUser(existing), store, location });
+    }
+
+    const email = decoded.email?.trim().toLowerCase();
+    if (!email) throw BadRequest('Firebase account must have an email address');
+    const body = req.body as FirebaseProvisionRequest;
+    const created = await createStoreWithFirebaseOwner(getDb(), {
+      firebaseUid: decoded.uid,
+      ownerEmail: email,
+      ownerName: body.ownerName || decoded.name || email,
+      storeName: body.storeName,
+      timezone: body.timezone,
+      locationName: body.locationName,
+    });
+    return res.status(201).json({
+      user: created.owner,
+      store: created.store,
+      location: created.location,
+    });
+  }),
+);
+
+/**
  * Public self-serve signup. Tighter rate limit than login (5 / IP / hour) to
  * curb store-creation abuse — the parent /api/auth router already has a
  * 30 req/min limiter applied; this stacks on top.
  */
-const signupLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000,
-  limit: 5,
-  standardHeaders: true,
-  legacyHeaders: false,
-});
 router.post(
   '/signup',
   signupLimiter,

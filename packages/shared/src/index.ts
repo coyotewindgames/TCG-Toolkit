@@ -137,6 +137,15 @@ export const SignupRequest = z.object({
 });
 export type SignupRequest = z.infer<typeof SignupRequest>;
 
+/** Tenant details used after Firebase creates and authenticates an owner. */
+export const FirebaseProvisionRequest = z.object({
+  storeName: z.string().min(2).max(120),
+  ownerName: z.string().min(1).max(120),
+  timezone: z.string().min(1).max(64).optional(),
+  locationName: z.string().min(1).max(120).optional(),
+});
+export type FirebaseProvisionRequest = z.infer<typeof FirebaseProvisionRequest>;
+
 export const ForgotPasswordRequest = z.object({
   email: z.string().email(),
 });

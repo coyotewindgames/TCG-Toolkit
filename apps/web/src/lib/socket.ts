@@ -1,5 +1,6 @@
 import { io, Socket } from 'socket.io-client';
 import { getSession, subscribeSession } from './session';
+import { getFirebaseIdToken } from './firebase';
 
 let socket: Socket | null = null;
 let lastStoreId: string | null = null;
@@ -24,12 +25,18 @@ export function getSocket(): Socket {
 
   if (!socket) {
     const url = import.meta.env.VITE_API_URL ?? '';
-    const auth: Record<string, string> = token
-      ? { token, ...(registerId ? { registerId } : {}) }
-      : storeId
-        ? { storeId, ...(registerId ? { registerId } : {}) }
-        : {};
-    socket = io(url, { transports: ['websocket'], auth, autoConnect: true });
+    socket = io(url, {
+      transports: ['websocket'],
+      auth: async (callback) => {
+        const currentToken = await getFirebaseIdToken().catch(() => null) ?? token;
+        callback(currentToken
+          ? { token: currentToken, ...(registerId ? { registerId } : {}) }
+          : storeId
+            ? { storeId, ...(registerId ? { registerId } : {}) }
+            : {});
+      },
+      autoConnect: true,
+    });
     lastStoreId = storeId;
     lastToken = token;
   }
