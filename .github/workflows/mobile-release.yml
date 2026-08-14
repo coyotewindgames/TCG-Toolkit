@@ -3,6 +3,9 @@ name: Mobile Release
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   # ── iOS ────────────────────────────────────────────────────────────────
   ios:
