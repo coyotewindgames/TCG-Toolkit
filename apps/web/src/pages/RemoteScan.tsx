@@ -1,7 +1,7 @@
 import { BrowserMultiFormatReader, type IScannerControls } from '@zxing/browser';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { api } from '../lib/api';
+import { postWithOutbox, startProcessor } from '../lib/outbox/processor';
 import { formatCentsAsCurrency } from '../lib/format';
 
 type AddItemResult = {
@@ -145,14 +145,25 @@ export default function RemoteScanPage() {
       setSubmitError(null);
 
       try {
-        const out = await api.post<AddItemResult>(`/orders/${orderId}/items`, { barcode });
-        setLastAdded(out.line);
-        setTotals(out.totals);
-        setScanCount((n) => n + 1);
-        triggerSuccessFlash();
-        await playScanSuccessTone(audioContextRef.current);
-        if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-          navigator.vibrate?.(35);
+        const clientRequestId = crypto.randomUUID();
+        const out = await postWithOutbox<AddItemResult>({
+          orderId,
+          barcode,
+          clientRequestId,
+        });
+        if (out) {
+          setLastAdded(out.line);
+          setTotals(out.totals);
+          setScanCount((n) => n + 1);
+          triggerSuccessFlash();
+          await playScanSuccessTone(audioContextRef.current);
+          if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+            navigator.vibrate?.(35);
+          }
+        } else {
+          // Queued offline.
+          setSubmitError('Syncing… item queued for when you\u2019re back online.');
+          setScanCount((n) => n + 1);
         }
       } catch (error) {
         setSubmitError(toErrorMessage(error));
@@ -215,6 +226,10 @@ export default function RemoteScanPage() {
       setCameraError(toErrorMessage(error));
     }
   }, [canUseCamera, orderId, stopScanner, submitBarcode]);
+
+  useEffect(() => {
+    startProcessor();
+  }, []);
 
   useEffect(() => {
     return () => {

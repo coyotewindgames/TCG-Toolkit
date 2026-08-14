@@ -114,6 +114,12 @@ export const CheckoutRequest = z.object({
 });
 export type CheckoutRequest = z.infer<typeof CheckoutRequest>;
 
+export const AddItemRequest = z.object({
+  barcode: z.string().min(1),
+  clientRequestId: z.string().uuid().optional(),
+});
+export type AddItemRequest = z.infer<typeof AddItemRequest>;
+
 export const LoginRequest = z.object({
   email: z.string().email(),
   password: z.string().min(8).max(128),

@@ -34,70 +34,135 @@ export class OrdersService {
     return row;
   }
 
-  async addScannedItem(args: { storeId: string; orderId: string; barcode: string }) {
+  async addScannedItem(args: { storeId: string; orderId: string; barcode: string; clientRequestId?: string }) {
     const order = await this.requireOpenOrder(args.storeId, args.orderId);
     const scan = await this.scans.resolveBarcode({
       storeId: args.storeId,
       barcode: args.barcode,
     });
 
-    const reservableLocationId = await this.inventory.findReservableLocation({
-      storeId: args.storeId,
-      skuId: scan.skuId,
-      preferredLocationId: order.locationId,
-      qty: 1,
-    });
-    if (!reservableLocationId) {
-      throw Conflict('item is out of stock at every location');
-    }
+    const result = await this.db.transaction(async (tx) => {
+      // Idempotency check: claim the key at the start of the transaction to
+      // avoid a race where two concurrent requests both pass the initial SELECT.
+      if (args.clientRequestId) {
+        // Attempt to claim the key; if another request already claimed it, skip insertion.
+        await tx
+          .insert(schema.orderMutationRequests)
+          .values({
+            storeId: args.storeId,
+            orderId: order.id,
+            clientRequestId: args.clientRequestId,
+            action: 'add_item',
+            responseSnapshot: null,
+          })
+          .onConflictDoNothing();
 
-    if (reservableLocationId !== order.locationId) {
-      const [lineCountRow] = await this.db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(schema.orderItems)
-        .where(eq(schema.orderItems.orderId, order.id));
-      const lineCount = Number(lineCountRow?.count ?? 0);
-      if (lineCount > 0) {
-        throw Conflict('item is stocked at a different location than the current cart');
+        // If the row already has a response snapshot, return it (replay).
+        const [existing] = await tx
+          .select()
+          .from(schema.orderMutationRequests)
+          .where(
+            and(
+              eq(schema.orderMutationRequests.storeId, args.storeId),
+              eq(schema.orderMutationRequests.clientRequestId, args.clientRequestId),
+            ),
+          );
+        if (existing?.responseSnapshot) {
+          return { response: existing.responseSnapshot as Record<string, unknown>, isReplay: true };
+        }
       }
 
-      await this.db
-        .update(schema.orders)
-        .set({ locationId: reservableLocationId })
-        .where(eq(schema.orders.id, order.id));
-      order.locationId = reservableLocationId;
-    }
-
-    const [line] = await this.db
-      .insert(schema.orderItems)
-      .values({
-        orderId: order.id,
+      const reservableLocationId = await this.inventory.findReservableLocation({
+        storeId: args.storeId,
         skuId: scan.skuId,
-        quantity: 1,
-        unitPriceCents: scan.priceCents,
-        productNameSnapshot: scan.name,
-      })
-      .returning();
-    if (!line) throw new Error('failed to add line');
+        preferredLocationId: order.locationId,
+        qty: 1,
+      });
+      if (!reservableLocationId) {
+        throw Conflict('item is out of stock at every location');
+      }
 
-    await this.recomputeTotals(order.id);
-    const totals = await this.totals(order.id);
+      if (reservableLocationId !== order.locationId) {
+        const [lineCountRow] = await tx
+          .select({ count: sql<number>`count(*)::int` })
+          .from(schema.orderItems)
+          .where(eq(schema.orderItems.orderId, order.id));
+        const lineCount = Number(lineCountRow?.count ?? 0);
+        if (lineCount > 0) {
+          throw Conflict('item is stocked at a different location than the current cart');
+        }
 
-    const linePayload = {
-      id: line.id,
-      skuId: line.skuId,
-      name: scan.name,
-      quantity: line.quantity,
-      unitPriceCents: line.unitPriceCents,
-      imageUrl: scan.imageUrl,
-    };
+        await tx
+          .update(schema.orders)
+          .set({ locationId: reservableLocationId })
+          .where(eq(schema.orders.id, order.id));
+        order.locationId = reservableLocationId;
+      }
 
-    emitToOrder(order.id, SOCKET_EVENTS.cartItemAdded, {
-      orderId: order.id,
-      line: linePayload,
-      totals,
+      const [line] = await tx
+        .insert(schema.orderItems)
+        .values({
+          orderId: order.id,
+          skuId: scan.skuId,
+          quantity: 1,
+          unitPriceCents: scan.priceCents,
+          productNameSnapshot: scan.name,
+        })
+        .returning();
+      if (!line) throw new Error('failed to add line');
+
+      // Recompute totals inside the transaction.
+      const items = await tx
+        .select()
+        .from(schema.orderItems)
+        .where(eq(schema.orderItems.orderId, order.id));
+      const subtotal = items.reduce(
+        (s, l) => s + l.unitPriceCents * l.quantity - l.discountCents,
+        0,
+      );
+      const taxCents = 0;
+      await tx
+        .update(schema.orders)
+        .set({ subtotalCents: subtotal, taxCents, totalCents: subtotal + taxCents })
+        .where(eq(schema.orders.id, order.id));
+
+      const totals = { subtotalCents: subtotal, taxCents, totalCents: subtotal + taxCents };
+
+      const linePayload = {
+        id: line.id,
+        skuId: line.skuId,
+        name: scan.name,
+        quantity: line.quantity,
+        unitPriceCents: line.unitPriceCents,
+        imageUrl: scan.imageUrl,
+      };
+
+      const response = { line: linePayload, totals };
+
+      // Update the idempotency row with the response snapshot.
+      if (args.clientRequestId) {
+        await tx
+          .update(schema.orderMutationRequests)
+          .set({ responseSnapshot: response as unknown as Record<string, unknown> })
+          .where(
+            and(
+              eq(schema.orderMutationRequests.storeId, args.storeId),
+              eq(schema.orderMutationRequests.clientRequestId, args.clientRequestId),
+            ),
+          );
+      }
+
+      return { response, isReplay: false };
     });
-    return { line: linePayload, totals };
+
+    if (!result.isReplay) {
+      emitToOrder(order.id, SOCKET_EVENTS.cartItemAdded, {
+        orderId: order.id,
+        line: result.response.line,
+        totals: result.response.totals,
+      });
+    }
+    return result.response;
   }
 
   async removeLine(args: { storeId: string; orderId: string; lineId: string }) {

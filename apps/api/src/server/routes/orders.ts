@@ -1,12 +1,9 @@
 import { Router } from 'express';
-import { z } from 'zod';
-import { CheckoutRequest, CreateOrderRequest } from '@tcg/shared';
+import { CheckoutRequest, CreateOrderRequest, AddItemRequest } from '@tcg/shared';
 import { asyncHandler } from '../../common/async-handler';
 import { requireAuth, requireRole } from '../auth/middleware';
 import { validateBody } from '../middleware/validate';
 import type { Container } from '../container';
-
-const AddItemBody = z.object({ barcode: z.string().min(1) });
 
 export function ordersRouter(c: Container): Router {
   const r = Router();
@@ -37,12 +34,13 @@ export function ordersRouter(c: Container): Router {
 
   r.post(
     '/:id/items',
-    validateBody(AddItemBody),
+    validateBody(AddItemRequest),
     asyncHandler(async (req, res) => {
       const out = await c.orders.addScannedItem({
         storeId: req.user!.storeId,
         orderId: req.params.id,
         barcode: req.body.barcode,
+        clientRequestId: req.body.clientRequestId,
       });
       res.json(out);
     }),

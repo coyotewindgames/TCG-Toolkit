@@ -7,6 +7,7 @@ import {
   jsonb,
   timestamp,
   index,
+  unique,
 } from 'drizzle-orm/pg-core';
 import { orderStatusEnum, posProviderEnum } from './enums';
 import { skus } from './catalog';
@@ -84,5 +85,26 @@ export const payments = pgTable(
   },
   (t) => ({
     byOrder: index('payments_order_idx').on(t.orderId),
+  }),
+);
+
+export const orderMutationRequests = pgTable(
+  'order_mutation_requests',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    storeId: uuid('store_id')
+      .notNull()
+      .references(() => stores.id, { onDelete: 'cascade' }),
+    orderId: uuid('order_id')
+      .notNull()
+      .references(() => orders.id, { onDelete: 'cascade' }),
+    clientRequestId: text('client_request_id').notNull(),
+    action: text('action').notNull(),
+    responseSnapshot: jsonb('response_snapshot').$type<Record<string, unknown>>(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    uq: unique('order_mutation_requests_store_client_uq').on(t.storeId, t.clientRequestId),
+    byOrder: index('order_mutation_requests_order_idx').on(t.orderId),
   }),
 );
