@@ -538,9 +538,42 @@ internal-testing `.aab` from the same commit, with no local Mac involved end to 
 
 ## Phase 6 — Push notifications (deferred)
 
-Out of scope per the user's decision. Placeholder only: when picked up later, it needs an Apple Developer push
-certificate/key (APNs) and a Firebase project (FCM/Android) — neither needs setup now. See
-[1.5](#15-push-notifications-deferred) for the plugin/API shape when this is revisited.
+**Status**: Deferred — no tasks, no timeline. This section exists solely as a reference for the
+future. No work should begin until a later decision picks it up.
+
+### Plugin
+
+`@capacitor/push-notifications` (first-party). See [1.5](#15-push-notifications-deferred) for the
+full API shape. Key calls:
+
+```ts
+await PushNotifications.requestPermissions();
+await PushNotifications.register();
+await PushNotifications.addListener('registration', (token) => {
+  /* send token.value to backend */
+});
+await PushNotifications.addListener('pushNotificationReceived', (notification) => {
+  /* handle foreground */
+});
+await PushNotifications.addListener('pushNotificationActionPerformed', (action) => {
+  /* handle tap */
+});
+```
+
+### Infrastructure context
+
+| Platform | Requirement |
+| -------- | ----------- |
+| **Apple** | Apple Developer Program (already enrolled by Phase 5), Push Notifications capability enabled in Xcode, an APNs Auth Key (`.p8`) — typically uploaded into a Firebase project rather than used directly |
+| **Android** | A Firebase project, `google-services.json` placed in `android/app/`, Android 13+ needs an explicit runtime permission prompt |
+
+### Prerequisites when picked up
+
+1. Phase 5 complete (CI/CD pipeline can build and sign)
+2. Apple Developer push capability configured
+3. Firebase project created with FCM enabled
+4. Backend endpoint to receive and store device push tokens
+5. Decision on what events trigger push notifications (e.g., new order, trade-in ready, inventory alerts)
 
 ---
 
