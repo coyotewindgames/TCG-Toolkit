@@ -1,8 +1,8 @@
-import { BrowserMultiFormatReader, type IScannerControls } from '@zxing/browser';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { postWithOutbox, startProcessor } from '../lib/outbox/processor';
 import { formatCentsAsCurrency } from '../lib/format';
+import { useCameraScanner } from '../lib/scanning/useCameraScanner';
 
 type AddItemResult = {
   line: {
@@ -20,7 +20,6 @@ type AddItemResult = {
   };
 };
 
-type CameraStatus = 'idle' | 'starting' | 'scanning' | 'error';
 
 const DEDUPE_WINDOW_MS = 1200;
 
@@ -83,15 +82,11 @@ export default function RemoteScanPage() {
   );
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const readerRef = useRef<BrowserMultiFormatReader | null>(null);
-  const controlsRef = useRef<IScannerControls | null>(null);
   const submitInFlightRef = useRef(false);
   const recentScanRef = useRef<{ code: string; at: number } | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const successFlashTimerRef = useRef<number | null>(null);
 
-  const [cameraStatus, setCameraStatus] = useState<CameraStatus>('idle');
-  const [cameraError, setCameraError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [lastScan, setLastScan] = useState<string>('');
   const [scanCount, setScanCount] = useState(0);
@@ -99,21 +94,6 @@ export default function RemoteScanPage() {
   const [totals, setTotals] = useState<AddItemResult['totals'] | null>(null);
   const [manualBarcode, setManualBarcode] = useState('');
   const [showSuccessFlash, setShowSuccessFlash] = useState(false);
-
-  const canUseCamera =
-    typeof navigator !== 'undefined' &&
-    !!navigator.mediaDevices &&
-    typeof navigator.mediaDevices.getUserMedia === 'function';
-
-  const stopScanner = useCallback(() => {
-    try {
-      controlsRef.current?.stop();
-    } catch {
-      // Ignore stop errors from stale media tracks.
-    }
-    controlsRef.current = null;
-    setCameraStatus((prev) => (prev === 'error' ? prev : 'idle'));
-  }, []);
 
   const triggerSuccessFlash = useCallback(() => {
     if (successFlashTimerRef.current != null) {
@@ -171,23 +151,18 @@ export default function RemoteScanPage() {
         submitInFlightRef.current = false;
       }
     },
-    [orderId],
+    [orderId, triggerSuccessFlash],
+  );
+
+  const { status: cameraStatus, error: cameraError, start: cameraScannerStart, stop: stopScanner, isSupported: cameraSupported } = useCameraScanner(
+    (code) => void submitBarcode(code),
   );
 
   const startScanner = useCallback(async () => {
     if (!orderId) return;
-    if (!canUseCamera) {
-      setCameraStatus('error');
-      setCameraError('Camera access is not available on this browser/device.');
-      return;
-    }
 
     const video = videoRef.current;
     if (!video) return;
-
-    stopScanner();
-    setCameraError(null);
-    setCameraStatus('starting');
 
     if (!audioContextRef.current) {
       audioContextRef.current = getAudioContext();
@@ -200,42 +175,12 @@ export default function RemoteScanPage() {
       }
     }
 
-    if (!readerRef.current) {
-      readerRef.current = new BrowserMultiFormatReader();
-    }
-
-    try {
-      const controls = await readerRef.current.decodeFromConstraints(
-        {
-          audio: false,
-          video: {
-            facingMode: { ideal: 'environment' },
-          },
-        },
-        video,
-        (result, _error) => {
-          if (!result) return;
-          void submitBarcode(result.getText());
-        },
-      );
-
-      controlsRef.current = controls;
-      setCameraStatus('scanning');
-    } catch (error) {
-      setCameraStatus('error');
-      setCameraError(toErrorMessage(error));
-    }
-  }, [canUseCamera, orderId, stopScanner, submitBarcode]);
+    await cameraScannerStart(video);
+  }, [orderId, cameraScannerStart]);
 
   useEffect(() => {
     startProcessor();
   }, []);
-
-  useEffect(() => {
-    return () => {
-      stopScanner();
-    };
-  }, [stopScanner]);
 
   useEffect(() => {
     return () => {
