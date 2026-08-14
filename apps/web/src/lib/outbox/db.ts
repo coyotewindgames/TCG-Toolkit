@@ -14,6 +14,7 @@ export interface OutboxEntry {
   status: OutboxStatus;
   attempts: number;
   createdAt: number;
+  lastAttemptAt?: number;
   lastError?: string;
 }
 
@@ -55,7 +56,7 @@ export async function getByOrderId(orderId: string): Promise<OutboxEntry[]> {
 
 export async function updateEntry(
   clientRequestId: string,
-  updates: Partial<Pick<OutboxEntry, 'status' | 'attempts' | 'lastError'>>,
+  updates: Partial<Pick<OutboxEntry, 'status' | 'attempts' | 'lastError' | 'lastAttemptAt'>>,
 ): Promise<void> {
   const db = await getDb();
   const entry = (await db.get(STORE_NAME, clientRequestId)) as OutboxEntry | undefined;

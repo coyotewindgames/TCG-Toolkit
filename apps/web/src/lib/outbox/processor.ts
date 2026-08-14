@@ -38,19 +38,17 @@ async function flushOne(entry: OutboxEntry): Promise<void> {
     notifyListeners();
   } catch (err) {
     const attempts = entry.attempts + 1;
+    const update: Partial<Pick<OutboxEntry, 'status' | 'attempts' | 'lastError' | 'lastAttemptAt'>> = {
+      attempts,
+      lastAttemptAt: Date.now(),
+      lastError: err instanceof Error ? err.message : String(err),
+    };
     if (attempts >= MAX_ATTEMPTS) {
-      await updateEntry(entry.clientRequestId, {
-        status: 'failed',
-        attempts,
-        lastError: err instanceof Error ? err.message : String(err),
-      });
+      update.status = 'failed';
     } else {
-      await updateEntry(entry.clientRequestId, {
-        status: 'pending',
-        attempts,
-        lastError: err instanceof Error ? err.message : String(err),
-      });
+      update.status = 'pending';
     }
+    await updateEntry(entry.clientRequestId, update);
   }
 }
 
@@ -59,8 +57,10 @@ async function flushAll(): Promise<void> {
   const entries = await getAllPending();
   for (const entry of entries) {
     const delay = BASE_DELAY_MS * Math.pow(2, entry.attempts);
-    const elapsed = Date.now() - entry.createdAt;
-    if (entry.attempts > 0 && elapsed < delay) continue;
+    if (entry.attempts > 0 && entry.lastAttemptAt) {
+      const sinceLast = Date.now() - entry.lastAttemptAt;
+      if (sinceLast < delay) continue;
+    }
     await flushOne(entry);
   }
 }
@@ -72,6 +72,7 @@ export async function retryEntry(clientRequestId: string): Promise<void> {
 }
 
 let intervalId: ReturnType<typeof setInterval> | null = null;
+const onlineHandler = () => void flushAll();
 
 export function startProcessor(): void {
   if (intervalId) return;
@@ -79,7 +80,7 @@ export function startProcessor(): void {
   void flushAll();
   intervalId = setInterval(() => void flushAll(), POLL_INTERVAL_MS);
   if (typeof window !== 'undefined') {
-    window.addEventListener('online', () => void flushAll());
+    window.addEventListener('online', onlineHandler);
   }
 }
 
@@ -87,6 +88,9 @@ export function stopProcessor(): void {
   if (intervalId) {
     clearInterval(intervalId);
     intervalId = null;
+  }
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('online', onlineHandler);
   }
 }
 
