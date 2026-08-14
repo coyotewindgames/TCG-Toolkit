@@ -18,6 +18,7 @@ import { getSocket } from '../lib/socket';
 import { useInventorySearch } from '../hooks/useInventorySearch';
 import { useProductSkus } from '../hooks/useProductSkus';
 import RegisterSummaryRow from '../components/RegisterSummaryRow';
+import { postWithOutbox, startProcessor, onFlushed, getByOrderId } from '../lib/outbox/processor';
 
 function isLocalOrigin(origin: string) {
   return /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i.test(origin);
@@ -34,6 +35,7 @@ export default function RegisterPage() {
   });
   const [status, setStatus] = useState<'idle' | 'scanning' | 'checkout' | 'paid'>('idle');
   const [lastError, setLastError] = useState<string | null>(null);
+  const [syncingCount, setSyncingCount] = useState(0);
   const [remoteScanQr, setRemoteScanQr] = useState<string | null>(null);
   const {
     query: cardQuery,
@@ -182,12 +184,42 @@ export default function RegisterPage() {
     return () => window.clearInterval(id);
   }, [orderId, refreshOrder]);
 
+  // Start outbox processor and refresh on flush.
+  useEffect(() => {
+    startProcessor();
+    const unsub = onFlushed(() => {
+      if (orderId) void refreshOrder().catch(() => undefined);
+    });
+    return unsub;
+  }, [orderId, refreshOrder]);
+
+  // Track syncing items from outbox.
+  const updateSyncingCount = useCallback(async () => {
+    if (!orderId) { setSyncingCount(0); return; }
+    const entries = await getByOrderId(orderId);
+    setSyncingCount(entries.filter((e) => e.status !== 'failed').length);
+  }, [orderId]);
+
+  useEffect(() => {
+    void updateSyncingCount();
+  }, [updateSyncingCount, lines]);
+
   useBarcodeScanner(async (barcode) => {
     if (!orderId || status === 'paid') return;
     setStatus('scanning');
     try {
-      await api.post<AddOrderItemResponse>(`/orders/${orderId}/items`, { barcode });
-      await refreshOrder();
+      const clientRequestId = crypto.randomUUID();
+      const result = await postWithOutbox<AddOrderItemResponse>({
+        orderId,
+        barcode,
+        clientRequestId,
+      });
+      if (result) {
+        await refreshOrder();
+      } else {
+        // Queued offline — update syncing indicator.
+        void updateSyncingCount();
+      }
       setLastError(null);
     } catch (e) {
       setLastError(String(e));
@@ -200,8 +232,14 @@ export default function RegisterPage() {
   const taxCents = totals.taxCents;
   const total = totals.totalCents;
 
+  const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+
   async function checkout() {
     if (!orderId) return;
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setLastError('You\u2019re offline \u2014 reconnect to continue.');
+      return;
+    }
     setStatus('checkout');
     try {
       await api.post(`/orders/${orderId}/record-sale`, {});
@@ -215,6 +253,10 @@ export default function RegisterPage() {
 
   async function cancelTransaction() {
     if (!orderId || status === 'paid') return;
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setLastError('You\u2019re offline \u2014 reconnect to continue.');
+      return;
+    }
     setStatus('checkout');
     try {
       await api.post(`/orders/${orderId}/cancel`, {});
@@ -253,8 +295,17 @@ export default function RegisterPage() {
     if (!orderId || status === 'paid') return;
     setAddingSkuId(sku.id);
     try {
-      await api.post<AddOrderItemResponse>(`/orders/${orderId}/items`, { barcode: sku.barcode });
-      await refreshOrder();
+      const clientRequestId = crypto.randomUUID();
+      const result = await postWithOutbox<AddOrderItemResponse>({
+        orderId,
+        barcode: sku.barcode,
+        clientRequestId,
+      });
+      if (result) {
+        await refreshOrder();
+      } else {
+        void updateSyncingCount();
+      }
       setLastError(null);
     } catch (err) {
       setLastError(err instanceof Error ? err.message : String(err));
@@ -377,7 +428,12 @@ export default function RegisterPage() {
           )}
         </div>
         <ul className="divide-y divide-track">
-          {lines.length === 0 && <li className="py-8 text-center opacity-60">No items yet — scan to begin.</li>}
+          {lines.length === 0 && syncingCount === 0 && <li className="py-8 text-center opacity-60">No items yet — scan to begin.</li>}
+          {syncingCount > 0 && (
+            <li className="py-3 text-center text-sm text-amber-300">
+              Syncing… {syncingCount} {syncingCount === 1 ? 'item' : 'items'} pending
+            </li>
+          )}
           {lines.map((l) => (
             <li key={l.skuId} className="flex items-center gap-4 py-3">
               {l.imageUrl ? (
