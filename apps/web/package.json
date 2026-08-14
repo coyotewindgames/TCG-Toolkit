@@ -13,6 +13,7 @@
     "test:search-keys": "vitest run src/lib/searchQueryKeys.test.ts"
   },
   "dependencies": {
+    "@capacitor/core": "^7.2.0",
     "@tanstack/react-query": "^5.56.2",
     "@tcg/shared": "*",
     "@types/qrcode": "^1.5.6",
