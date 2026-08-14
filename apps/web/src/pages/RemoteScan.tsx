@@ -160,7 +160,6 @@ export default function RemoteScanPage() {
 
   const startScanner = useCallback(async () => {
     if (!orderId) return;
-    if (!cameraSupported) return;
 
     const video = videoRef.current;
     if (!video) return;
@@ -177,7 +176,7 @@ export default function RemoteScanPage() {
     }
 
     await cameraScannerStart(video);
-  }, [orderId, cameraSupported, cameraScannerStart]);
+  }, [orderId, cameraScannerStart]);
 
   useEffect(() => {
     startProcessor();

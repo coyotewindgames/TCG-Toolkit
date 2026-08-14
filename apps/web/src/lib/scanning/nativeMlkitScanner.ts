@@ -3,7 +3,7 @@ import type { CameraScanner } from './types';
 
 /**
  * Native implementation using @capacitor-mlkit/barcode-scanning.
- * Uses the listener-based startScan()/addListener('barcodeScanned', ...) API
+ * Uses the listener-based startScan()/addListener('barcodesScanned', ...) API
  * for continuous scanning that matches the existing RemoteScan UX.
  */
 export class NativeMlkitScanner implements CameraScanner {

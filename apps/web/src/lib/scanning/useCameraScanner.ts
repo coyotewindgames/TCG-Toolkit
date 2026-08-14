@@ -67,5 +67,15 @@ export function useCameraScanner(onDecode: (code: string) => void) {
     };
   }, []);
 
-  return { status, error, start, stop, isSupported: getScanner().isSupported() };
+  return {
+    status,
+    error,
+    start,
+    stop,
+    isSupported:
+      Capacitor.isNativePlatform() ||
+      (typeof navigator !== 'undefined' &&
+        !!navigator.mediaDevices &&
+        typeof navigator.mediaDevices.getUserMedia === 'function'),
+  };
 }
