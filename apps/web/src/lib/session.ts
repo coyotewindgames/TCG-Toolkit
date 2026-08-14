@@ -29,6 +29,7 @@ export interface SessionUser {
 export interface SessionState {
   user: SessionUser | null;
   accessToken: string | null;
+  refreshToken: string | null;
   locationId: string | null;
   registerId: string | null;
   sessionExpiresAt: number | null;
@@ -40,6 +41,7 @@ interface PersistedAuthSession {
   user: SessionUser;
   accessToken: string;
   sessionExpiresAt: number;
+  refreshToken?: string;
 }
 
 const LOC_KEY = (storeId: string) => `tcg.location.${storeId}`;
@@ -49,6 +51,7 @@ const listeners = new Set<() => void>();
 let state: SessionState = {
   user: null,
   accessToken: null,
+  refreshToken: null,
   locationId: null,
   registerId: null,
   sessionExpiresAt: null,
@@ -97,6 +100,7 @@ function readPersistedAuthSession(): PersistedAuthSession | null {
       user: parsed.user,
       accessToken: parsed.accessToken,
       sessionExpiresAt: parsed.sessionExpiresAt,
+      refreshToken: parsed.refreshToken,
     };
   } catch {
     clearPersistedAuthSession();
@@ -112,6 +116,7 @@ function bootstrapSessionFromStorage(): SessionState {
   return {
     user: persisted.user,
     accessToken: persisted.accessToken,
+    refreshToken: persisted.refreshToken ?? null,
     locationId,
     registerId,
     sessionExpiresAt: persisted.sessionExpiresAt,
@@ -146,10 +151,10 @@ export function oneHourFromNow(): number {
   return Date.now() + AUTH_TTL_MS;
 }
 
-export function setUser(user: SessionUser, accessToken: string, sessionExpiresAt = oneHourFromNow()): void {
+export function setUser(user: SessionUser, accessToken: string, sessionExpiresAt = oneHourFromNow(), refreshToken?: string): void {
   const { locationId, registerId } = loadPerStorePrefs(user.storeId);
-  state = { user, accessToken, locationId, registerId, sessionExpiresAt, bootstrapping: false };
-  persistAuthSession({ user, accessToken, sessionExpiresAt });
+  state = { user, accessToken, refreshToken: refreshToken ?? state.refreshToken ?? null, locationId, registerId, sessionExpiresAt, bootstrapping: false };
+  persistAuthSession({ user, accessToken, sessionExpiresAt, refreshToken: state.refreshToken ?? undefined });
   scheduleExpiry(sessionExpiresAt);
   emit();
 }
@@ -165,6 +170,7 @@ export function clearSession(): void {
   state = {
     user: null,
     accessToken: null,
+    refreshToken: null,
     locationId: null,
     registerId: null,
     sessionExpiresAt: null,
@@ -217,7 +223,7 @@ export function tryDevUserBootstrap(): SessionUser | null {
       displayName: u.displayName ?? u.email,
     };
     const { locationId, registerId } = loadPerStorePrefs(user.storeId);
-    state = { user, accessToken: null, locationId, registerId, sessionExpiresAt: null, bootstrapping: false };
+    state = { user, accessToken: null, refreshToken: null, locationId, registerId, sessionExpiresAt: null, bootstrapping: false };
     emit();
     return user;
   } catch {

@@ -62,7 +62,7 @@ router.post(
           ipAddress: req.ip,
         });
         setRefreshCookie(res, refresh);
-        res.json({ accessToken: token, expiresIn, user });
+        res.json({ accessToken: token, expiresIn, user, refreshToken: refresh });
       },
     )(req, res, next);
   }),
@@ -106,6 +106,7 @@ router.post(
       user: created.owner,
       store: created.store,
       location: created.location,
+      refreshToken: refresh,
     });
   }),
 );
@@ -113,7 +114,8 @@ router.post(
 router.post(
   '/refresh',
   asyncHandler(async (req, res) => {
-    const raw = req.cookies?.[env.REFRESH_COOKIE_NAME];
+    const raw = req.cookies?.[env.REFRESH_COOKIE_NAME]
+      ?? (typeof req.body?.refreshToken === 'string' ? req.body.refreshToken : undefined);
     if (!raw) throw Unauthorized('missing refresh token');
     const { newRaw, user } = await rotateRefreshToken(raw, {
       userAgent: req.header('user-agent') ?? undefined,
@@ -121,14 +123,15 @@ router.post(
     });
     const { token, expiresIn } = signAccessToken(user);
     setRefreshCookie(res, newRaw);
-    res.json({ accessToken: token, expiresIn, user });
+    res.json({ accessToken: token, expiresIn, user, refreshToken: newRaw });
   }),
 );
 
 router.post(
   '/logout',
   asyncHandler(async (req, res) => {
-    const raw = req.cookies?.[env.REFRESH_COOKIE_NAME];
+    const raw = req.cookies?.[env.REFRESH_COOKIE_NAME]
+      ?? (typeof req.body?.refreshToken === 'string' ? req.body.refreshToken : undefined);
     if (raw) await revokeRefreshToken(raw);
     clearRefreshCookie(res);
     res.json({ ok: true });
