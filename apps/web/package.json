@@ -13,7 +13,7 @@
     "test:search-keys": "vitest run src/lib/searchQueryKeys.test.ts"
   },
   "dependencies": {
-    "@capacitor-mlkit/barcode-scanning": "^8.1.0",
+    "@capacitor-mlkit/barcode-scanning": "^7.5.0",
     "@capacitor/core": "^7.2.0",
     "@tanstack/react-query": "^5.56.2",
     "@tcg/shared": "*",
