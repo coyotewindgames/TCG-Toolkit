@@ -21,6 +21,16 @@ import {
   setUser,
   type SessionUser,
 } from './session';
+import {
+  createFirebaseOwner,
+  firebaseEnabled,
+  getFirebaseIdToken,
+  requestFirebasePasswordReset,
+  signInWithFirebaseEmail,
+  signInWithFirebaseGoogle,
+  signOutFirebase,
+  waitForFirebaseUser,
+} from './firebase';
 
 const BASE = import.meta.env.VITE_API_URL ?? '';
 
@@ -40,6 +50,11 @@ function nativePlatformHeaders(): Record<string, string> {
 function normalizedAccessToken(raw: string | null | undefined): string | null {
   const token = raw?.trim();
   return token ? token : null;
+}
+
+async function currentAccessToken(forceRefresh = false): Promise<string | null> {
+  const firebaseToken = await getFirebaseIdToken(forceRefresh);
+  return firebaseToken ?? normalizedAccessToken(getSession().accessToken);
 }
 
 export interface FormUploadProgress {
@@ -158,6 +173,21 @@ export async function refreshAccessToken(): Promise<string | null> {
 }
 
 async function _doRefresh(): Promise<string | null> {
+  const firebaseUser = await waitForFirebaseUser();
+  if (firebaseUser) {
+    const token = await firebaseUser.getIdToken(true);
+    const res = await fetch(`${BASE}/api/auth/me`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) {
+      await signOutFirebase().catch(() => undefined);
+      return null;
+    }
+    const data = (await res.json()) as { user: SessionUser };
+    setUser(data.user, token, null);
+    return token;
+  }
+
   const session = getSession();
   const body: Record<string, string> = {};
   const headers: Record<string, string> = { ...nativePlatformHeaders() };
@@ -181,8 +211,7 @@ async function rawFetch<T>(path: string, init?: RequestInit, retried = false): P
   const headers: Record<string, string> = {
     'content-type': 'application/json',
   };
-  const session = getSession();
-  const accessToken = normalizedAccessToken(session.accessToken);
+  const accessToken = await currentAccessToken(retried);
   if (accessToken) {
     headers['authorization'] = `Bearer ${accessToken}`;
   } else {
@@ -217,8 +246,7 @@ export const api = {
   get: <T,>(p: string, opts?: { signal?: AbortSignal }) => rawFetch<T>(p, { signal: opts?.signal }),
   getBlob: async (p: string): Promise<Blob> => {
     const headers: Record<string, string> = {};
-    const session = getSession();
-    const accessToken = normalizedAccessToken(session.accessToken);
+    let accessToken = await currentAccessToken();
     if (accessToken) {
       headers['authorization'] = `Bearer ${accessToken}`;
     } else {
@@ -237,6 +265,8 @@ export const api = {
     if (res.status === 401) {
       const fresh = await refreshAccessToken();
       if (fresh) {
+        accessToken = fresh;
+        headers.authorization = `Bearer ${accessToken}`;
         res = await send();
       } else {
         clearSession();
@@ -263,8 +293,7 @@ export const api = {
    */
   postBlob: async (p: string, body: unknown): Promise<Blob> => {
     const headers: Record<string, string> = { 'content-type': 'application/json' };
-    const session = getSession();
-    const accessToken = normalizedAccessToken(session.accessToken);
+    const accessToken = await currentAccessToken();
     if (accessToken) {
       headers['authorization'] = `Bearer ${accessToken}`;
     } else {
@@ -291,8 +320,7 @@ export const api = {
   postForm: async <T,>(p: string, form: FormData, options?: PostFormOptions): Promise<T> => {
     const sendOnce = async (): Promise<{ status: number; bodyText: string }> => {
       const headers: Record<string, string> = {};
-      const session = getSession();
-      const accessToken = normalizedAccessToken(session.accessToken);
+      const accessToken = await currentAccessToken();
       if (accessToken) {
         headers['authorization'] = `Bearer ${accessToken}`;
       } else {
@@ -356,6 +384,11 @@ export const api = {
  * into the global session.
  */
 export async function login(email: string, password: string): Promise<SessionUser> {
+  if (firebaseEnabled) {
+    const user = await signInWithFirebaseEmail(email, password);
+    return establishFirebaseSession(await user.getIdToken());
+  }
+
   const res = await fetch(`${BASE}/api/auth/login`, {
     method: 'POST',
     credentials: 'include',
@@ -369,6 +402,25 @@ export async function login(email: string, password: string): Promise<SessionUse
   const data = (await res.json()) as RefreshResponse;
   setUser(data.user, data.accessToken, oneHourFromNow(), data.refreshToken);
   return data.user;
+}
+
+async function establishFirebaseSession(token: string): Promise<SessionUser> {
+  const res = await fetch(`${BASE}/api/auth/me`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    await signOutFirebase();
+    const body = await res.text();
+    throw new Error(`Account is not provisioned (${res.status}): ${body}`);
+  }
+  const data = (await res.json()) as { user: SessionUser };
+  setUser(data.user, token, null);
+  return data.user;
+}
+
+export async function loginWithGoogle(): Promise<SessionUser> {
+  const user = await signInWithFirebaseGoogle();
+  return establishFirebaseSession(await user.getIdToken());
 }
 
 export interface SignupInput {
@@ -389,6 +441,32 @@ export interface SignupResult {
 }
 
 export async function signup(input: SignupInput): Promise<SignupResult> {
+  if (firebaseEnabled) {
+    const user = await createFirebaseOwner(input.ownerEmail, input.ownerPassword, input.ownerName);
+    const token = await user.getIdToken();
+    const res = await fetch(`${BASE}/api/auth/provision`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        storeName: input.storeName,
+        ownerName: input.ownerName,
+        timezone: input.timezone,
+        locationName: input.locationName,
+      }),
+    });
+    if (!res.ok) {
+      await signOutFirebase().catch(() => undefined);
+      const body = await res.text();
+      throw new Error(`Signup failed (${res.status}): ${body}`);
+    }
+    const data = (await res.json()) as Omit<SignupResult, 'accessToken'>;
+    setUser(data.user, token, null);
+    return { ...data, accessToken: token };
+  }
+
   const res = await fetch(`${BASE}/api/auth/signup`, {
     method: 'POST',
     credentials: 'include',
@@ -420,6 +498,7 @@ export async function logout(): Promise<void> {
       ...(Object.keys(body).length ? { body: JSON.stringify(body) } : {}),
     });
   } finally {
+    await signOutFirebase().catch(() => undefined);
     clearSession();
     setAccessToken(null);
   }
@@ -431,6 +510,11 @@ export async function logout(): Promise<void> {
  * resolution does NOT confirm the address exists.
  */
 export async function requestPasswordReset(email: string): Promise<void> {
+  if (firebaseEnabled) {
+    await requestFirebasePasswordReset(email);
+    return;
+  }
+
   const res = await fetch(`${BASE}/api/auth/forgot-password`, {
     method: 'POST',
     credentials: 'include',

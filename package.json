@@ -32,7 +32,6 @@
     "@esbuild/win32-x64": "^0.28.0"
   },
   "dependencies": {
-    "firebase": "^12.17.1",
     "recharts": "^3.8.1"
   }
 }

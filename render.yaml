@@ -105,6 +105,14 @@ services:
     envVars:
       - key: VITE_API_URL
         sync: false
+      - key: VITE_FIREBASE_API_KEY
+        sync: false
+      - key: VITE_FIREBASE_AUTH_DOMAIN
+        sync: false
+      - key: VITE_FIREBASE_PROJECT_ID
+        sync: false
+      - key: VITE_FIREBASE_APP_ID
+        sync: false
       - key: VITE_CLOVER_DEVICE_ID
         sync: false
 

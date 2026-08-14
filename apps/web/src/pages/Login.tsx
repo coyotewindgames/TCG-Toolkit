@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { login } from '../lib/api';
+import { login, loginWithGoogle } from '../lib/api';
+import { firebaseEnabled } from '../lib/firebase';
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -18,6 +19,19 @@ export default function LoginPage() {
       navigate('/locations/pick', { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function onGoogleSignIn() {
+    setError(null);
+    setSubmitting(true);
+    try {
+      await loginWithGoogle();
+      navigate('/locations/pick', { replace: true });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Google sign-in failed');
     } finally {
       setSubmitting(false);
     }
@@ -63,6 +77,23 @@ export default function LoginPage() {
         >
           {submitting ? 'Signing in…' : 'Sign in'}
         </button>
+        {firebaseEnabled && (
+          <>
+            <div className="flex items-center gap-3 text-xs text-ink-dim">
+              <span className="h-px flex-1 bg-track" />
+              or
+              <span className="h-px flex-1 bg-track" />
+            </div>
+            <button
+              type="button"
+              onClick={onGoogleSignIn}
+              disabled={submitting}
+              className="w-full border border-border bg-track text-ink font-semibold rounded-lg py-2 disabled:opacity-50 hover:border-brand"
+            >
+              Continue with Google
+            </button>
+          </>
+        )}
         <div className="flex items-center justify-between text-sm">
           <Link to="/forgot-password" className="text-ink-muted hover:text-brand">
             Forgot password?

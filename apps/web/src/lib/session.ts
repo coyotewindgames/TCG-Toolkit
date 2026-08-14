@@ -94,7 +94,7 @@ function clearSecureRefreshToken(): void {
 interface PersistedAuthSession {
   user: SessionUser;
   accessToken: string;
-  sessionExpiresAt: number;
+  sessionExpiresAt: number | null;
 }
 
 const LOC_KEY = (storeId: string) => `tcg.location.${storeId}`;
@@ -163,8 +163,9 @@ function readPersistedAuthSession(): PersistedAuthSession | null {
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as Partial<PersistedAuthSession>;
-    if (!parsed.user || !parsed.accessToken || typeof parsed.sessionExpiresAt !== 'number') return null;
-    if (parsed.sessionExpiresAt <= Date.now()) {
+    if (!parsed.user || !parsed.accessToken) return null;
+    if (parsed.sessionExpiresAt !== null && typeof parsed.sessionExpiresAt !== 'number') return null;
+    if (typeof parsed.sessionExpiresAt === 'number' && parsed.sessionExpiresAt <= Date.now()) {
       clearPersistedAuthSession();
       return null;
     }
@@ -188,7 +189,7 @@ function bootstrapSessionFromStorage(): SessionState {
     return { ...state, refreshToken };
   }
   const { locationId, registerId } = loadPerStorePrefs(persisted.user.storeId);
-  scheduleExpiry(persisted.sessionExpiresAt);
+  if (persisted.sessionExpiresAt !== null) scheduleExpiry(persisted.sessionExpiresAt);
   return {
     user: persisted.user,
     accessToken: persisted.accessToken,
@@ -227,13 +228,13 @@ export function oneHourFromNow(): number {
   return Date.now() + AUTH_TTL_MS;
 }
 
-export function setUser(user: SessionUser, accessToken: string, sessionExpiresAt = oneHourFromNow(), refreshToken?: string): void {
+export function setUser(user: SessionUser, accessToken: string, sessionExpiresAt: number | null = oneHourFromNow(), refreshToken?: string): void {
   const { locationId, registerId } = loadPerStorePrefs(user.storeId);
   const resolvedRefreshToken = refreshToken ?? state.refreshToken ?? null;
   state = { user, accessToken, refreshToken: resolvedRefreshToken, locationId, registerId, sessionExpiresAt, bootstrapping: false };
   persistAuthSession({ user, accessToken, sessionExpiresAt });
   if (refreshToken) storeSecureRefreshToken(refreshToken);
-  scheduleExpiry(sessionExpiresAt);
+  if (sessionExpiresAt !== null) scheduleExpiry(sessionExpiresAt);
   emit();
 }
 
