@@ -3,7 +3,14 @@ import passport from 'passport';
 import type { UserRole } from '@tcg/shared';
 import { Forbidden, Unauthorized } from '../../common/http-errors';
 import { isProd } from '../../config/env';
+import { authenticateFirebaseToken, isFirebaseIdTokenCandidate } from './firebase-admin';
 import type { AuthenticatedUser } from './types';
+
+function bearerToken(req: Request): string | null {
+  const authorization = req.header('authorization');
+  const match = authorization?.match(/^Bearer\s+(.+)$/i);
+  return match?.[1]?.trim() || null;
+}
 
 /**
  * Require a valid JWT (Authorization: Bearer). In non-production environments,
@@ -31,6 +38,18 @@ export function requireAuth(req: Request, _res: Response, next: NextFunction): v
       }
     }
   }
+
+  const token = bearerToken(req);
+  if (token && isFirebaseIdTokenCandidate(token)) {
+    void authenticateFirebaseToken(token)
+      .then((user) => {
+        req.user = user;
+        next();
+      })
+      .catch(next);
+    return;
+  }
+
   passport.authenticate('jwt', { session: false }, (err: Error | null, user: AuthenticatedUser | false) => {
     if (err) return next(err);
     if (!user) return next(Unauthorized());

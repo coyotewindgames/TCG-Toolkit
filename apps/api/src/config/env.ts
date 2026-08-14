@@ -41,6 +41,14 @@ const Env = z.object({
   REFRESH_COOKIE_NAME: z.string().default('tcg_refresh'),
   COOKIE_DOMAIN: z.string().optional(),
 
+  // Firebase Authentication migration. These remain optional while the
+  // legacy JWT stack and Firebase verification run side-by-side. Production
+  // Firebase verification requires all three service-account fields.
+  FIREBASE_PROJECT_ID: z.string().min(1).optional(),
+  FIREBASE_CLIENT_EMAIL: z.string().email().optional(),
+  FIREBASE_PRIVATE_KEY: z.string().min(1).optional(),
+  FIREBASE_AUTH_EMULATOR_HOST: z.string().min(1).optional(),
+
   // Integration credentials (PkmnPrices, Clover) are stored encrypted in
   // Postgres per store and managed via the settings UI. See `vault.ts` and
   // `config-service.ts`. The legacy env vars `CLOVER_*` are

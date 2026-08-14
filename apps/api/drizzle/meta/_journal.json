@@ -143,6 +143,13 @@
       "when": 1786838400000,
       "tag": "0019_drop_tcgapi",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1786924800000,
+      "tag": "0020_firebase_uid_prep",
+      "breakpoints": true
     }
   ]
 }

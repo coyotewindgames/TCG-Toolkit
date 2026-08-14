@@ -7,6 +7,7 @@ import {
   jsonb,
   timestamp,
   unique,
+  uniqueIndex,
   index,
 } from 'drizzle-orm/pg-core';
 import { userRoleEnum, posProviderEnum } from './enums';
@@ -41,6 +42,8 @@ export const users = pgTable(
   'users',
   {
     id: uuid('id').primaryKey().defaultRandom(),
+    /** External Firebase Authentication identity; nullable during migration. */
+    firebaseUid: text('firebase_uid'),
     storeId: uuid('store_id')
       .notNull()
       .references(() => stores.id, { onDelete: 'cascade' }),
@@ -53,6 +56,7 @@ export const users = pgTable(
   },
   (t) => ({
     emailPerStore: unique('users_email_store_uq').on(t.storeId, t.email),
+    firebaseUidUq: uniqueIndex('users_firebase_uid_uq').on(t.firebaseUid),
   }),
 );
 
