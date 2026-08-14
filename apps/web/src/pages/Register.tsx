@@ -236,7 +236,7 @@ export default function RegisterPage() {
 
   async function checkout() {
     if (!orderId) return;
-    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    if (isOffline) {
       setLastError('You\u2019re offline \u2014 reconnect to continue.');
       return;
     }
@@ -253,7 +253,7 @@ export default function RegisterPage() {
 
   async function cancelTransaction() {
     if (!orderId || status === 'paid') return;
-    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    if (isOffline) {
       setLastError('You\u2019re offline \u2014 reconnect to continue.');
       return;
     }

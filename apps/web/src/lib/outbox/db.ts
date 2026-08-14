@@ -45,7 +45,7 @@ export async function enqueue(entry: OutboxEntry): Promise<void> {
 export async function getAllPending(): Promise<OutboxEntry[]> {
   const db = await getDb();
   const all = await db.getAll(STORE_NAME);
-  return (all as OutboxEntry[]).filter((e) => e.status === 'pending' || e.status === 'failed');
+  return (all as OutboxEntry[]).filter((e) => e.status === 'pending' || e.status === 'in_flight');
 }
 
 export async function getByOrderId(orderId: string): Promise<OutboxEntry[]> {

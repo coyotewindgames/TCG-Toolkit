@@ -42,8 +42,22 @@ export class OrdersService {
     });
 
     const result = await this.db.transaction(async (tx) => {
-      // Idempotency check: if a clientRequestId was provided, look for a prior request.
+      // Idempotency check: claim the key at the start of the transaction to
+      // avoid a race where two concurrent requests both pass the initial SELECT.
       if (args.clientRequestId) {
+        // Attempt to claim the key; if another request already claimed it, skip insertion.
+        await tx
+          .insert(schema.orderMutationRequests)
+          .values({
+            storeId: args.storeId,
+            orderId: order.id,
+            clientRequestId: args.clientRequestId,
+            action: 'add_item',
+            responseSnapshot: null,
+          })
+          .onConflictDoNothing();
+
+        // If the row already has a response snapshot, return it (replay).
         const [existing] = await tx
           .select()
           .from(schema.orderMutationRequests)
@@ -54,7 +68,7 @@ export class OrdersService {
             ),
           );
         if (existing?.responseSnapshot) {
-          return existing.responseSnapshot as Record<string, unknown>;
+          return { response: existing.responseSnapshot as Record<string, unknown>, isReplay: true };
         }
       }
 
@@ -125,26 +139,30 @@ export class OrdersService {
 
       const response = { line: linePayload, totals };
 
-      // Record idempotency row inside the same transaction.
+      // Update the idempotency row with the response snapshot.
       if (args.clientRequestId) {
-        await tx.insert(schema.orderMutationRequests).values({
-          storeId: args.storeId,
-          orderId: order.id,
-          clientRequestId: args.clientRequestId,
-          action: 'add_item',
-          responseSnapshot: response as unknown as Record<string, unknown>,
-        });
+        await tx
+          .update(schema.orderMutationRequests)
+          .set({ responseSnapshot: response as unknown as Record<string, unknown> })
+          .where(
+            and(
+              eq(schema.orderMutationRequests.storeId, args.storeId),
+              eq(schema.orderMutationRequests.clientRequestId, args.clientRequestId),
+            ),
+          );
       }
 
-      return response;
+      return { response, isReplay: false };
     });
 
-    emitToOrder(order.id, SOCKET_EVENTS.cartItemAdded, {
-      orderId: order.id,
-      line: result.line,
-      totals: result.totals,
-    });
-    return result;
+    if (!result.isReplay) {
+      emitToOrder(order.id, SOCKET_EVENTS.cartItemAdded, {
+        orderId: order.id,
+        line: result.response.line,
+        totals: result.response.totals,
+      });
+    }
+    return result.response;
   }
 
   async removeLine(args: { storeId: string; orderId: string; lineId: string }) {

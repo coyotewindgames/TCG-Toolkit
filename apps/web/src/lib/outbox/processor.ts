@@ -30,6 +30,11 @@ function isNetworkError(err: unknown): boolean {
   return /networkerror|failed to fetch|load failed/i.test(msg);
 }
 
+function isClientError(err: unknown): boolean {
+  const status = (err as { status?: unknown })?.status;
+  return typeof status === 'number' && status >= 400 && status < 500;
+}
+
 async function flushOne(entry: OutboxEntry): Promise<void> {
   await updateEntry(entry.clientRequestId, { status: 'in_flight' });
   try {
@@ -43,7 +48,7 @@ async function flushOne(entry: OutboxEntry): Promise<void> {
       lastAttemptAt: Date.now(),
       lastError: err instanceof Error ? err.message : String(err),
     };
-    if (attempts >= MAX_ATTEMPTS) {
+    if (attempts >= MAX_ATTEMPTS || isClientError(err)) {
       update.status = 'failed';
     } else {
       update.status = 'pending';
