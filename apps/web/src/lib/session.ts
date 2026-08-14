@@ -197,7 +197,7 @@ function bootstrapSessionFromStorage(): SessionState {
     locationId,
     registerId,
     sessionExpiresAt: persisted.sessionExpiresAt,
-    bootstrapping: true,
+    bootstrapping: false,
   };
 }
 

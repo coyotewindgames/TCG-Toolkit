@@ -179,7 +179,10 @@ async function _doRefresh(): Promise<string | null> {
     const res = await fetch(`${BASE}/api/auth/me`, {
       headers: { authorization: `Bearer ${token}` },
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      await signOutFirebase().catch(() => undefined);
+      return null;
+    }
     const data = (await res.json()) as { user: SessionUser };
     setUser(data.user, token, null);
     return token;
@@ -455,6 +458,7 @@ export async function signup(input: SignupInput): Promise<SignupResult> {
       }),
     });
     if (!res.ok) {
+      await signOutFirebase().catch(() => undefined);
       const body = await res.text();
       throw new Error(`Signup failed (${res.status}): ${body}`);
     }

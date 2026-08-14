@@ -27,13 +27,15 @@ export function getSocket(): Socket {
     const url = import.meta.env.VITE_API_URL ?? '';
     socket = io(url, {
       transports: ['websocket'],
-      auth: async (callback) => {
-        const currentToken = await getFirebaseIdToken().catch(() => null) ?? token;
-        callback(currentToken
-          ? { token: currentToken, ...(registerId ? { registerId } : {}) }
-          : storeId
-            ? { storeId, ...(registerId ? { registerId } : {}) }
-            : {});
+      auth: (callback) => {
+        getFirebaseIdToken().catch(() => null).then((firebaseToken) => {
+          const currentToken = firebaseToken ?? token;
+          callback(currentToken
+            ? { token: currentToken, ...(registerId ? { registerId } : {}) }
+            : storeId
+              ? { storeId, ...(registerId ? { registerId } : {}) }
+              : {});
+        });
       },
       autoConnect: true,
     });
