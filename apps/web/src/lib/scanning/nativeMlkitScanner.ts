@@ -8,13 +8,18 @@ import type { CameraScanner } from './types';
  */
 export class NativeMlkitScanner implements CameraScanner {
   private listenerHandle: { remove: () => Promise<void> } | null = null;
+  private cleanupPromise: Promise<void> | null = null;
 
   isSupported(): boolean {
     return Capacitor.isNativePlatform();
   }
 
   async start(_video: HTMLVideoElement, onDecode: (code: string) => void): Promise<void> {
-    this.stop();
+    // Await any in-flight cleanup before starting a new session.
+    if (this.cleanupPromise) {
+      await this.cleanupPromise;
+      this.cleanupPromise = null;
+    }
 
     // Dynamically import to avoid bundling native-only code in web builds.
     const { BarcodeScanner: Scanner } = await import(
@@ -42,8 +47,7 @@ export class NativeMlkitScanner implements CameraScanner {
   }
 
   stop(): void {
-    // Fire-and-forget async cleanup.
-    void this.cleanup();
+    this.cleanupPromise = this.cleanup();
   }
 
   private async cleanup(): Promise<void> {

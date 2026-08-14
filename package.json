@@ -32,6 +32,7 @@
     "@esbuild/win32-x64": "^0.28.0"
   },
   "dependencies": {
+    "@capacitor-mlkit/barcode-scanning": "^7.5.0",
     "recharts": "^3.8.1"
   }
 }

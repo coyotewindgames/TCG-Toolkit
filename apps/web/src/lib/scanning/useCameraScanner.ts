@@ -2,14 +2,12 @@ import { Capacitor } from '@capacitor/core';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CameraScanner } from './types';
 import { WebZxingScanner } from './webZxingScanner';
+import { NativeMlkitScanner } from './nativeMlkitScanner';
 
 export type CameraScannerStatus = 'idle' | 'starting' | 'scanning' | 'error';
 
 function createScanner(): CameraScanner {
   if (Capacitor.isNativePlatform()) {
-    // Native scanner is lazy-loaded at call-time via dynamic import inside its methods.
-    // We still instantiate synchronously here; the heavy import happens in start().
-    const { NativeMlkitScanner } = require('./nativeMlkitScanner') as typeof import('./nativeMlkitScanner');
     return new NativeMlkitScanner();
   }
   return new WebZxingScanner();
