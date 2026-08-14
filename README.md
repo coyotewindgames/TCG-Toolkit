@@ -123,7 +123,7 @@ dashboard (not committed to the repo):
 
 ### Firebase Authentication migration foundation
 
-Migration `0020_firebase_uid_prep.sql` adds a nullable, unique Firebase UID
+Migration `0021_firebase_uid_prep.sql` adds a nullable, unique Firebase UID
 mapping without disabling the existing JWT login. Once Firebase Admin is
 configured, the API accepts Firebase RS256 ID tokens alongside legacy HS256
 tokens and still resolves store membership, roles, and disabled state from
