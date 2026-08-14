@@ -142,6 +142,16 @@ export const ResetPasswordRequest = z.object({
 });
 export type ResetPasswordRequest = z.infer<typeof ResetPasswordRequest>;
 
+export const RefreshRequest = z.object({
+  refreshToken: z.string().min(16).max(512).optional(),
+});
+export type RefreshRequest = z.infer<typeof RefreshRequest>;
+
+export const LogoutRequest = z.object({
+  refreshToken: z.string().min(16).max(512).optional(),
+});
+export type LogoutRequest = z.infer<typeof LogoutRequest>;
+
 export const LocationSummary = z.object({
   id: z.string().uuid(),
   name: z.string(),
