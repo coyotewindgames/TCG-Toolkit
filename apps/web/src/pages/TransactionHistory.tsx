@@ -214,7 +214,65 @@ export default function TransactionHistoryPage() {
           </p>
         )}
 
-        <div className="overflow-x-auto rounded-xl border border-track">
+        {/* Mobile uses compact cards so operators never need to pan a wide table. */}
+        <div className="space-y-2 sm:hidden">
+          {isLoading &&
+            Array.from({ length: 5 }, (_, i) => (
+              <div key={i} className="rounded-xl border border-track bg-card p-3">
+                <div className="h-16 w-full animate-pulse rounded bg-track" />
+              </div>
+            ))}
+          {!isLoading && data?.results.length === 0 && (
+            <p className="rounded-xl border border-track bg-card px-3 py-8 text-center text-sm text-ink-muted">
+              No transactions yet.
+            </p>
+          )}
+          {!isLoading &&
+            data?.results.map((trade) => (
+              <article key={trade.id} className="rounded-xl border border-track bg-card p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <time
+                        dateTime={trade.completedAt ?? trade.createdAt}
+                        className="text-xs font-medium text-ink"
+                      >
+                        {new Date(trade.completedAt ?? trade.createdAt).toLocaleDateString(undefined, {
+                          month: 'short',
+                          day: 'numeric',
+                          year: '2-digit',
+                        })}
+                      </time>
+                      <span
+                        className={`rounded-full border px-2 py-0.5 text-[10px] leading-4 ${
+                          STATUS_BADGE_CLASSES[trade.status] ?? STATUS_BADGE_CLASSES.draft
+                        }`}
+                      >
+                        {STATUS_LABELS[trade.status] ?? trade.status}
+                      </span>
+                    </div>
+                    <p className="mt-1 truncate text-sm font-medium text-ink">
+                      {trade.customerName ?? 'No customer'}
+                    </p>
+                    <p className="truncate text-[11px] text-ink-muted">
+                      {PAYOUT_LABELS[trade.payout] ?? trade.payout} · {trade.itemCount} item
+                      {trade.itemCount === 1 ? '' : 's'} · {trade.locationName}
+                    </p>
+                  </div>
+                  <p className="shrink-0 font-mono text-sm font-semibold text-brand">
+                    {formatCentsAsCurrency(trade.totalValueCents)}
+                  </p>
+                </div>
+                {trade.status === 'completed' && (
+                  <div className="mt-2 flex justify-end border-t border-track pt-2">
+                    <ViewBillOfSaleButton trade={trade} />
+                  </div>
+                )}
+              </article>
+            ))}
+        </div>
+
+        <div className="hidden overflow-x-auto rounded-xl border border-track sm:block">
           <table className="w-full min-w-[720px] text-left text-sm">
             <thead className="bg-card text-xs uppercase tracking-wide text-ink-muted">
               <tr>
