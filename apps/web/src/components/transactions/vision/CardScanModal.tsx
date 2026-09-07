@@ -403,7 +403,13 @@ function ResultsView({
   captured: string | null;
   identifying: boolean;
   error: string | null;
-  identification: { name: string; setName: string | null; number: string | null; confidence: number } | null;
+  identification: {
+    name: string;
+    setName: string | null;
+    setCode: string | null;
+    number: string | null;
+    confidence: number;
+  } | null;
   pricingConfigured: boolean;
   candidates: CatalogCard[];
   selectedId: string | null;
@@ -456,7 +462,7 @@ function ResultsView({
             {identification.name}
           </p>
           <p className="truncate text-xs text-ink-muted">
-            {identification.setName ?? 'Unknown set'}
+            {identification.setName ?? (identification.setCode ? `Set ${identification.setCode}` : 'Unknown set')}
             {identification.number ? ` • #${identification.number}` : ''}
           </p>
           <p className="mt-0.5 text-[11px] text-ink-dim">

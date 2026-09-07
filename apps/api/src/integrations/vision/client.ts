@@ -24,6 +24,10 @@ export interface VisionCardIdentification {
   name: string;
   /** Set/expansion name if legible (e.g. "Base Set", "Obsidian Flames"). */
   setName: string | null;
+  /** Printed set code / abbreviation near the number (e.g. "PBL", "OBF",
+   * "SV3"). Far more reliably legible than the set logo, so it's the best
+   * signal for which set a card belongs to. */
+  setCode: string | null;
   /** Collector number if legible (e.g. "4/102", "025"). */
   number: string | null;
   /** Language of the card face (e.g. "English", "Japanese"). */
@@ -47,6 +51,7 @@ export interface VisionClientConfig {
 const IdentificationSchema = z.object({
   name: z.string().trim().min(1).max(160),
   setName: z.string().trim().max(160).nullable().optional(),
+  setCode: z.string().trim().max(24).nullable().optional(),
   number: z.string().trim().max(32).nullable().optional(),
   language: z.string().trim().max(32).nullable().optional(),
   printingHint: z.string().trim().max(48).nullable().optional(),
@@ -58,7 +63,12 @@ const SYSTEM_PROMPT =
   'Read only the text and art actually visible on the card. Do not guess a card ' +
   'that is not shown. Respond with a single JSON object and nothing else, using ' +
   'exactly these keys: "name" (string, the card name as printed), "setName" ' +
-  '(string or null, the expansion/set name if legible), "number" (string or ' +
+  '(string or null, the expansion/set name — note this is usually shown only as ' +
+  'a small set symbol/logo, not text, so return null unless the set name is ' +
+  'actually printed), "setCode" (string or null, the small printed set ' +
+  'abbreviation near the collector number, e.g. "PBL", "OBF", "SV3", "151", ' +
+  '"MEW" — this is printed TEXT and is the most reliable set indicator, so read ' +
+  'it carefully when present), "number" (string or ' +
   'null, the collector number exactly as printed in the small text near the ' +
   'bottom-left or bottom-right corner, usually a fraction like "102/084" or ' +
   '"4/102" — copy both parts precisely; the left value may be larger than the ' +
@@ -184,6 +194,7 @@ export class VisionCardIdentifier {
     return {
       name: d.name.trim(),
       setName: d.setName?.trim() || null,
+      setCode: d.setCode?.trim() || null,
       number: d.number?.trim() || null,
       language: d.language?.trim() || null,
       printingHint: d.printingHint?.trim() || null,

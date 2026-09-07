@@ -38,8 +38,7 @@ describe('VisionCardIdentifier', () => {
           language: 'English',
           printingHint: 'Holo',
           confidence: 0.92,
-        }),
-      ),
+        }),      ),
     );
     vi.stubGlobal('fetch', fetchMock);
 
@@ -54,6 +53,7 @@ describe('VisionCardIdentifier', () => {
     expect(result).toEqual({
       name: 'Charizard',
       setName: 'Base Set',
+      setCode: null,
       number: '4/102',
       language: 'English',
       printingHint: 'Holo',

@@ -71,6 +71,7 @@ export interface CatalogPricesResponse {
 export interface VisionIdentification {
   name: string;
   setName: string | null;
+  setCode: string | null;
   number: string | null;
   language: string | null;
   printingHint: string | null;
