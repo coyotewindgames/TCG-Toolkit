@@ -239,12 +239,24 @@ function cropRegionFromGuide(
  * part that matters (name/number) while staying under the API's image cap.
  */
 function drawToJpeg(video: HTMLVideoElement, region: SourceRegion | null): string | null {
-  const MAX_EDGE = 1600;
   const sx = region?.sx ?? 0;
   const sy = region?.sy ?? 0;
   const sw = region?.sw ?? video.videoWidth;
   const sh = region?.sh ?? video.videoHeight;
+  return drawSourceToJpeg(video, sx, sy, sw, sh);
+}
 
+/**
+ * Shared encoder: draw a sub-region of any decoded image source to a canvas,
+ * scaled so the longest edge is `MAX_EDGE`, and return a JPEG data URL.
+ */
+function drawSourceToJpeg(
+  source: CanvasImageSource,
+  sx: number,
+  sy: number,
+  sw: number,
+  sh: number,
+): string | null {
   const scale = Math.min(1, MAX_EDGE / Math.max(sw, sh));
   const targetW = Math.max(1, Math.round(sw * scale));
   const targetH = Math.max(1, Math.round(sh * scale));
@@ -255,6 +267,42 @@ function drawToJpeg(video: HTMLVideoElement, region: SourceRegion | null): strin
   const ctx = canvas.getContext('2d');
   if (!ctx) return null;
   ctx.imageSmoothingQuality = 'high';
-  ctx.drawImage(video, sx, sy, sw, sh, 0, 0, targetW, targetH);
+  ctx.drawImage(source, sx, sy, sw, sh, 0, 0, targetW, targetH);
   return canvas.toDataURL('image/jpeg', 0.85);
+}
+
+/** Centre-crop rectangle for a given target aspect (width / height). */
+function centerCropRegion(width: number, height: number, aspect: number): SourceRegion {
+  const currentAspect = width / height;
+  if (currentAspect > aspect) {
+    // Too wide — trim the sides.
+    const sw = Math.round(height * aspect);
+    return { sx: Math.round((width - sw) / 2), sy: 0, sw, sh: height };
+  }
+  // Too tall — trim top/bottom.
+  const sh = Math.round(width / aspect);
+  return { sx: 0, sy: Math.round((height - sh) / 2), sw: width, sh };
+}
+
+function loadImage(dataUrl: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('failed to decode captured image'));
+    img.src = dataUrl;
+  });
+}
+
+/**
+ * Centre-crop a captured photo data URL to the standard card aspect ratio and
+ * re-encode. Used on native, where the OS camera can't overlay our guide box —
+ * a centred card ends up cropped to the same shape the web guide produces.
+ */
+async function cropDataUrlToCardAspect(dataUrl: string): Promise<string> {
+  const img = await loadImage(dataUrl);
+  const w = img.naturalWidth;
+  const h = img.naturalHeight;
+  if (!w || !h) return dataUrl;
+  const region = centerCropRegion(w, h, CARD_ASPECT);
+  return drawSourceToJpeg(img, region.sx, region.sy, region.sw, region.sh) ?? dataUrl;
 }
