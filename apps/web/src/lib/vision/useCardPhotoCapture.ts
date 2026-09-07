@@ -166,8 +166,8 @@ export function useCardPhotoCapture() {
 }
 
 /**
- * A source sub-rectangle (in the video's intrinsic pixels) to crop before
- * encoding. Omitted → the whole frame is used.
+ * A source sub-rectangle (in the source image's intrinsic pixels) to crop
+ * before encoding. Omitted → the whole frame is used.
  */
 interface SourceRegion {
   sx: number;
@@ -175,6 +175,14 @@ interface SourceRegion {
   sw: number;
   sh: number;
 }
+
+/** Standard TCG card aspect ratio (width / height ≈ 63mm / 88mm). Matches the
+ * on-screen guide box, so web (guide crop) and native (centre crop) agree. */
+const CARD_ASPECT = 5 / 7;
+
+/** Longest edge of the encoded image. Cropping to the card lets us spend this
+ * budget on the part that matters (name/number) instead of the whole desk. */
+const MAX_EDGE = 1600;
 
 /**
  * Map the on-screen framing guide to a crop rectangle in the video's intrinsic
