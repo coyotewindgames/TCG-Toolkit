@@ -7,9 +7,11 @@
  * client — they cache on top of the same TTL as ConfigService.
  */
 import { getDb, type Database } from '../db/client';
+import { loadEnv } from '../config/env';
 import { CloverClient } from '../integrations/pos/clover';
 import { PkmnCardsClient } from '../integrations/pkmncards/client';
 import { PkmnPricesClient } from '../integrations/pkmnprices/client';
+import { VisionCardIdentifier } from '../integrations/vision/client';
 import { BarcodeService } from './services/barcode';
 import { BillOfSaleService } from './services/bill-of-sale';
 import { CheckoutService } from './services/checkout';
@@ -39,6 +41,13 @@ export interface Container {
    * instance is safe and preserves its LRU caches across requests.
    */
   pkmncardsClient: PkmnCardsClient;
+  /**
+   * Platform-level multimodal card identifier used by the camera
+   * "snap-to-identify" flow. Keyed by a single env credential (not per-store);
+   * `vision.isEnabled()` is false when unconfigured so routes/UI degrade
+   * gracefully.
+   */
+  vision: VisionCardIdentifier;
   /** Build a Clover client for the given store, using its encrypted creds. */
   posFor(storeId: string): Promise<CloverClient>;
   /** Build a PkmnPrices client for the given store, using its encrypted creds. */
@@ -61,6 +70,14 @@ export function buildContainer(): Container {
   const barcode = new BarcodeService();
   const billOfSale = new BillOfSaleService(db);
   const pkmncardsClient = new PkmnCardsClient();
+
+  const env = loadEnv();
+  const vision = new VisionCardIdentifier({
+    provider: env.VISION_PROVIDER,
+    apiKey: env.VISION_API_KEY,
+    model: env.VISION_MODEL,
+    baseUrl: env.VISION_BASE_URL,
+  });
 
   async function posFor(storeId: string): Promise<CloverClient> {
     const creds = await configs.getPos(storeId);
@@ -94,6 +111,7 @@ export function buildContainer(): Container {
     billOfSale,
     configs,
     pkmncardsClient,
+    vision,
     posFor,
     pkmnpricesFor,
   };

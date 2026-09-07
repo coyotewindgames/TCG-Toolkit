@@ -3,6 +3,7 @@ import { formatCentsAsCurrency } from '../../lib/format';
 import { SellCartSidebar, SellMobileActionBar, SellRemoteScanPanel, SellSearchStatus, SellSkuList } from './SellModeAdapterParts';
 import { useSellTransaction } from '../../hooks/transactions/useSellTransaction';
 import CardImage from './CardImage';
+import CardScanButton from './vision/CardScanButton';
 
 interface SellModeAdapterProps {
   active: boolean;
@@ -37,15 +38,27 @@ export default function SellModeAdapter({ active }: SellModeAdapterProps) {
             <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-ink-muted">
               Search inventory
             </span>
-            <input
-              value={sell.sellQuery}
-              onChange={(event) => {
-                sell.setSellQuery(event.target.value);
-                sell.selectProduct(null);
-              }}
-              placeholder="Search by card name..."
-              className="min-h-11 w-full rounded-xl border border-border bg-navy px-4 text-base outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/40"
-            />
+            <div className="flex items-stretch gap-2">
+              <input
+                value={sell.sellQuery}
+                onChange={(event) => {
+                  sell.setSellQuery(event.target.value);
+                  sell.selectProduct(null);
+                }}
+                placeholder="Search by card name..."
+                className="min-h-11 w-full rounded-xl border border-border bg-navy px-4 text-base outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/40"
+              />
+              {/* Camera identify: maps the recognized card name into the local
+                  inventory search so the operator can pick the matching SKU. */}
+              <CardScanButton
+                active
+                confirmLabel="Search inventory"
+                onConfirm={(card) => {
+                  sell.setSellQuery(card.name);
+                  sell.selectProduct(null);
+                }}
+              />
+            </div>
           </label>
 
           <SellSearchStatus

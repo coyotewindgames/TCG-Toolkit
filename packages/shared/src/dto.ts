@@ -67,6 +67,34 @@ export interface CatalogPricesResponse {
   prices: CatalogPriceRow[];
 }
 
+/** Structured card identity extracted from a photo by the vision model. */
+export interface VisionIdentification {
+  name: string;
+  setName: string | null;
+  number: string | null;
+  language: string | null;
+  printingHint: string | null;
+  confidence: number;
+}
+
+/** `GET /vision/status` — capability probe used to gate the camera button. */
+export interface VisionStatusResponse {
+  enabled: boolean;
+  pricingConfigured: boolean;
+}
+
+/**
+ * `POST /vision/identify-card`. `identification` is null when the model could
+ * not read a card; `candidates` reuse the catalog card shape so the confirm
+ * panel can feed a pick straight into the existing trade flow and pull variants
+ * via `GET /pkmnprices/cards/:id/prices`.
+ */
+export interface VisionIdentifyResponse {
+  identification: VisionIdentification | null;
+  candidates: CatalogCard[];
+  pricingConfigured: boolean;
+}
+
 /** `POST /tradeins` */
 export interface CreateTradeResponse {
   id: string;

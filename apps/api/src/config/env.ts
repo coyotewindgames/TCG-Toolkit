@@ -66,6 +66,19 @@ const Env = z.object({
    */
   APP_BASE_URL: z.string().default('http://localhost:5173'),
 
+  // Vision card identification (camera "snap-to-identify" on Buy/Sell/Trade).
+  // A multimodal LLM reads the card's name/set/number from a photo; the result
+  // is then fed into the existing PkmnPrices search + pricing. This is a
+  // platform-level capability, so the key lives in env (not per-store). When
+  // VISION_API_KEY is unset the /vision endpoints return a clear "not
+  // configured" error and the camera button stays hidden in the UI.
+  VISION_PROVIDER: z.enum(['openai']).default('openai'),
+  VISION_API_KEY: z.string().optional(),
+  VISION_MODEL: z.string().default('gpt-4o-mini'),
+  // OpenAI-compatible base URL — override to point at Azure OpenAI or another
+  // compatible gateway without changing code.
+  VISION_BASE_URL: z.string().default('https://api.openai.com/v1'),
+
   SENTRY_DSN: z.string().optional(),
 });
 

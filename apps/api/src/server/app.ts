@@ -24,6 +24,7 @@ import { skusRouter, barcodesRouter } from './routes/skus';
 import { analyticsRouter } from './routes/analytics';
 import { pkmnpricesRouter } from './routes/pkmnprices';
 import { pkmncardsRouter } from './routes/pkmncards';
+import { visionRouter } from './routes/vision';
 import { tradeinsRouter } from './routes/tradeins';
 import { webhooksRouter } from './routes/webhooks';
 
@@ -92,6 +93,7 @@ export function createApp(): Express {
     app.use(`${prefix}/settings`, settingsRouter(container));
     app.use(`${prefix}/pkmnprices`, pkmnpricesRouter(container));
     app.use(`${prefix}/pkmncards`, pkmncardsRouter(container));
+    app.use(`${prefix}/vision`, visionRouter(container));
     app.use(`${prefix}/barcodes`, barcodesRouter(container));
     app.use(`${prefix}/analytics`, analyticsRouter(container));
   }

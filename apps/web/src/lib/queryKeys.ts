@@ -21,6 +21,9 @@ export const queryKeys = {
     search: (query: string) => ['transactions', 'sell', 'search', query.trim()] as const,
     skus: (productId: string | null | undefined) => ['transactions', 'sell', 'skus', productId ?? null] as const,
   },
+  vision: {
+    status: () => ['vision', 'status'] as const,
+  },
   history: {
     trades: (
       page: number,

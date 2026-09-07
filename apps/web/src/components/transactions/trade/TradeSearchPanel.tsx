@@ -1,6 +1,7 @@
 import type { TradeModeTransactionController } from '../../../hooks/transactions/useTradeTransaction';
 import SearchableSelect from '../../SearchableSelect';
 import CardImage from '../CardImage';
+import CardScanButton from '../vision/CardScanButton';
 
 interface TradeSearchPanelProps {
   trade: TradeModeTransactionController;
@@ -19,13 +20,19 @@ export default function TradeSearchPanel({ trade }: TradeSearchPanelProps) {
         <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-ink-muted">
           Search catalog
         </span>
-        <input
-          autoFocus
-          value={trade.query}
-          onChange={(event) => trade.setQuery(event.target.value)}
-          placeholder='Card name or number (e.g. "Charizard" or "025/189")'
-          className="min-h-11 w-full rounded-xl border border-border bg-navy px-4 text-base outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/40"
-        />
+        <div className="flex items-stretch gap-2">
+          <input
+            autoFocus
+            value={trade.query}
+            onChange={(event) => trade.setQuery(event.target.value)}
+            placeholder='Card name or number (e.g. "Charizard" or "025/189")'
+            className="min-h-11 w-full rounded-xl border border-border bg-navy px-4 text-base outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/40"
+          />
+          {/* Camera "snap-to-identify": hidden unless the server has a vision
+              model configured. On confirm it selects the card and opens the
+              same line-item drawer as tapping a search result. */}
+          <CardScanButton active onConfirm={trade.selectQueuedSearchCard} />
+        </div>
       </label>
 
       {/* Fluid filter bar. min-w-0 so children can shrink; basis controls preferred width per breakpoint */}
