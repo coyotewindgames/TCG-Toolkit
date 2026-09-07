@@ -1,6 +1,7 @@
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
 import * as schema from './schema';
+import { getLogger } from '../common/logger';
 
 export type Database = NodePgDatabase<typeof schema>;
 
@@ -45,6 +46,19 @@ export function getPool(databaseUrl = process.env.DATABASE_URL): Pool {
         ? { rejectUnauthorized: process.env.PG_SSL_REJECT_UNAUTHORIZED !== 'false' }
         : undefined,
       max: Number(process.env.PG_POOL_MAX ?? 10),
+      // Serverless Postgres (Neon) auto-suspends the compute after idle and
+      // drops connections. Keep TCP sockets alive, retire pooled clients
+      // before Neon does so we never hand a request a dead connection, and
+      // cap how long we wait for a suspended compute to wake.
+      keepAlive: true,
+      idleTimeoutMillis: Number(process.env.PG_IDLE_TIMEOUT_MS ?? 30_000),
+      connectionTimeoutMillis: Number(process.env.PG_CONNECT_TIMEOUT_MS ?? 10_000),
+    });
+    // Without this listener, an error emitted on an idle client (e.g. Neon
+    // terminating a suspended connection) is an unhandled 'error' event that
+    // can crash the process. Absorb it and let the pool recycle the client.
+    pool.on('error', (err) => {
+      getLogger().warn({ err }, 'idle pg client error (connection will be recycled)');
     });
   }
   return pool;
