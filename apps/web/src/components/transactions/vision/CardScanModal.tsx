@@ -13,7 +13,7 @@ import { api } from '../../../lib/api';
 import { queryKeys } from '../../../lib/queryKeys';
 import { formatCentsAsCurrency } from '../../../lib/format';
 import { useSession } from '../../../hooks/useSession';
-import { useCardPhotoCapture } from '../../../lib/vision/useCardPhotoCapture';
+import { useCardPhotoCapture, useGuideAlignment } from '../../../lib/vision/useCardPhotoCapture';
 import { useIdentifyCardFromImage } from '../../../hooks/transactions/useIdentifyCardFromImage';
 import { useQuickAddInventory } from '../../../hooks/transactions/useQuickAddInventory';
 
@@ -59,25 +59,29 @@ export default function CardScanModal({
   const [captured, setCaptured] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  // Reset all local state and start/stop the camera as the modal toggles.
+  // Reset all local state and release the camera when the modal closes.
   useEffect(() => {
-    if (!open) {
-      camera.stop();
-      setPhase('capture');
-      setCaptured(null);
-      setSelectedId(null);
-      identify.reset();
-      return;
-    }
-    // Web: kick off the live preview once the <video> is mounted. Native uses
-    // its own camera UI, so there's nothing to start here.
-    if (!camera.isNative && videoRef.current) {
-      void camera.startPreview(videoRef.current);
-    }
-    // We intentionally depend only on `open`; camera/identify are stable refs
-    // from their hooks and re-running on every render would thrash the stream.
+    if (open) return;
+    camera.stop();
+    setPhase('capture');
+    setCaptured(null);
+    setSelectedId(null);
+    identify.reset();
+    // Only `open` matters here; camera/identify are stable refs from their hooks.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  // (Re)start the live preview whenever we're on the capture step. Keying this
+  // on `phase` (not just `open`) means it runs AFTER the <video> remounts when
+  // returning from results via Retake — fixing the black screen where we
+  // previously tried to start the preview before the element existed.
+  useEffect(() => {
+    if (!open || camera.isNative || phase !== 'capture') return;
+    const video = videoRef.current;
+    if (!video) return;
+    void camera.startPreview(video);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, phase]);
 
   // Escape closes the modal.
   useEffect(() => {
@@ -127,10 +131,9 @@ export default function CardScanModal({
     setCaptured(null);
     setSelectedId(null);
     identify.reset();
+    // Flip back to the capture step; the phase-driven effect above restarts the
+    // live preview once the <video> remounts.
     setPhase('capture');
-    if (!camera.isNative && videoRef.current) {
-      void camera.startPreview(videoRef.current);
-    }
   }
 
   if (!open) return null;
@@ -293,6 +296,41 @@ function CaptureView({
 
   return (
     <div className="flex flex-col items-center gap-4">
+      <WebCaptureView
+        camera={camera}
+        videoRef={videoRef}
+        guideRef={guideRef}
+        onWebCapture={onWebCapture}
+      />
+    </div>
+  );
+}
+
+/**
+ * Live web preview with an alignment-aware framing guide. The guide "lights up"
+ * (turns green with a pulsing glow) once the card is well-framed and in focus,
+ * nudging the operator to hold steady before capturing.
+ */
+function WebCaptureView({
+  camera,
+  videoRef,
+  guideRef,
+  onWebCapture,
+}: {
+  camera: ReturnType<typeof useCardPhotoCapture>;
+  videoRef: React.MutableRefObject<HTMLVideoElement | null>;
+  guideRef: React.MutableRefObject<HTMLDivElement | null>;
+  onWebCapture: () => void;
+}) {
+  const previewing = camera.status === 'previewing';
+  const { aligned, score } = useGuideAlignment({
+    active: previewing,
+    videoRef,
+    guideRef,
+  });
+
+  return (
+    <>
       <div className="relative w-full overflow-hidden rounded-xl border border-track bg-black">
         <video
           ref={videoRef}
@@ -302,27 +340,51 @@ function CaptureView({
           autoPlay
         />
         {/* Framing guide sized to a 3:4 card. The capture crops to this box so
-            only the card (not the surrounding desk) reaches the model. */}
+            only the card (not the surrounding desk) reaches the model. The
+            border + glow animate from neutral → green as alignment improves. */}
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <div
             ref={guideRef}
-            className="h-[360px] w-[257px] rounded-lg border-2 border-white/70 shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]"
+            className={`h-[360px] w-[257px] rounded-lg border-2 transition-all duration-200 ${
+              aligned
+                ? 'animate-alignPulse border-emerald-400'
+                : 'border-white/70 shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]'
+            }`}
           />
         </div>
-        <p className="pointer-events-none absolute inset-x-0 bottom-2 text-center text-[11px] font-medium text-white/80">
-          Line the card up inside the frame
+        {/* Alignment strength bar */}
+        {previewing && (
+          <div className="pointer-events-none absolute inset-x-0 top-2 mx-auto flex w-40 items-center gap-2">
+            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/20">
+              <div
+                className={`h-full rounded-full transition-all duration-150 ${
+                  aligned ? 'bg-emerald-400' : 'bg-white/70'
+                }`}
+                style={{ width: `${Math.round(score * 100)}%` }}
+              />
+            </div>
+          </div>
+        )}
+        <p
+          className={`pointer-events-none absolute inset-x-0 bottom-2 text-center text-[11px] font-medium transition-colors ${
+            aligned ? 'text-emerald-300' : 'text-white/80'
+          }`}
+        >
+          {aligned ? 'Aligned — hold steady' : 'Line the card up inside the frame'}
         </p>
       </div>
       {camera.error && <p className="text-sm text-rose-300">{camera.error}</p>}
       <button
         type="button"
-        disabled={camera.status !== 'previewing'}
+        disabled={!previewing}
         onClick={onWebCapture}
-        className="rounded-full bg-brand px-6 py-3 text-sm font-semibold text-navy disabled:opacity-50"
+        className={`rounded-full px-6 py-3 text-sm font-semibold text-navy transition disabled:opacity-50 ${
+          aligned ? 'animate-glowPulse bg-emerald-400 ring-2 ring-emerald-300/60' : 'bg-brand'
+        }`}
       >
         {camera.status === 'starting' ? 'Starting camera…' : 'Capture'}
       </button>
-    </div>
+    </>
   );
 }
 

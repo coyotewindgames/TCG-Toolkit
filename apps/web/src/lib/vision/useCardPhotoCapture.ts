@@ -1,5 +1,5 @@
 import { Capacitor } from '@capacitor/core';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 
 export type CardPhotoCaptureStatus =
   | 'idle'
@@ -163,6 +163,101 @@ export function useCardPhotoCapture() {
     stop,
     reset,
   };
+}
+
+export interface GuideAlignment {
+  /** 0..1 measure of how much sharp, card-like detail fills the guide box. */
+  score: number;
+  /** True once the score crosses the "well-framed" threshold. */
+  aligned: boolean;
+}
+
+/**
+ * Live feedback for the framing guide: samples the video region inside the
+ * guide a few times a second and scores how much sharp, high-contrast detail
+ * fills it. A card lined up in the frame (in focus, filling the box) produces a
+ * high gradient-energy score; an empty desk scores low. The modal uses this to
+ * "light up" the guide when the operator is well-aligned.
+ *
+ * This is a focus/fill heuristic, not true edge detection — cheap, robust to
+ * background, and good enough to nudge the operator to hold steady.
+ */
+export function useGuideAlignment(params: {
+  active: boolean;
+  videoRef: RefObject<HTMLVideoElement | null>;
+  guideRef: RefObject<HTMLElement | null>;
+}): GuideAlignment {
+  const { active, videoRef, guideRef } = params;
+  const [state, setState] = useState<GuideAlignment>({ score: 0, aligned: false });
+
+  useEffect(() => {
+    if (!active) {
+      setState({ score: 0, aligned: false });
+      return;
+    }
+    let stopped = false;
+    let raf = 0;
+    let last = 0;
+    const SAMPLE = 72;
+    const canvas = document.createElement('canvas');
+    canvas.width = SAMPLE;
+    canvas.height = SAMPLE;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+    const loop = (t: number) => {
+      if (stopped) return;
+      raf = requestAnimationFrame(loop);
+      if (t - last < 160) return; // throttle to ~6fps
+      last = t;
+      const video = videoRef.current;
+      const guide = guideRef.current;
+      if (!video || !guide || !ctx || !video.videoWidth) return;
+      const region = cropRegionFromGuide(video, guide);
+      if (!region) return;
+
+      ctx.drawImage(video, region.sx, region.sy, region.sw, region.sh, 0, 0, SAMPLE, SAMPLE);
+      let imageData: ImageData;
+      try {
+        imageData = ctx.getImageData(0, 0, SAMPLE, SAMPLE);
+      } catch {
+        return; // e.g. transient issue reading pixels; skip this frame
+      }
+      const { data } = imageData;
+
+      // Grayscale, then average gradient magnitude (edge energy) as a
+      // focus/detail proxy.
+      const gray = new Float32Array(SAMPLE * SAMPLE);
+      for (let i = 0, p = 0; i < data.length; i += 4, p += 1) {
+        gray[p] = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+      }
+      let energy = 0;
+      let n = 0;
+      for (let y = 0; y < SAMPLE; y += 1) {
+        for (let x = 0; x < SAMPLE - 1; x += 1) {
+          const idx = y * SAMPLE + x;
+          energy += Math.abs(gray[idx] - gray[idx + 1]);
+          if (y < SAMPLE - 1) energy += Math.abs(gray[idx] - gray[idx + SAMPLE]);
+          n += 1;
+        }
+      }
+      const meanGradient = n > 0 ? energy / (n * 2) : 0; // 0..255
+      const score = Math.max(0, Math.min(1, meanGradient / 22)); // tuned divisor
+
+      setState((prev) => {
+        const aligned = score > 0.42;
+        if (prev.aligned === aligned && Math.abs(prev.score - score) < 0.03) return prev;
+        return { score, aligned };
+      });
+    };
+
+    raf = requestAnimationFrame(loop);
+    return () => {
+      stopped = true;
+      cancelAnimationFrame(raf);
+    };
+  }, [active, videoRef, guideRef]);
+
+  return state;
 }
 
 /**
