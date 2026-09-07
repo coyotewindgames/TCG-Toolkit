@@ -10,6 +10,10 @@ interface CardScanButtonProps {
   onConfirm: (card: CatalogCard) => void;
   confirmLabel?: string;
   className?: string;
+  /** Show an "Add to inventory" action for cards not yet stocked (Sell tab). */
+  allowAddToInventory?: boolean;
+  /** Called after a successful quick-add so the caller can refresh its list. */
+  onAdded?: () => void;
 }
 
 /**
@@ -22,6 +26,8 @@ export default function CardScanButton({
   onConfirm,
   confirmLabel,
   className,
+  allowAddToInventory,
+  onAdded,
 }: CardScanButtonProps) {
   const status = useVisionStatus(active);
   const [open, setOpen] = useState(false);
@@ -46,6 +52,8 @@ export default function CardScanButton({
         onClose={() => setOpen(false)}
         onConfirm={onConfirm}
         confirmLabel={confirmLabel}
+        allowAddToInventory={allowAddToInventory}
+        onAdded={onAdded}
       />
     </>
   );

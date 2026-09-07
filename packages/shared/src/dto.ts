@@ -95,6 +95,35 @@ export interface VisionIdentifyResponse {
   pricingConfigured: boolean;
 }
 
+/**
+ * `POST /products/quick-add` — add a scanned card straight into inventory as a
+ * raw single (creates the product + SKU if needed, then receives stock at the
+ * chosen sell price).
+ */
+export interface QuickAddInventoryRequest {
+  pkmnpricesCardId?: number;
+  name: string;
+  setName?: string | null;
+  setId?: string | null;
+  cardNumber?: string | null;
+  rarity?: string | null;
+  imageUrl?: string | null;
+  locationId: string;
+  quantity: number;
+  condition: CardCondition;
+  printing: CardPrinting;
+  language: CardLanguage;
+  sellPriceCents: number;
+  marketPriceCents?: number;
+}
+
+export interface QuickAddInventoryResponse {
+  productId: string;
+  skuId: string;
+  skuCreated: boolean;
+  quantity: number;
+}
+
 /** `POST /tradeins` */
 export interface CreateTradeResponse {
   id: string;

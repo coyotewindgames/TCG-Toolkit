@@ -1,12 +1,21 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type { CatalogCard, CatalogPricesResponse } from '@tcg/shared';
+import {
+  CARD_CONDITIONS,
+  CARD_PRINTINGS,
+  type CardCondition,
+  type CardPrinting,
+  type CatalogCard,
+  type CatalogPricesResponse,
+} from '@tcg/shared';
 import CardImage from '../CardImage';
 import { api } from '../../../lib/api';
 import { queryKeys } from '../../../lib/queryKeys';
 import { formatCentsAsCurrency } from '../../../lib/format';
+import { useSession } from '../../../hooks/useSession';
 import { useCardPhotoCapture } from '../../../lib/vision/useCardPhotoCapture';
 import { useIdentifyCardFromImage } from '../../../hooks/transactions/useIdentifyCardFromImage';
+import { useQuickAddInventory } from '../../../hooks/transactions/useQuickAddInventory';
 
 interface CardScanModalProps {
   open: boolean;
@@ -16,6 +25,11 @@ interface CardScanModalProps {
   onConfirm: (card: CatalogCard) => void;
   /** Label for the confirm button, e.g. "Add to trade" / "Find in inventory". */
   confirmLabel?: string;
+  /** When true, show an "Add to inventory" action so a scanned card that isn't
+   * stocked yet can be created + received on the spot (Sell tab). */
+  allowAddToInventory?: boolean;
+  /** Called after a successful quick-add so the caller can refresh its list. */
+  onAdded?: () => void;
 }
 
 type Phase = 'capture' | 'identifying' | 'results';
@@ -33,6 +47,8 @@ export default function CardScanModal({
   onClose,
   onConfirm,
   confirmLabel = 'Use this card',
+  allowAddToInventory = false,
+  onAdded,
 }: CardScanModalProps) {
   const camera = useCardPhotoCapture();
   const identify = useIdentifyCardFromImage();
@@ -71,6 +87,15 @@ export default function CardScanModal({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
+
+  // Auto-select the top candidate as soon as results arrive so the operator
+  // sees a price immediately without an extra tap.
+  useEffect(() => {
+    const candidates = identify.data?.candidates ?? [];
+    if (phase === 'results' && selectedId === null && candidates.length > 0) {
+      setSelectedId(candidates[0]!.id);
+    }
+  }, [phase, identify.data, selectedId]);
 
   async function runIdentify(dataUrl: string) {
     setCaptured(dataUrl);
@@ -176,6 +201,11 @@ export default function CardScanModal({
               candidates={candidates}
               selectedId={selectedId}
               onSelect={setSelectedId}
+              allowAddToInventory={allowAddToInventory}
+              onAdded={() => {
+                onAdded?.();
+                onClose();
+              }}
             />
           )}
         </div>
@@ -293,6 +323,8 @@ function ResultsView({
   candidates,
   selectedId,
   onSelect,
+  allowAddToInventory,
+  onAdded,
 }: {
   captured: string | null;
   identifying: boolean;
@@ -302,6 +334,8 @@ function ResultsView({
   candidates: CatalogCard[];
   selectedId: string | null;
   onSelect: (id: string) => void;
+  allowAddToInventory: boolean;
+  onAdded: () => void;
 }) {
   if (identifying) {
     return <p className="py-8 text-center text-sm text-ink-muted">Identifying card…</p>;
@@ -366,7 +400,8 @@ function ResultsView({
 
       {pricingConfigured && candidates.length === 0 && (
         <p className="text-sm text-ink-muted">
-          No catalog matches found. Try the search box with the identified name.
+          No catalog matches found. Try the search box with the identified name
+          {allowAddToInventory ? ', or add it to inventory below.' : '.'}
         </p>
       )}
 
@@ -408,6 +443,176 @@ function ResultsView({
       )}
 
       {selectedId && <CandidatePrices cardId={selectedId} />}
+
+      {allowAddToInventory && (
+        <AddToInventoryPanel
+          card={candidates.find((card) => card.id === selectedId) ?? null}
+          fallbackName={identification.name}
+          fallbackNumber={identification.number}
+          printingHint={null}
+          onAdded={onAdded}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Compact, prefilled form to add the selected (or identified) card straight to
+ * inventory as a raw single. The sell price defaults to the card's PkmnPrices
+ * market price for the chosen printing; everything stays editable.
+ */
+function AddToInventoryPanel({
+  card,
+  fallbackName,
+  fallbackNumber,
+  printingHint,
+  onAdded,
+}: {
+  card: CatalogCard | null;
+  fallbackName: string;
+  fallbackNumber: string | null;
+  printingHint: string | null;
+  onAdded: () => void;
+}) {
+  const session = useSession();
+  const quickAdd = useQuickAddInventory();
+
+  const [quantity, setQuantity] = useState(1);
+  const [condition, setCondition] = useState<CardCondition>('NM');
+  const [printing, setPrinting] = useState<CardPrinting>(
+    (CARD_PRINTINGS as readonly string[]).includes(printingHint ?? '')
+      ? (printingHint as CardPrinting)
+      : 'Normal',
+  );
+  const [priceDollars, setPriceDollars] = useState('');
+  const [priceTouched, setPriceTouched] = useState(false);
+
+  // Pull market prices so we can prefill the sell price from the chosen
+  // printing's market value.
+  const pricesQuery = useQuery<CatalogPricesResponse>({
+    queryKey: queryKeys.trade.prices(card?.id),
+    queryFn: () => api.get<CatalogPricesResponse>(`/pkmnprices/cards/${card!.id}/prices`),
+    enabled: !!card,
+    staleTime: 5 * 60_000,
+  });
+
+  const marketCentsForPrinting = useMemo(() => {
+    const rows = pricesQuery.data?.prices ?? [];
+    const match = rows.find((row) => row.printing === printing) ?? rows[0];
+    return match?.marketCents ?? null;
+  }, [pricesQuery.data, printing]);
+
+  // Prefill the price field from market until the operator edits it.
+  useEffect(() => {
+    if (!priceTouched && marketCentsForPrinting != null) {
+      setPriceDollars((marketCentsForPrinting / 100).toFixed(2));
+    }
+  }, [marketCentsForPrinting, priceTouched]);
+
+  const sellPriceCents = Math.round((Number.parseFloat(priceDollars) || 0) * 100);
+  const canSubmit = !!session.locationId && sellPriceCents >= 0 && quantity > 0 && !quickAdd.isPending;
+
+  function submit() {
+    if (!session.locationId) return;
+    quickAdd.mutate(
+      {
+        pkmnpricesCardId: card ? Number(card.id) : undefined,
+        name: card?.name ?? fallbackName,
+        setName: card?.setName ?? null,
+        setId: card?.setId ?? null,
+        cardNumber: card?.number ?? fallbackNumber ?? null,
+        rarity: card?.rarity ?? null,
+        imageUrl: card?.imageUrl ?? null,
+        locationId: session.locationId,
+        quantity,
+        condition,
+        printing,
+        language: 'EN',
+        sellPriceCents,
+        marketPriceCents: marketCentsForPrinting ?? undefined,
+      },
+      { onSuccess: onAdded },
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-brand/40 bg-brand/5 p-3">
+      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-brand">
+        Add to inventory
+      </p>
+      {!session.locationId && (
+        <p className="mb-2 text-xs text-amber-300">Pick a location first to add stock.</p>
+      )}
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <label className="block text-xs">
+          <span className="mb-1 block text-ink-muted">Qty</span>
+          <input
+            type="number"
+            min={1}
+            max={999}
+            value={quantity}
+            onChange={(e) => setQuantity(Math.max(1, Number.parseInt(e.target.value, 10) || 1))}
+            className="min-h-10 w-full rounded-lg border border-border bg-navy px-2 text-sm outline-none focus:border-brand"
+          />
+        </label>
+        <label className="block text-xs">
+          <span className="mb-1 block text-ink-muted">Condition</span>
+          <select
+            value={condition}
+            onChange={(e) => setCondition(e.target.value as CardCondition)}
+            className="min-h-10 w-full rounded-lg border border-border bg-navy px-2 text-sm outline-none focus:border-brand"
+          >
+            {CARD_CONDITIONS.map((value) => (
+              <option key={value} value={value}>
+                {value}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block text-xs">
+          <span className="mb-1 block text-ink-muted">Printing</span>
+          <select
+            value={printing}
+            onChange={(e) => setPrinting(e.target.value as CardPrinting)}
+            className="min-h-10 w-full rounded-lg border border-border bg-navy px-2 text-sm outline-none focus:border-brand"
+          >
+            {CARD_PRINTINGS.map((value) => (
+              <option key={value} value={value}>
+                {value}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block text-xs">
+          <span className="mb-1 block text-ink-muted">Sell price ($)</span>
+          <input
+            type="number"
+            min={0}
+            step="0.01"
+            value={priceDollars}
+            onChange={(e) => {
+              setPriceTouched(true);
+              setPriceDollars(e.target.value);
+            }}
+            placeholder={pricesQuery.isPending ? '…' : '0.00'}
+            className="min-h-10 w-full rounded-lg border border-border bg-navy px-2 text-sm outline-none focus:border-brand"
+          />
+        </label>
+      </div>
+      {quickAdd.isError && (
+        <p className="mt-2 text-xs text-rose-300">
+          {quickAdd.error?.message ?? 'Could not add to inventory.'}
+        </p>
+      )}
+      <button
+        type="button"
+        disabled={!canSubmit}
+        onClick={submit}
+        className="mt-3 w-full rounded-xl bg-brand px-4 py-2 text-sm font-semibold text-navy disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {quickAdd.isPending ? 'Adding…' : 'Add to inventory'}
+      </button>
     </div>
   );
 }

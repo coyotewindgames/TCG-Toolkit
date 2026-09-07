@@ -1,5 +1,6 @@
-import { and, eq, sql } from 'drizzle-orm';
-import { normalizeToSpacedAlphanumeric } from '@tcg/shared';
+import { and, eq, isNull, sql } from 'drizzle-orm';
+import { normalizeToSpacedAlphanumeric, skuIdentityKey } from '@tcg/shared';
+import type { CardCondition, CardLanguage, CardPrinting } from '@tcg/shared';
 import { schema, type Database } from '../../db/client';
 import { BadRequest, NotFound } from '../../common/http-errors';
 import { inferSetFromQuery } from './product-search/search-relevance';
@@ -174,5 +175,111 @@ export class ProductsService {
       .returning({ id: schema.products.id });
     if (result.length === 0) throw NotFound(`product ${productId} not found`);
     return { imageSourceUrl: null, imageLocked: true };
+  }
+
+  /**
+   * Create (or reuse) a product + raw SKU straight from a catalog card the
+   * operator just scanned but does not yet stock. Mirrors the product/SKU
+   * upsert the trade-in flow performs, minus the trade paperwork — the caller
+   * receives stock + price separately via InventoryService.receive(). The
+   * `tcgapiProductId` is the stable per-store product key; for pkmnprices
+   * cards it is the string form of the pkmnprices card id.
+   */
+  async quickAddSku(
+    storeId: string,
+    input: {
+      tcgapiProductId: string;
+      pkmnpricesProductId?: number | null;
+      name: string;
+      setName?: string | null;
+      setId?: string | null;
+      cardNumber?: string | null;
+      rarity?: string | null;
+      imageSourceUrl?: string | null;
+      condition: CardCondition;
+      printing: CardPrinting;
+      language: CardLanguage;
+    },
+  ): Promise<{ productId: string; skuId: string; skuCreated: boolean }> {
+    return this.db.transaction(async (tx) => {
+      let [product] = await tx
+        .select()
+        .from(schema.products)
+        .where(
+          and(
+            eq(schema.products.storeId, storeId),
+            eq(schema.products.tcgapiProductId, input.tcgapiProductId),
+          ),
+        );
+      if (!product) {
+        [product] = await tx
+          .insert(schema.products)
+          .values({
+            storeId,
+            tcgapiProductId: input.tcgapiProductId,
+            pkmnpricesProductId: input.pkmnpricesProductId ?? null,
+            game: 'pokemon',
+            name: input.name,
+            setName: input.setName ?? null,
+            setId: input.setId ?? null,
+            cardNumber: input.cardNumber ?? null,
+            rarity: input.rarity ?? null,
+            imageSourceUrl: input.imageSourceUrl ?? null,
+          })
+          .returning();
+      }
+      if (!product) throw new Error('failed to create product');
+
+      // Backfill an image onto a pre-existing bare product row.
+      if (input.imageSourceUrl && !product.imageSourceUrl) {
+        await tx
+          .update(schema.products)
+          .set({ imageSourceUrl: input.imageSourceUrl, updatedAt: new Date() })
+          .where(eq(schema.products.id, product.id));
+      }
+
+      const [existing] = await tx
+        .select({ id: schema.skus.id })
+        .from(schema.skus)
+        .where(
+          and(
+            eq(schema.skus.productId, product.id),
+            eq(schema.skus.printing, input.printing),
+            eq(schema.skus.language, input.language),
+            eq(schema.skus.condition, input.condition),
+            isNull(schema.skus.gradingCompany),
+            isNull(schema.skus.grade),
+          ),
+        );
+      if (existing) return { productId: product.id, skuId: existing.id, skuCreated: false };
+
+      const identity = skuIdentityKey({
+        productId: product.id,
+        condition: input.condition,
+        printing: input.printing,
+        language: input.language,
+        gradingCompany: null,
+        grade: null,
+      });
+      const skuId = crypto.randomUUID();
+      const [created] = await tx
+        .insert(schema.skus)
+        .values({
+          id: skuId,
+          productId: product.id,
+          storeId,
+          condition: input.condition,
+          printing: input.printing,
+          language: input.language,
+          gradingCompany: null,
+          grade: null,
+          certNumber: null,
+          barcode: skuId,
+          internalSku: identity,
+        })
+        .returning({ id: schema.skus.id });
+      if (!created) throw new Error('failed to create sku');
+      return { productId: product.id, skuId: created.id, skuCreated: true };
+    });
   }
 }

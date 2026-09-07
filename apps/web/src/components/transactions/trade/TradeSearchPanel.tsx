@@ -1,7 +1,7 @@
 import type { TradeModeTransactionController } from '../../../hooks/transactions/useTradeTransaction';
 import SearchableSelect from '../../SearchableSelect';
 import CardImage from '../CardImage';
-import CardScanButton from '../vision/CardScanButton';
+import TransactionEntryBar from '../TransactionEntryBar';
 
 interface TradeSearchPanelProps {
   trade: TradeModeTransactionController;
@@ -16,71 +16,63 @@ interface TradeSearchPanelProps {
 export default function TradeSearchPanel({ trade }: TradeSearchPanelProps) {
   return (
     <div className="rounded-2xl border border-track bg-card/60 p-4 shadow-sm">
-      <label className="block">
-        <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-ink-muted">
-          Search catalog
-        </span>
-        <div className="flex items-stretch gap-2">
-          <input
-            autoFocus
-            value={trade.query}
-            onChange={(event) => trade.setQuery(event.target.value)}
-            placeholder='Card name or number (e.g. "Charizard" or "025/189")'
-            className="min-h-11 w-full rounded-xl border border-border bg-navy px-4 text-base outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/40"
-          />
-          {/* Camera "snap-to-identify": hidden unless the server has a vision
-              model configured. On confirm it selects the card and opens the
-              same line-item drawer as tapping a search result. */}
-          <CardScanButton active onConfirm={trade.selectQueuedSearchCard} />
+      <TransactionEntryBar
+        label="Search catalog"
+        value={trade.query}
+        onChange={trade.setQuery}
+        autoFocus
+        placeholder='Card name or number (e.g. "Charizard" or "025/189")'
+        // On confirm the scanned card is selected and opens the same line-item
+        // drawer as tapping a search result.
+        scan={{ active: true, onConfirm: trade.selectQueuedSearchCard }}
+      >
+        {/* Fluid filter bar. min-w-0 so children can shrink; basis controls preferred width per breakpoint */}
+        <div className="mt-3 flex flex-wrap gap-2">
+          <div className="min-w-0 flex-1 basis-full sm:basis-[calc(50%-0.25rem)] lg:basis-[calc(25%-0.375rem)]">
+            <SearchableSelect
+              value={trade.language}
+              onChange={trade.handleLanguageChange}
+              placeholder="Language"
+              searchPlaceholder="Search languages"
+              options={trade.languageOptions}
+            />
+          </div>
+          <div className="min-w-0 flex-1 basis-full sm:basis-[calc(50%-0.25rem)] lg:basis-[calc(25%-0.375rem)]">
+            <SearchableSelect
+              value={trade.setId}
+              onChange={trade.setSetId}
+              placeholder={trade.setsLoading ? 'Loading sets…' : 'Any set'}
+              searchPlaceholder="Search sets"
+              disabled={trade.setsLoading}
+              options={trade.sets.map((set) => ({ value: set.id, label: set.name }))}
+            />
+          </div>
+          <div className="min-w-0 flex-1 basis-full sm:basis-[calc(50%-0.25rem)] lg:basis-[calc(25%-0.375rem)]">
+            <SearchableSelect
+              value={trade.rarity}
+              onChange={trade.setRarity}
+              placeholder="Any rarity"
+              searchPlaceholder="Search rarities"
+              options={Array.from(
+                new Set([...trade.rarityOptions, trade.rarity].filter(Boolean)),
+              ).map((rarity) => ({ value: rarity, label: rarity }))}
+            />
+          </div>
+          <div className="min-w-0 flex-1 basis-full sm:basis-[calc(50%-0.25rem)] lg:basis-[calc(25%-0.375rem)]">
+            {/* Free-text artist filter — hits /pkmncards/artist-search, which
+                scrapes pkmncards' artist indexes and hydrates back through
+                pkmnprices. Distinct from the main search because pkmnprices
+                itself has no artist parameter. */}
+            <input
+              type="text"
+              value={trade.artistFilter}
+              onChange={(event) => trade.setArtistFilter(event.target.value)}
+              placeholder="Artist (e.g. Ken Sugimori)"
+              className="min-h-11 w-full rounded-xl border border-border bg-navy px-3 text-sm outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/40"
+            />
+          </div>
         </div>
-      </label>
-
-      {/* Fluid filter bar. min-w-0 so children can shrink; basis controls preferred width per breakpoint */}
-      <div className="mt-3 flex flex-wrap gap-2">
-        <div className="min-w-0 flex-1 basis-full sm:basis-[calc(50%-0.25rem)] lg:basis-[calc(25%-0.375rem)]">
-          <SearchableSelect
-            value={trade.language}
-            onChange={trade.handleLanguageChange}
-            placeholder="Language"
-            searchPlaceholder="Search languages"
-            options={trade.languageOptions}
-          />
-        </div>
-        <div className="min-w-0 flex-1 basis-full sm:basis-[calc(50%-0.25rem)] lg:basis-[calc(25%-0.375rem)]">
-          <SearchableSelect
-            value={trade.setId}
-            onChange={trade.setSetId}
-            placeholder={trade.setsLoading ? 'Loading sets…' : 'Any set'}
-            searchPlaceholder="Search sets"
-            disabled={trade.setsLoading}
-            options={trade.sets.map((set) => ({ value: set.id, label: set.name }))}
-          />
-        </div>
-        <div className="min-w-0 flex-1 basis-full sm:basis-[calc(50%-0.25rem)] lg:basis-[calc(25%-0.375rem)]">
-          <SearchableSelect
-            value={trade.rarity}
-            onChange={trade.setRarity}
-            placeholder="Any rarity"
-            searchPlaceholder="Search rarities"
-            options={Array.from(
-              new Set([...trade.rarityOptions, trade.rarity].filter(Boolean)),
-            ).map((rarity) => ({ value: rarity, label: rarity }))}
-          />
-        </div>
-        <div className="min-w-0 flex-1 basis-full sm:basis-[calc(50%-0.25rem)] lg:basis-[calc(25%-0.375rem)]">
-          {/* Free-text artist filter — hits /pkmncards/artist-search, which
-              scrapes pkmncards' artist indexes and hydrates back through
-              pkmnprices. Distinct from the main search because pkmnprices
-              itself has no artist parameter. */}
-          <input
-            type="text"
-            value={trade.artistFilter}
-            onChange={(event) => trade.setArtistFilter(event.target.value)}
-            placeholder="Artist (e.g. Ken Sugimori)"
-            className="min-h-11 w-full rounded-xl border border-border bg-navy px-3 text-sm outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/40"
-          />
-        </div>
-      </div>
+      </TransactionEntryBar>
 
       <ActiveFilterChips trade={trade} />
 

@@ -1,21 +1,20 @@
 import { useState } from 'react';
 import ModeSwitch from '../components/transactions/ModeSwitch';
-import SellModeAdapter from '../components/transactions/SellModeAdapter';
-import TradeModeAdapter from '../components/transactions/TradeModeAdapter';
+import RegisterAdapter from '../components/transactions/RegisterAdapter';
 import type { TransactionMode } from '../lib/transactions';
 
 const MODE_META: Record<TransactionMode, { title: string; helper: string }> = {
   buy: {
-    title: 'Buy Intake',
-    helper: 'Receive cards from customers and build an intake batch.',
+    title: 'Buy',
+    helper: 'Search the catalog, value cards for a cash payout, and create a buy intake.',
   },
   sell: {
-    title: 'Sell Checkout',
-    helper: 'Scan or search inventory, then complete a customer sale.',
+    title: 'Sell',
+    helper: 'Search or scan your inventory and complete a customer sale.',
   },
   trade: {
-    title: 'Trade Intake',
-    helper: 'Collect cards, review value, and create a trade batch.',
+    title: 'Trade',
+    helper: 'Value cards for store credit and create a trade intake.',
   },
 };
 
@@ -31,22 +30,26 @@ export default function TransactionsPage() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="text-[10px] font-semibold uppercase tracking-[0.25em] text-brand">
-                Transactions
+                Register
               </p>
-              <h1 className="mt-0.5 truncate text-xl font-semibold sm:text-2xl" title={meta.title}>
-                {meta.title}
+              {/* Single, stable page identity across all three modes; the
+                  mode-specific label moves to the subtitle so switching modes
+                  never reflows the header. */}
+              <h1 className="mt-0.5 truncate text-xl font-semibold sm:text-2xl">
+                Buy · Sell · Trade
               </h1>
             </div>
             <ModeSwitch value={mode} onChange={setMode} />
           </div>
-          <p className="text-sm text-ink-muted">{meta.helper}</p>
+          <p className="text-sm text-ink-muted">
+            <span className="font-medium text-ink">{meta.title}.</span> {meta.helper}
+          </p>
         </div>
       </header>
 
       {/* Extra bottom padding leaves room for the sticky action bar on mobile */}
       <section className="mx-auto w-full max-w-7xl px-4 pb-32 pt-4 sm:px-6 sm:pt-6">
-        <SellModeAdapter active={mode === 'sell'} />
-        <TradeModeAdapter active={mode === 'trade' || mode === 'buy'} mode={mode} />
+        <RegisterAdapter mode={mode} />
       </section>
     </div>
   );

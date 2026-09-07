@@ -74,7 +74,10 @@ const Env = z.object({
   // configured" error and the camera button stays hidden in the UI.
   VISION_PROVIDER: z.enum(['openai']).default('openai'),
   VISION_API_KEY: z.string().optional(),
-  VISION_MODEL: z.string().default('gpt-4o-mini'),
+  // gpt-4o reads small on-card text (collector numbers, set symbols) far more
+  // reliably than gpt-4o-mini — worth the extra cost for accurate identifies.
+  // Override to gpt-4o-mini to cut cost if accuracy is acceptable for you.
+  VISION_MODEL: z.string().default('gpt-4o'),
   // OpenAI-compatible base URL — override to point at Azure OpenAI or another
   // compatible gateway without changing code.
   VISION_BASE_URL: z.string().default('https://api.openai.com/v1'),

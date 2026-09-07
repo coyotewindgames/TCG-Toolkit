@@ -59,7 +59,11 @@ const SYSTEM_PROMPT =
   'that is not shown. Respond with a single JSON object and nothing else, using ' +
   'exactly these keys: "name" (string, the card name as printed), "setName" ' +
   '(string or null, the expansion/set name if legible), "number" (string or ' +
-  'null, the collector number if legible, e.g. "4/102"), "language" (string or ' +
+  'null, the collector number exactly as printed in the small text near the ' +
+  'bottom-left or bottom-right corner, usually a fraction like "102/084" or ' +
+  '"4/102" — copy both parts precisely; the left value may be larger than the ' +
+  'right on special/secret rares, and never invent a number you cannot read), ' +
+  '"language" (string or ' +
   'null, e.g. "English" or "Japanese"), "printingHint" (string or null, e.g. ' +
   '"Holo", "Reverse", "1st Edition", or null if a normal card), and "confidence" ' +
   '(number between 0 and 1 for how sure you are of the name). If no card is ' +
@@ -113,7 +117,7 @@ export class VisionCardIdentifier {
         body: JSON.stringify({
           model: this.config.model,
           temperature: 0,
-          max_tokens: 300,
+          max_tokens: 400,
           response_format: { type: 'json_object' },
           messages: [
             { role: 'system', content: SYSTEM_PROMPT },

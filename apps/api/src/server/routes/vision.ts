@@ -113,14 +113,7 @@ export function visionRouter(c: Container): Router {
       let candidates: TcgapiCardShape[] = [];
       if (pricingConfigured) {
         const client = await c.pkmnpricesFor(req.user!.storeId);
-        const number = normalizeNumber(identification.number);
-        const page = await client.searchCards({
-          name: identification.name,
-          number,
-          per_page: CANDIDATE_LIMIT,
-          page: 1,
-        });
-        candidates = page.results.map(mapCardToTcgapiShape);
+        candidates = await searchCandidates(client, identification);
       }
 
       res.json({ identification, candidates, pricingConfigured });
@@ -128,6 +121,52 @@ export function visionRouter(c: Container): Router {
   );
 
   return r;
+}
+
+/**
+ * Find catalog candidates for an identification, resilient to the model
+ * misreading the collector number. Strategy:
+ *   1. name + number (most precise) — but a wrong number returns zero rows.
+ *   2. fall back to name-only when the number search is empty, so a misread
+ *      number (common on special/secret rares like "102/084") never hides an
+ *      otherwise-findable card.
+ * Results are de-duplicated by id, keeping the more precise matches first.
+ */
+async function searchCandidates(
+  client: Awaited<ReturnType<Container['pkmnpricesFor']>>,
+  identification: { name: string; number: string | null },
+): Promise<TcgapiCardShape[]> {
+  const number = normalizeNumber(identification.number);
+  const byId = new Map<string, TcgapiCardShape>();
+  const collect = (rows: PkmnpricesCardSummary[]) => {
+    for (const row of rows) {
+      const mapped = mapCardToTcgapiShape(row);
+      if (!byId.has(mapped.id)) byId.set(mapped.id, mapped);
+    }
+  };
+
+  if (number) {
+    const precise = await client.searchCards({
+      name: identification.name,
+      number,
+      per_page: CANDIDATE_LIMIT,
+      page: 1,
+    });
+    collect(precise.results);
+  }
+
+  // Name-only fallback (or when no number was read). Runs when the precise
+  // search found nothing — exactly the misread-number case.
+  if (byId.size === 0) {
+    const byName = await client.searchCards({
+      name: identification.name,
+      per_page: CANDIDATE_LIMIT,
+      page: 1,
+    });
+    collect(byName.results);
+  }
+
+  return Array.from(byId.values()).slice(0, CANDIDATE_LIMIT);
 }
 
 // PkmnPrices' `number` filter matches the printed left-hand collector number
