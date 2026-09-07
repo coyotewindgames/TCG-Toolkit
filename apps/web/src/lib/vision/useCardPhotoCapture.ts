@@ -99,7 +99,11 @@ export function useCardPhotoCapture() {
     return dataUrl;
   }, []);
 
-  // Native only: open the OS camera and return the captured photo data URL.
+  // Native only: open the OS camera and return the captured photo data URL,
+  // auto-cropped to a card shape. The native OS camera can't render our guide
+  // overlay, so we capture the full frame and centre-crop it to the standard
+  // card aspect ratio — the equivalent of "fit the guide box" for a centred
+  // card. `allowEditing` stays off so the crop is fully automatic.
   const captureNative = useCallback(async (): Promise<string | null> => {
     if (!isNative) return null;
     setStatus('starting');
@@ -108,17 +112,23 @@ export function useCardPhotoCapture() {
       const { Camera, CameraResultType, CameraSource } = await import('@capacitor/camera');
       const photo = await Camera.getPhoto({
         quality: 85,
-        allowEditing: true,
+        allowEditing: false,
         resultType: CameraResultType.DataUrl,
         source: CameraSource.Camera,
-        // Larger capture so small on-card text survives; allowEditing lets the
-        // operator crop to the card in the native UI before it's sent.
-        width: 1600,
+        // Capture large so small on-card text survives the centre-crop.
+        width: 2048,
         correctOrientation: true,
       });
-      const dataUrl = photo.dataUrl ?? null;
-      setStatus(dataUrl ? 'captured' : 'idle');
-      return dataUrl;
+      const raw = photo.dataUrl ?? null;
+      if (!raw) {
+        setStatus('idle');
+        return null;
+      }
+      // Auto-crop to the card aspect; fall back to the raw photo if the crop
+      // can't be computed (e.g. image decode issue).
+      const cropped = await cropDataUrlToCardAspect(raw).catch(() => raw);
+      setStatus('captured');
+      return cropped;
     } catch (err) {
       // The user cancelling the native camera throws — treat as a soft idle,
       // not an error banner.
@@ -191,9 +201,10 @@ function cropRegionFromGuide(
   const gx = gRect.left - vRect.left;
   const gy = gRect.top - vRect.top;
 
-  // ~6% breathing room around the guide so card edges aren't clipped.
-  const marginX = gRect.width * 0.06;
-  const marginY = gRect.height * 0.06;
+  // Tiny breathing room (~2%) so the card's edges aren't clipped while still
+  // fitting the guide box closely — the operator lines the card up to fill it.
+  const marginX = gRect.width * 0.02;
+  const marginY = gRect.height * 0.02;
 
   const clamp = (value: number, min: number, max: number) =>
     Math.min(Math.max(value, min), max);
