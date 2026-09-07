@@ -370,7 +370,7 @@ function WebCaptureView({
             aligned ? 'text-emerald-300' : 'text-white/80'
           }`}
         >
-          {aligned ? 'Aligned — hold steady' : 'Line the card up inside the frame'}
+          {aligned ? 'Card detected — hold steady' : 'Line the card up inside the frame'}
         </p>
       </div>
       {camera.error && <p className="text-sm text-rose-300">{camera.error}</p>}

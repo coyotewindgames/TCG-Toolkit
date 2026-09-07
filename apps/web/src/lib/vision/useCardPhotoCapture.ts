@@ -166,21 +166,28 @@ export function useCardPhotoCapture() {
 }
 
 export interface GuideAlignment {
-  /** 0..1 measure of how much sharp, card-like detail fills the guide box. */
+  /** 0..1 fraction of the guide's rectangular outline that a card edge covers. */
   score: number;
-  /** True once the score crosses the "well-framed" threshold. */
+  /** True once a card-shaped object is detected filling the guide. */
   aligned: boolean;
 }
 
 /**
- * Live feedback for the framing guide: samples the video region inside the
- * guide a few times a second and scores how much sharp, high-contrast detail
- * fills it. A card lined up in the frame (in focus, filling the box) produces a
- * high gradient-energy score; an empty desk scores low. The modal uses this to
- * "light up" the guide when the operator is well-aligned.
+ * Live feedback for the framing guide, tuned to detect an actual *card* — not
+ * just "something textured" — in the frame.
  *
- * This is a focus/fill heuristic, not true edge detection — cheap, robust to
- * background, and good enough to nudge the operator to hold steady.
+ * A raw edge-energy score lights up on any busy background (desk clutter,
+ * patterns, text), which produced false "aligned" states. Instead we look for
+ * the two things that specifically indicate a card filling the guide box:
+ *   1. A rectangular EDGE CONTOUR around the guide perimeter — a card's four
+ *      borders create a strong luminance step along most of the guide's outline
+ *      (searched within a small band so the card can sit slightly in/out).
+ *   2. INTERIOR DETAIL inside that contour — a card has art/text, ruling out a
+ *      blank rectangle. Random background clutter rarely produces a continuous
+ *      rectangular contour aligned to the guide, so it no longer triggers.
+ *
+ * Still a heuristic (not full CV), but far more card-specific than edge energy.
+ * Hysteresis keeps the "aligned" state from flickering.
  */
 export function useGuideAlignment(params: {
   active: boolean;
@@ -198,7 +205,8 @@ export function useGuideAlignment(params: {
     let stopped = false;
     let raf = 0;
     let last = 0;
-    const SAMPLE = 72;
+    let wasAligned = false;
+    const SAMPLE = 96;
     const canvas = document.createElement('canvas');
     canvas.width = SAMPLE;
     canvas.height = SAMPLE;
@@ -207,7 +215,7 @@ export function useGuideAlignment(params: {
     const loop = (t: number) => {
       if (stopped) return;
       raf = requestAnimationFrame(loop);
-      if (t - last < 160) return; // throttle to ~6fps
+      if (t - last < 140) return; // throttle to ~7fps
       last = t;
       const video = videoRef.current;
       const guide = guideRef.current;
@@ -215,7 +223,21 @@ export function useGuideAlignment(params: {
       const region = cropRegionFromGuide(video, guide);
       if (!region) return;
 
-      ctx.drawImage(video, region.sx, region.sy, region.sw, region.sh, 0, 0, SAMPLE, SAMPLE);
+      // Sample a region slightly LARGER than the guide so the card's border —
+      // which sits near the guide edge — is visible against the background.
+      const ex = region.sw * 0.25;
+      const ey = region.sh * 0.25;
+      let X = region.sx - ex;
+      let Y = region.sy - ey;
+      let W = region.sw + ex * 2;
+      let H = region.sh + ey * 2;
+      X = Math.max(0, X);
+      Y = Math.max(0, Y);
+      W = Math.min(video.videoWidth - X, W);
+      H = Math.min(video.videoHeight - Y, H);
+      if (W < 8 || H < 8) return;
+
+      ctx.drawImage(video, X, Y, W, H, 0, 0, SAMPLE, SAMPLE);
       let imageData: ImageData;
       try {
         imageData = ctx.getImageData(0, 0, SAMPLE, SAMPLE);
@@ -224,27 +246,80 @@ export function useGuideAlignment(params: {
       }
       const { data } = imageData;
 
-      // Grayscale, then average gradient magnitude (edge energy) as a
-      // focus/detail proxy.
       const gray = new Float32Array(SAMPLE * SAMPLE);
       for (let i = 0, p = 0; i < data.length; i += 4, p += 1) {
         gray[p] = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
       }
-      let energy = 0;
-      let n = 0;
-      for (let y = 0; y < SAMPLE; y += 1) {
-        for (let x = 0; x < SAMPLE - 1; x += 1) {
-          const idx = y * SAMPLE + x;
-          energy += Math.abs(gray[idx] - gray[idx + 1]);
-          if (y < SAMPLE - 1) energy += Math.abs(gray[idx] - gray[idx + SAMPLE]);
-          n += 1;
+      const lum = (x: number, y: number): number => {
+        const cx = x < 0 ? 0 : x > SAMPLE - 1 ? SAMPLE - 1 : Math.round(x);
+        const cy = y < 0 ? 0 : y > SAMPLE - 1 ? SAMPLE - 1 : Math.round(y);
+        return gray[cy * SAMPLE + cx];
+      };
+
+      // Guide rectangle position within the (larger) sampled canvas.
+      const gL = ((region.sx - X) / W) * SAMPLE;
+      const gT = ((region.sy - Y) / H) * SAMPLE;
+      const gR = ((region.sx + region.sw - X) / W) * SAMPLE;
+      const gB = ((region.sy + region.sh - Y) / H) * SAMPLE;
+      const gWpx = gR - gL;
+      const gHpx = gB - gT;
+      if (gWpx < 8 || gHpx < 8) return;
+
+      // Search band + step threshold for a card edge along the guide outline.
+      const band = Math.max(3, Math.min(gWpx, gHpx) * 0.12);
+      const STEP = 26; // luminance jump that reads as a real edge
+      const PER_SIDE = 22;
+
+      const edgeAt = (px: number, py: number, nx: number, ny: number): boolean => {
+        let maxStep = 0;
+        for (let o = -band; o <= band; o += 2) {
+          const a = lum(px + nx * (o - 2), py + ny * (o - 2));
+          const b = lum(px + nx * (o + 2), py + ny * (o + 2));
+          const s = Math.abs(b - a);
+          if (s > maxStep) maxStep = s;
+        }
+        return maxStep > STEP;
+      };
+
+      let edgePts = 0;
+      let totalPts = 0;
+      for (let i = 0; i < PER_SIDE; i += 1) {
+        const fx = gL + (gWpx * (i + 0.5)) / PER_SIDE;
+        totalPts += 2;
+        if (edgeAt(fx, gT, 0, 1)) edgePts += 1; // top edge, normal points inward (down)
+        if (edgeAt(fx, gB, 0, -1)) edgePts += 1; // bottom edge, inward (up)
+      }
+      for (let i = 0; i < PER_SIDE; i += 1) {
+        const fy = gT + (gHpx * (i + 0.5)) / PER_SIDE;
+        totalPts += 2;
+        if (edgeAt(gL, fy, 1, 0)) edgePts += 1; // left edge, inward (right)
+        if (edgeAt(gR, fy, -1, 0)) edgePts += 1; // right edge, inward (left)
+      }
+      const coverage = totalPts > 0 ? edgePts / totalPts : 0;
+
+      // Interior detail: mean gradient in the central 70% of the guide, to rule
+      // out a blank card-sized object (e.g. a sheet of paper).
+      const iL = Math.floor(gL + gWpx * 0.15);
+      const iR = Math.ceil(gR - gWpx * 0.15);
+      const iT = Math.floor(gT + gHpx * 0.15);
+      const iB = Math.ceil(gB - gHpx * 0.15);
+      let e = 0;
+      let c = 0;
+      for (let y = iT; y < iB - 1; y += 1) {
+        for (let x = iL; x < iR - 1; x += 1) {
+          e += Math.abs(lum(x + 1, y) - lum(x, y)) + Math.abs(lum(x, y + 1) - lum(x, y));
+          c += 1;
         }
       }
-      const meanGradient = n > 0 ? energy / (n * 2) : 0; // 0..255
-      const score = Math.max(0, Math.min(1, meanGradient / 22)); // tuned divisor
+      const interiorDetail = c > 0 ? e / (c * 2) : 0;
+      const detailOK = interiorDetail > 4;
+
+      // Hysteresis: harder to latch on, easier to hold, so it doesn't flicker.
+      const aligned = detailOK && (wasAligned ? coverage > 0.42 : coverage > 0.6);
+      wasAligned = aligned;
+      const score = coverage;
 
       setState((prev) => {
-        const aligned = score > 0.42;
         if (prev.aligned === aligned && Math.abs(prev.score - score) < 0.03) return prev;
         return { score, aligned };
       });
