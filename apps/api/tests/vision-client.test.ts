@@ -65,6 +65,43 @@ describe('VisionCardIdentifier', () => {
     );
   });
 
+  it('sends legacy params (max_tokens + temperature 0) for gpt-4o models', async () => {
+    const fetchMock = vi.fn(async () =>
+      chatResponse(JSON.stringify({ name: 'Pikachu', confidence: 0.9 })),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const client = new VisionCardIdentifier({
+      provider: 'openai',
+      apiKey: 'k',
+      model: 'gpt-4o',
+      baseUrl: 'https://api.openai.com/v1',
+    });
+    await client.identifyCard(IMAGE);
+    const body = JSON.parse((fetchMock.mock.calls[0]![1] as { body: string }).body);
+    expect(body.max_tokens).toBe(400);
+    expect(body.temperature).toBe(0);
+    expect(body.max_completion_tokens).toBeUndefined();
+  });
+
+  it('sends gpt-5-compatible params (max_completion_tokens, no temperature)', async () => {
+    const fetchMock = vi.fn(async () =>
+      chatResponse(JSON.stringify({ name: 'Pikachu', confidence: 0.9 })),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const client = new VisionCardIdentifier({
+      provider: 'openai',
+      apiKey: 'k',
+      model: 'gpt-5',
+      baseUrl: 'https://api.openai.com/v1',
+    });
+    await client.identifyCard(IMAGE);
+    const body = JSON.parse((fetchMock.mock.calls[0]![1] as { body: string }).body);
+    expect(body.max_completion_tokens).toBe(1200);
+    expect(body.max_tokens).toBeUndefined();
+    // GPT-5 rejects a custom temperature, so we must not send one.
+    expect(body.temperature).toBeUndefined();
+  });
+
   it('extracts JSON even when the model wraps it in prose/fences', async () => {
     vi.stubGlobal(
       'fetch',

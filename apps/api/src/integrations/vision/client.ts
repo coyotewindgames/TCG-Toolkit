@@ -116,8 +116,7 @@ export class VisionCardIdentifier {
         signal: controller.signal,
         body: JSON.stringify({
           model: this.config.model,
-          temperature: 0,
-          max_tokens: 400,
+          ...buildModelParams(this.config.model),
           response_format: { type: 'json_object' },
           messages: [
             { role: 'system', content: SYSTEM_PROMPT },
@@ -208,4 +207,38 @@ function extractJsonObject(text: string): string | null {
     }
   }
   return null;
+}
+
+/**
+ * The GPT-5 family and the reasoning (o-series) models changed the Chat
+ * Completions contract vs gpt-4o:
+ *   - token cap is `max_completion_tokens`, not `max_tokens` (the old key 400s);
+ *   - `temperature` only accepts the default (1), so we must omit our `0`.
+ * They also spend part of the token budget on hidden reasoning, so we give a
+ * larger cap (and nudge `reasoning_effort` low) to guarantee room for the small
+ * JSON answer. Older models keep the classic `max_tokens` + deterministic
+ * `temperature: 0`. Detection is by model-id prefix so new snapshots inherit it.
+ */
+function isNextGenModel(model: string): boolean {
+  const m = model.toLowerCase();
+  return (
+    m.startsWith('gpt-5') ||
+    m.startsWith('o1') ||
+    m.startsWith('o3') ||
+    m.startsWith('o4')
+  );
+}
+
+function buildModelParams(model: string): Record<string, unknown> {
+  if (isNextGenModel(model)) {
+    return {
+      max_completion_tokens: 1200,
+      // Keep latency/cost down; 'minimal' is valid on gpt-5 chat completions.
+      reasoning_effort: 'minimal',
+    };
+  }
+  return {
+    temperature: 0,
+    max_tokens: 400,
+  };
 }
