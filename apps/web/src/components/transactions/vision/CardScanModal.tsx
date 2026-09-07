@@ -53,6 +53,7 @@ export default function CardScanModal({
   const camera = useCardPhotoCapture();
   const identify = useIdentifyCardFromImage();
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const guideRef = useRef<HTMLDivElement | null>(null);
 
   const [phase, setPhase] = useState<Phase>('capture');
   const [captured, setCaptured] = useState<string | null>(null);
@@ -112,7 +113,8 @@ export default function CardScanModal({
   }
 
   function handleWebCapture() {
-    const dataUrl = camera.captureFromPreview();
+    // Crop to the on-screen framing guide so only the card is sent.
+    const dataUrl = camera.captureFromPreview(guideRef.current);
     if (dataUrl) void runIdentify(dataUrl);
   }
 
@@ -173,6 +175,7 @@ export default function CardScanModal({
             <CaptureView
               camera={camera}
               videoRef={videoRef}
+              guideRef={guideRef}
               onWebCapture={handleWebCapture}
               onNativeCapture={handleNativeCapture}
             />
@@ -252,11 +255,13 @@ export default function CardScanModal({
 function CaptureView({
   camera,
   videoRef,
+  guideRef,
   onWebCapture,
   onNativeCapture,
 }: {
   camera: ReturnType<typeof useCardPhotoCapture>;
   videoRef: React.MutableRefObject<HTMLVideoElement | null>;
+  guideRef: React.MutableRefObject<HTMLDivElement | null>;
   onWebCapture: () => void;
   onNativeCapture: () => void;
 }) {
@@ -291,15 +296,22 @@ function CaptureView({
       <div className="relative w-full overflow-hidden rounded-xl border border-track bg-black">
         <video
           ref={videoRef}
-          className="block h-[360px] w-full object-cover"
+          className="block h-[420px] w-full object-cover"
           muted
           playsInline
           autoPlay
         />
-        {/* Framing guide sized to a 3:4 card */}
+        {/* Framing guide sized to a 3:4 card. The capture crops to this box so
+            only the card (not the surrounding desk) reaches the model. */}
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-          <div className="h-[300px] w-[214px] rounded-lg border-2 border-white/70" />
+          <div
+            ref={guideRef}
+            className="h-[360px] w-[257px] rounded-lg border-2 border-white/70 shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]"
+          />
         </div>
+        <p className="pointer-events-none absolute inset-x-0 bottom-2 text-center text-[11px] font-medium text-white/80">
+          Line the card up inside the frame
+        </p>
       </div>
       {camera.error && <p className="text-sm text-rose-300">{camera.error}</p>}
       <button

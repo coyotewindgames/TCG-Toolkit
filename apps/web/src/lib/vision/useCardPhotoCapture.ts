@@ -64,7 +64,13 @@ export function useCardPhotoCapture() {
       setError(null);
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: 'environment' } },
+          // Request a high-resolution rear camera so the intrinsic frame has
+          // enough detail to read a card's collector number after cropping.
+          video: {
+            facingMode: { ideal: 'environment' },
+            width: { ideal: 2560 },
+            height: { ideal: 1440 },
+          },
           audio: false,
         });
         streamRef.current = stream;
@@ -80,11 +86,15 @@ export function useCardPhotoCapture() {
     [isNative, isSupported],
   );
 
-  // Web only: grab the current preview frame as a downscaled JPEG data URL.
-  const captureFromPreview = useCallback((): string | null => {
+  // Web only: grab the current preview frame as a JPEG data URL. When a
+  // `cropGuide` element is passed (the on-screen framing box), the frame is
+  // cropped to exactly what the operator lined up inside it — so only the card,
+  // not the surrounding desk/table, is sent to the model.
+  const captureFromPreview = useCallback((cropGuide?: HTMLElement | null): string | null => {
     const video = videoRef.current;
     if (!video || !video.videoWidth || !video.videoHeight) return null;
-    const dataUrl = drawToJpeg(video, video.videoWidth, video.videoHeight);
+    const region = cropGuide ? cropRegionFromGuide(video, cropGuide) : null;
+    const dataUrl = drawToJpeg(video, region);
     if (dataUrl) setStatus('captured');
     return dataUrl;
   }, []);
@@ -97,11 +107,13 @@ export function useCardPhotoCapture() {
     try {
       const { Camera, CameraResultType, CameraSource } = await import('@capacitor/camera');
       const photo = await Camera.getPhoto({
-        quality: 80,
-        allowEditing: false,
+        quality: 85,
+        allowEditing: true,
         resultType: CameraResultType.DataUrl,
         source: CameraSource.Camera,
-        width: 1024,
+        // Larger capture so small on-card text survives; allowEditing lets the
+        // operator crop to the card in the native UI before it's sent.
+        width: 1600,
         correctOrientation: true,
       });
       const dataUrl = photo.dataUrl ?? null;
@@ -144,22 +156,86 @@ export function useCardPhotoCapture() {
 }
 
 /**
- * Draw a video frame to an offscreen canvas, downscaling so the longest edge is
- * at most `MAX_EDGE` px, and encode as JPEG. Keeps the payload small enough for
- * the API's image cap while preserving enough detail for the model to read the
- * card name/number.
+ * A source sub-rectangle (in the video's intrinsic pixels) to crop before
+ * encoding. Omitted → the whole frame is used.
  */
-function drawToJpeg(source: CanvasImageSource, width: number, height: number): string | null {
-  const MAX_EDGE = 1024;
-  const scale = Math.min(1, MAX_EDGE / Math.max(width, height));
-  const targetW = Math.round(width * scale);
-  const targetH = Math.round(height * scale);
+interface SourceRegion {
+  sx: number;
+  sy: number;
+  sw: number;
+  sh: number;
+}
+
+/**
+ * Map the on-screen framing guide to a crop rectangle in the video's intrinsic
+ * pixels, accounting for the `<video>`'s `object-cover` scaling (which scales
+ * the frame to fill the box and centre-crops the overflow). A small margin is
+ * added so slightly-imperfect framing doesn't clip the card's edges.
+ */
+function cropRegionFromGuide(
+  video: HTMLVideoElement,
+  guide: HTMLElement,
+): SourceRegion | null {
+  const vRect = video.getBoundingClientRect();
+  const gRect = guide.getBoundingClientRect();
+  const Wi = video.videoWidth;
+  const Hi = video.videoHeight;
+  if (!Wi || !Hi || !vRect.width || !vRect.height) return null;
+
+  // object-cover: scale so the frame covers the box, overflow centred.
+  const scale = Math.max(vRect.width / Wi, vRect.height / Hi);
+  const offX = (vRect.width - Wi * scale) / 2;
+  const offY = (vRect.height - Hi * scale) / 2;
+
+  // Guide position relative to the video box.
+  const gx = gRect.left - vRect.left;
+  const gy = gRect.top - vRect.top;
+
+  // ~6% breathing room around the guide so card edges aren't clipped.
+  const marginX = gRect.width * 0.06;
+  const marginY = gRect.height * 0.06;
+
+  const clamp = (value: number, min: number, max: number) =>
+    Math.min(Math.max(value, min), max);
+
+  let sx = (gx - offX - marginX) / scale;
+  let sy = (gy - offY - marginY) / scale;
+  let sw = (gRect.width + marginX * 2) / scale;
+  let sh = (gRect.height + marginY * 2) / scale;
+
+  sx = clamp(sx, 0, Wi);
+  sy = clamp(sy, 0, Hi);
+  sw = clamp(sw, 1, Wi - sx);
+  sh = clamp(sh, 1, Hi - sy);
+
+  // Guard against a degenerate crop (e.g. layout not yet measured).
+  if (sw < 8 || sh < 8) return null;
+  return { sx, sy, sw, sh };
+}
+
+/**
+ * Draw a video frame (optionally a cropped sub-region) to an offscreen canvas,
+ * upscaling/downscaling so the longest edge is at most `MAX_EDGE`, and encode as
+ * JPEG. Cropping to the card lets us push a higher effective resolution on the
+ * part that matters (name/number) while staying under the API's image cap.
+ */
+function drawToJpeg(video: HTMLVideoElement, region: SourceRegion | null): string | null {
+  const MAX_EDGE = 1600;
+  const sx = region?.sx ?? 0;
+  const sy = region?.sy ?? 0;
+  const sw = region?.sw ?? video.videoWidth;
+  const sh = region?.sh ?? video.videoHeight;
+
+  const scale = Math.min(1, MAX_EDGE / Math.max(sw, sh));
+  const targetW = Math.max(1, Math.round(sw * scale));
+  const targetH = Math.max(1, Math.round(sh * scale));
 
   const canvas = document.createElement('canvas');
   canvas.width = targetW;
   canvas.height = targetH;
   const ctx = canvas.getContext('2d');
   if (!ctx) return null;
-  ctx.drawImage(source, 0, 0, targetW, targetH);
-  return canvas.toDataURL('image/jpeg', 0.8);
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(video, sx, sy, sw, sh, 0, 0, targetW, targetH);
+  return canvas.toDataURL('image/jpeg', 0.85);
 }
